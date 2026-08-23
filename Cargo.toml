@@ -1,0 +1,273 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+authors = ["Phonix"]
+license = "MIT OR Apache-2.0"
+repository = ""
+
+[workspace.dependencies]
+# --- internal ---
+phonix-core = { path = "crates/phonix-core" }
+phonix-config = { path = "crates/phonix-config" }
+phonix-telemetry = { path = "crates/phonix-telemetry" }
+phonix-db = { path = "crates/phonix-db" }
+phonix-services = { path = "crates/phonix-services" }
+phonix-cache = { path = "crates/phonix-cache" }
+phonix-messaging = { path = "crates/phonix-messaging" }
+phonix-storage = { path = "crates/phonix-storage" }
+phonix-web = { path = "crates/phonix-web" }
+
+# --- leptos ---
+leptos = { version = "0.8.20" }
+leptos_axum = { version = "0.8.10" }
+leptos_meta = { version = "0.8.6" }
+leptos_router = { version = "0.8.15" }
+
+# --- async runtime / http ---
+# `fs` and `io-util` are what the storage layer is built on: uploaded bytes
+# are streamed to disk and hashed on the way past, neither of which may block
+# the runtime.
+tokio = { version = "1.53", features = ["macros", "rt-multi-thread", "signal", "time", "sync", "fs", "io-util"] }
+tokio-util = { version = "0.7" }
+# `multipart` is not on by default. It is what lets the upload route read a
+# file field as a stream of chunks rather than buffering the whole body first,
+# which is the difference between enforcing a byte ceiling and discovering one.
+axum = { version = "0.8.9", features = ["multipart"] }
+tower = { version = "0.5" }
+tower-http = { version = "0.7", features = ["trace", "compression-full", "timeout", "limit", "cors", "request-id", "catch-panic"] }
+http = "1.5"
+# Session cookies. Used directly rather than through `axum-extra`'s CookieJar so
+# that one implementation serves both the axum handlers and the Leptos server
+# functions, which set headers through `ResponseOptions` instead of a response
+# extractor.
+cookie = "0.18"
+
+# --- identity / credentials ---
+# argon2id for password hashing. `std` brings in the error impls; the default
+# `password-hash` + `rand` features give the PHC string format and the OS RNG
+# used for salts, so no separate `rand` dependency is needed.
+argon2 = { version = "0.5", features = ["std"] }
+# Session and one-time tokens are stored as a SHA-256 digest, never in clear.
+sha2 = "0.10"
+base64 = "0.23"
+
+# --- multi-factor authentication ---
+# TOTP is RFC 6238: HMAC-SHA1 over a time counter. SHA-1 is not a free choice -
+# every authenticator app implements the SHA-1 variant and many implement
+# nothing else, and HMAC-SHA1 is unaffected by the collision attacks that
+# retired SHA-1 for signatures.
+hmac = "0.12"
+sha1 = "0.10"
+# Authenticator apps take their shared secret as RFC 4648 base32, so that is
+# what the enrolment screen and the `otpauth://` URI have to produce.
+base32 = "0.5"
+# TOTP secrets are stored encrypted, not hashed: the server has to reproduce
+# the code, so it needs the secret back. XChaCha20-Poly1305 for its 192-bit
+# nonce, which is large enough to be drawn at random per secret without having
+# to track a counter.
+chacha20poly1305 = "0.11"
+# Comparing MFA codes and recovery digests in constant time: a byte-by-byte
+# `==` leaks how many leading digits were right.
+subtle = "2.6"
+
+# --- data ---
+sqlx = { version = "0.9", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls-ring",
+    "postgres",
+    "macros",
+    "migrate",
+    "uuid",
+    "chrono",
+    "json",
+] }
+redis = { version = "1.6", default-features = false, features = ["tokio-comp", "tokio-rustls-comp", "connection-manager"] }
+# lapin 4 carries its own tokio integration and connection auto-recovery, so no
+# separate connection-pool crate is needed.
+lapin = { version = "4.10" }
+moka = { version = "0.12", features = ["future"] }
+
+# --- config / serde ---
+config = { version = "0.15", default-features = false, features = ["toml"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dotenvy = "0.15"
+secrecy = { version = "0.10", features = ["serde"] }
+
+# --- observability ---
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt", "registry", "time"] }
+tracing-appender = "0.2"
+
+# --- mail ---
+# rustls with the `ring` provider rather than native-tls, to match sqlx and
+# redis: one TLS stack in the binary instead of two, and no OpenSSL to find on
+# Windows. `webpki-roots` bundles the trust store, so a relay's certificate
+# verifies the same way on a developer's laptop and in a scratch container.
+lettre = { version = "0.11", default-features = false, features = [
+    "tokio1",
+    "tokio1-rustls",
+    "smtp-transport",
+    "builder",
+    "pool",
+    "ring",
+    "webpki-roots",
+] }
+
+# --- misc ---
+anyhow = "1"
+thiserror = "2"
+# Only `serde` by default. The v4/v7 generators need a randomness source that
+# wasm32-unknown-unknown does not provide, and phonix-core is compiled for the
+# browser; server-only crates opt into the generators themselves.
+uuid = { version = "1", features = ["serde"] }
+# `wasmbind` is not optional here even though it looks like a browser-only
+# nicety. Without it `clock` falls back to `std::time::SystemTime`, which
+# panics on wasm32-unknown-unknown with "time not implemented on this
+# platform" - and a panic mid-render leaves every <Suspense> on the page stuck
+# on its fallback, because the render that would have replaced it never
+# finishes. It costs nothing on the server: chrono declares wasm-bindgen and
+# js-sys under a wasm32-only target table.
+chrono = { version = "0.4", default-features = false, features = ["serde", "clock", "wasmbind"] }
+async-trait = "0.1"
+futures = "0.3"
+url = "2"
+
+# Renders the TOTP enrolment QR as an inline SVG, server-side. `svg` only: the
+# `image` feature drags in the whole image crate to produce a PNG nothing here
+# asks for.
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+
+# --- wasm (hydrate) ---
+# Not pinned with '=': leptos 0.8.20 requires 0.2.108, and cargo-leptos fetches
+# a wasm-bindgen CLI matching whatever Cargo.lock resolves.
+wasm-bindgen = "0.2.108"
+console_error_panic_hook = "0.1"
+# Awaiting a JS promise from Rust. Needed by the avatar cropper, which talks to
+# the canvas and to `fetch` - both of which answer with promises.
+wasm-bindgen-futures = "0.4"
+# Only the interfaces we actually reach for. `HtmlDocument` is the one that
+# carries `document.cookie`; leptos enables its own set and does not include it.
+# `Blob`, `Url` and `HtmlAnchorElement` are what hand a generated CSV to the
+# browser without a round trip to the server - see `ui::table::export`.
+web-sys = { version = "0.3", features = [
+    "HtmlDocument",
+    "Storage",
+    "MediaQueryList",
+    "Blob",
+    "Url",
+    "HtmlAnchorElement",
+    # Measuring a row's action button, to place its menu. `DomRect` is what
+    # `getBoundingClientRect` returns, and web-sys gates the return type
+    # separately from the method.
+    "DomRect",
+    # Copying an invitation link. `Navigator` is the way to `Clipboard`; both
+    # have to be named, because web-sys gates every interface behind its own
+    # feature.
+    "Navigator",
+    "Clipboard",
+    # The panic overlay in `phonix_web::recovery`, which builds its own DOM
+    # because there is no reactive runtime left to build it with. Leptos happens
+    # to enable most of these already; naming them here is what keeps that from
+    # being load-bearing.
+    "Window",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "Node",
+    "EventTarget",
+    "Location",
+    # The avatar cropper. A file is picked, drawn into a canvas at the crop the
+    # person chose, and posted as a blob - so the bytes that leave the browser
+    # are already square and already small, and the 2 MB avatar limit is one
+    # nobody has to think about. Every interface here is gated behind its own
+    # feature by web-sys, so each has to be named.
+    "File",
+    "FileList",
+    "HtmlInputElement",
+    "HtmlImageElement",
+    "HtmlCanvasElement",
+    "CanvasRenderingContext2d",
+    "ImageBitmap",
+    "FormData",
+    "Request",
+    "RequestInit",
+    "Response",
+    "PointerEvent",
+    "WheelEvent",
+    "Event",
+    "BlobPropertyBag",
+] }
+# Only for the `Array` a Blob's parts have to arrive in.
+js-sys = "0.3"
+
+[profile.dev]
+opt-level = 0
+debug = 1
+
+# Dependencies stay optimised in dev; only our own crates rebuild often.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+panic = "abort"
+strip = "debuginfo"
+
+# cargo-leptos uses this for the client-side wasm bundle in release.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+# ---------------------------------------------------------------------------
+# cargo-leptos project definition (workspace mode: separate bin + lib packages)
+# ---------------------------------------------------------------------------
+[[workspace.metadata.leptos]]
+name = "phonix"
+bin-package = "phonix-server"
+lib-package = "phonix-web"
+
+
+# Output layout
+site-root = "target/site"
+site-pkg-dir = "pkg"
+assets-dir = "public"
+
+# The bundle carries a content hash in its name.
+#
+# Without this the browser is served `phonix.js`, `phonix.wasm` and
+# `phonix.css` - three names that never change while their contents do. A
+# browser holding yesterday's copy then hydrates today's HTML, which is not a
+# slow page or a missing style: hydration panics on the first node it does not
+# recognise and *every* handler on the page dies, silently. A hashed name
+# cannot be stale, because a changed file is a different URL.
+#
+# `HashedStylesheet` and `HydrationScripts` in `shell()` read the hash, so
+# nothing else has to know about this.
+hash-files = true
+
+# Styling: Tailwind v4, CSS-first theming (see style/main.css)
+tailwind-input-file = "style/main.css"
+
+# Dev server
+site-addr = "127.0.0.1:3000"
+reload-port = 3001
+browserquery = "defaults"
+watch-additional-files = ["config", "style"]
+
+# Feature wiring
+bin-features = ["ssr"]
+bin-default-features = false
+lib-features = ["hydrate"]
+lib-default-features = false
+lib-profile-release = "wasm-release"

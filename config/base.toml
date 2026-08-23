@@ -1,0 +1,469 @@
+# ===========================================================================
+# Phonix - base configuration
+#
+# Load order (later wins):
+#   1. config/base.toml            <- this file, committed
+#   2. config/{PHONIX_ENV}.toml    <- development.toml / production.toml
+#   3. config/local.toml           <- per-machine overrides, GITIGNORED
+#   4. environment variables       <- prefix PHONIX__ , separator __
+#                                     e.g. PHONIX__DATABASE__PASSWORD
+#
+# Never put a real secret in this file. Secrets belong in .env / local.toml.
+# ===========================================================================
+
+[app]
+name = "Phonix"
+# Free-form; surfaced in logs, telemetry resource attributes and the UI footer.
+environment = "development"
+# Where <code>.json translation files are read from at boot. English needs no
+# file - it is compiled into the binary - so a missing directory is fine.
+locales_dir = "locales"
+
+[server]
+host = "127.0.0.1"
+port = 3000
+# Public scheme+host used to build absolute URLs (tenant subdomains hang off this).
+base_domain = "phonix.local"
+scheme = "http"
+# Graceful shutdown: stop accepting, then wait this long for in-flight requests.
+shutdown_timeout_secs = 30
+request_timeout_secs = 30
+# 2 MiB
+body_limit_bytes = 2097152
+compression = true
+
+[server.cors]
+enabled = false
+allowed_origins = []
+allow_credentials = true
+
+# ---------------------------------------------------------------------------
+# PostgreSQL - baremetal on this host. One database per tenant, plus a shared
+# "catalog" database that maps subdomain -> tenant -> database name.
+# ---------------------------------------------------------------------------
+[database]
+host = "localhost"
+port = 5432
+username = "smartenduser"
+# password: set via PHONIX__DATABASE__PASSWORD (see .env) - never here.
+password = ""
+# Shared registry of tenants. Migrated from ./migrations/catalog
+catalog_database = "phonix_catalog"
+# Each tenant gets "<prefix><slug>", migrated from ./migrations/tenant
+tenant_database_prefix = "phonix_tenant_"
+# Used only to CREATE/DROP tenant databases (cannot be done from inside them).
+maintenance_database = "postgres"
+# disable | prefer | require | verify-ca | verify-full
+ssl_mode = "prefer"
+# Applied as `SET application_name` so pg_stat_activity is readable.
+application_name = "phonix"
+# Run pending migrations on boot (catalog always; tenants on first access).
+migrate_on_start = true
+statement_timeout_secs = 30
+
+# Pool for the shared catalog database.
+[database.catalog_pool]
+max_connections = 10
+min_connections = 1
+acquire_timeout_secs = 10
+idle_timeout_secs = 300
+max_lifetime_secs = 1800
+test_before_acquire = true
+
+# Pool template applied to EACH tenant database pool. Keep max_connections low:
+# total connections = max_connections * number of hot tenants.
+[database.tenant_pool]
+max_connections = 5
+min_connections = 0
+acquire_timeout_secs = 10
+idle_timeout_secs = 120
+max_lifetime_secs = 900
+test_before_acquire = true
+
+# LRU of live tenant pools. Evicting a pool closes its connections.
+[database.tenant_registry]
+max_cached_pools = 100
+# Drop a tenant's pool after this long with no traffic.
+idle_evict_secs = 900
+# Cache of subdomain -> tenant record lookups against the catalog DB.
+lookup_cache_ttl_secs = 60
+lookup_cache_capacity = 1000
+
+# ---------------------------------------------------------------------------
+# Redis - Docker (docker-compose service "redis")
+# ---------------------------------------------------------------------------
+[redis]
+enabled = true
+host = "127.0.0.1"
+port = 6379
+database = 0
+username = ""
+# password: set via PHONIX__REDIS__PASSWORD
+password = ""
+use_tls = false
+# Every key is written as "<key_prefix>:<tenant-slug>:<key>" so tenants can
+# never read each other's cache entries.
+key_prefix = "phonix"
+default_ttl_secs = 300
+connect_timeout_secs = 5
+response_timeout_secs = 5
+# Treat cache errors as misses instead of failing the request.
+fail_open = true
+
+# ---------------------------------------------------------------------------
+# RabbitMQ - Docker (docker-compose service "rabbitmq")
+# ---------------------------------------------------------------------------
+[rabbitmq]
+enabled = true
+host = "127.0.0.1"
+port = 5672
+vhost = "phonix"
+username = "phonix"
+# password: set via PHONIX__RABBITMQ__PASSWORD
+password = ""
+use_tls = false
+connect_timeout_secs = 10
+heartbeat_secs = 60
+# Topic exchange. Routing keys are "tenant.<slug>.<aggregate>.<event>".
+exchange = "phonix.events"
+exchange_kind = "topic"
+dead_letter_exchange = "phonix.dlx"
+dead_letter_queue = "phonix.dlq"
+# Wait for broker acks before considering a publish durable.
+publisher_confirms = true
+publish_timeout_secs = 5
+# Unacked messages delivered to one consumer at a time.
+prefetch_count = 32
+# Requeue-with-backoff attempts before a message is dead-lettered.
+max_delivery_attempts = 5
+retry_initial_backoff_ms = 500
+retry_max_backoff_ms = 30000
+
+[rabbitmq.pool]
+max_size = 8
+create_timeout_secs = 10
+wait_timeout_secs = 10
+
+# Consumers started at boot. Add entries here rather than in code.
+[[rabbitmq.consumers]]
+name = "tenant-events"
+queue = "phonix.tenant-events"
+routing_keys = ["tenant.#"]
+durable = true
+auto_ack = false
+concurrency = 2
+
+# ---------------------------------------------------------------------------
+# Logging & telemetry - console + rolling file, both on by default.
+# ---------------------------------------------------------------------------
+[telemetry]
+# Global fallback level: trace | debug | info | warn | error
+level = "info"
+# Per-target overrides, applied on top of `level`. RUST_LOG overrides everything.
+directives = [
+    "phonix=debug",
+    "phonix_web=debug",
+    "phonix_server=debug",
+    "tower_http=info",
+    "sqlx::query=warn",
+    "lapin=warn",
+    "hyper=warn",
+    "h2=warn",
+    "rustls=warn",
+]
+
+[telemetry.console]
+enabled = true
+# pretty | compact | full | json
+format = "pretty"
+ansi = true
+show_target = true
+show_thread_ids = false
+show_line_numbers = true
+show_span_events = "close"
+
+[telemetry.file]
+enabled = true
+# Where log files are written. Fully configurable:
+#   * "{env}" expands to the environment name (development / production)
+#   * a RELATIVE path is resolved against the workspace root, so logs land in
+#     the same place whether you run `cargo leptos watch` or a packaged binary
+#   * an ABSOLUTE path is used verbatim ("/var/log/phonix", "D:/logs/phonix")
+# Override per machine in config/local.toml, or per deploy with
+# PHONIX__TELEMETRY__FILE__DIRECTORY.
+directory = "var"
+# Produces var/{env}.log, plus a date stamp when rotation is enabled:
+#   rotation = "never" -> var/development.log
+#   rotation = "daily" -> var/development.2026-08-17.log
+file_name_prefix = "{env}"
+file_name_suffix = "log"
+# A new file is started when EITHER limit is reached, whichever comes first.
+#
+# minutely | hourly | daily | never. The time half.
+rotation = "daily"
+# The size half, in megabytes. 0 disables it.
+#
+# This is the one that actually bounds a disk: a daily file has no size at all
+# until the day is over, so an afternoon at `debug` is a gigabyte that nothing
+# would rotate until midnight. Files are named
+# development.2026-08-21.001.log, .002.log, and so on within a day.
+max_file_size_mb = 10
+# json is strongly preferred for files - it is machine-parseable.
+format = "json"
+ansi = false
+show_target = true
+show_line_numbers = true
+show_span_events = "close"
+# Delete log files not modified within this many days. 0 = keep for ever.
+#
+# An age, not a count. Once files roll on size as well as on time, "keep
+# fourteen files" could mean fourteen minutes on a busy day, which is why this
+# is the setting to reach for and max_files below is only a backstop.
+retention_days = 3
+# Keep at most this many files after the age sweep. 0 = unlimited.
+#
+# The floor under retention_days, for a process logging hard enough to produce
+# hundreds of files inside the window. At 10 MB each, 30 files is 300 MB.
+max_files = 30
+# Writes go through a background thread so request latency is unaffected.
+non_blocking = true
+
+[telemetry.tracing]
+# Emit a span per HTTP request with method, path, status, latency, tenant.
+http_spans = true
+# Attach a request id (from X-Request-Id or generated) to every log line.
+request_id = true
+# Log request/response bodies. Leave false outside deep debugging.
+log_bodies = false
+
+# ---------------------------------------------------------------------------
+# Multi-tenancy - tenant is resolved from the request's subdomain.
+# ---------------------------------------------------------------------------
+[tenancy]
+# subdomain | path | header
+strategy = "subdomain"
+# "acme.phonix.local" -> slug "acme"
+base_domain = "phonix.local"
+# Used when strategy = "header"
+header_name = "X-Phonix-Tenant"
+# Hosts that are NOT tenants; requests to these get the marketing/admin app.
+reserved_subdomains = ["www", "api", "admin", "static", "assets", "cdn", "mail"]
+# Slug must match this to be looked up at all (cheap rejection of junk hosts).
+slug_pattern = "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"
+# Dev convenience: when the host has no subdomain, fall back to this tenant.
+# Leave empty in production.
+default_tenant = ""
+# Create the tenant database on first sighting. Keep false in production.
+auto_provision = false
+# Requests to an unknown/suspended tenant get this status.
+unknown_tenant_status = 404
+
+# ---------------------------------------------------------------------------
+# Security - authentication cost and duration.
+#
+# Note what is NOT here: minimum password length, the email format, the strength
+# meter. Those are policy, the browser has to apply the same rules, and it
+# cannot read this file - so they live in phonix_core::identity and are compiled
+# into both the server and the wasm bundle. Only knobs that legitimately differ
+# between deployments belong below.
+# ---------------------------------------------------------------------------
+[security]
+
+[security.password]
+# Argon2id, per the OWASP Password Storage Cheat Sheet: m=19456 KiB, t=2, p=1.
+# Memory is allocated PER CONCURRENT HASH - 19 MiB x 20 simultaneous sign-ins is
+# 380 MiB of transient allocation. Raise memory before iterations: memory
+# hardness is what costs an attacker with GPUs, iterations cost you equally.
+memory_kib = 19456
+iterations = 2
+parallelism = 1
+# One hash slower than this logs a warning. Not a timeout - an overload signal.
+warn_above_ms = 500
+
+[security.session]
+# The real cookie is "<cookie_name>_<slug>", so signing in to two workspaces in
+# one browser does not evict either session.
+cookie_name = "phonix_session"
+# Sliding: each request pushes the deadline out. 12 hours.
+idle_timeout_mins = 720
+# Hard ceiling activity cannot extend. 7 days.
+absolute_timeout_hours = 168
+# Ceiling for "remember me" instead of absolute_timeout_hours.
+remember_me_days = 30
+# MUST be true anywhere the site is served over HTTPS. Production validation
+# refuses to start when it is false.
+secure = false
+# strict | lax | none. "lax" survives a top-level navigation from an email link
+# but is not sent on a cross-site POST.
+same_site = "lax"
+# The one-time token that carries a brand-new session from the signup host to
+# the workspace's own host. Redeemed by an immediate redirect, so seconds.
+handoff_ttl_secs = 120
+# Sweep expired sessions and consumed tokens this often. 0 disables the sweeper.
+purge_interval_mins = 60
+
+[security.lockout]
+# Consecutive failures before an account is temporarily locked. A lockout is
+# itself a denial-of-service vector - anyone who knows an address can trigger
+# one - so this is generous and self-expiring rather than tight and permanent.
+# 0 disables lockout entirely.
+max_failed_attempts = 10
+lockout_mins = 15
+
+[security.mfa]
+# What the authenticator app shows above the code. The workspace slug is added
+# per account, so somebody with two workspaces can tell the entries apart.
+issuer = "Phonix"
+# RFC 6238 defaults. Every authenticator app assumes 6 digits and a 30-second
+# step; changing either locks out apps that cannot be told otherwise.
+totp_digits = 6
+totp_step_secs = 30
+# Steps either side of "now" accepted, for phones with a drifting clock. Each
+# step keeps a code usable for another 30 seconds, so 1 means a 90-second window.
+totp_skew_steps = 1
+# Shared secret size. RFC 4226 requires >= 16 and recommends 20, which is also
+# what base32-encodes to the 32 characters apps expect.
+secret_bytes = 20
+# Recovery codes issued per set. Each works once.
+recovery_code_count = 10
+# Wrong codes before the half-authenticated session is destroyed and the
+# password has to be entered again. A 6-digit code is a million guesses and each
+# one costs an HMAC, not an Argon2 hash - this is what makes it finite.
+max_challenge_attempts = 5
+# How long a half-authenticated session may sit at the challenge screen.
+challenge_ttl_mins = 10
+# 32 random bytes, base64, encrypting stored TOTP secrets. NEVER set here:
+# development.toml carries an obviously-fake one and production reads
+# PHONIX__SECURITY__MFA__ENCRYPTION_KEY from the environment.
+encryption_key = ""
+
+# ---------------------------------------------------------------------------
+# What a NEW workspace starts with.
+#
+# A seed, not a rule. Once a workspace exists its own settings row is the
+# authority, and changing anything below leaves existing workspaces untouched -
+# an organization's policy is theirs, not the operator's to retune.
+# ---------------------------------------------------------------------------
+
+[security.workspace_defaults.password]
+# NIST SP 800-63B: length is the control that matters, and composition rules
+# mostly produce "Password1!". The composition flags exist for organizations
+# with an auditor who demands them, off by default.
+min_length = 12
+max_length = 256
+require_lowercase = false
+require_uppercase = false
+require_digit = false
+require_symbol = false
+# Refuse the handful of long-but-obvious passwords, and passwords built from the
+# user's own name or the organization's.
+forbid_common = true
+forbid_personal_information = true
+# Routine expiry is omitted deliberately: NIST withdrew the recommendation
+# because it produces Summer2024! then Autumn2024!. Set expiry_days to turn it
+# on for a workspace that has to satisfy an older standard.
+history_depth = 0
+
+[security.workspace_defaults.mfa]
+# disabled | optional | required
+enforcement = "optional"
+allow_totp = true
+allow_recovery_codes = true
+# Days a user may keep signing in without a factor after "required" is turned
+# on. Without this, flipping the switch locks out everybody away from their
+# phone, including whoever flipped it.
+grace_period_days = 7
+# "Remember this device" quietly extends the trust window, so it is off.
+remember_device_days = 0
+
+# How long somebody has to accept an invitation. Days, not minutes: the
+# recipient is not sitting at a screen waiting for it.
+[security.invitations]
+ttl_hours = 72
+
+[security.signup]
+# Whether the public /signup form can create workspaces at all.
+enabled = true
+# Requires SMTP, which does not exist yet. Turning this on without a working
+# mail path would leave every new workspace unusable.
+require_email_verification = false
+# Exact domains refused at signup, e.g. disposable-mail providers.
+blocked_email_domains = []
+
+# ---------------------------------------------------------------------------
+# Mail - the system-default relay.
+#
+# Every workspace that has not set its own credentials sends through this one.
+# A workspace that wants mail from its own domain overrides these in its
+# settings panel; the override lives in that tenant's database, sealed.
+#
+# The password is never here: set PHONIX__SMTP__PASSWORD in .env.
+# ---------------------------------------------------------------------------
+[smtp]
+enabled = false
+host = ""
+port = 2525
+username = ""
+password = ""
+from_address = "no-reply@phonix.local"
+from_name = "Phonix"
+# start_tls | implicit | none
+encryption = "start_tls"
+timeout_secs = 15
+
+# ---------------------------------------------------------------------------
+# Storage - where uploaded files live.
+#
+# The backend is behind a trait (phonix_storage::FileStorage), so adding an
+# object store later is a new implementation and a new value for `backend`;
+# nothing else in the application names a path.
+#
+# What is NOT here: which types may be uploaded, and how large each kind of
+# file may be. Those are policy the code enforces, so they live in
+# phonix_core::files - declared beside the checks that read them, and compiled
+# into the browser bundle as well so a screen offers exactly what the server
+# would accept. See `bucket.rs`.
+# ---------------------------------------------------------------------------
+[storage]
+# local  - a directory this process can write to.
+backend = "local"
+# Where objects go. Resolved exactly like telemetry.file.directory:
+#   * a RELATIVE path is resolved against the workspace root, so files land in
+#     the same place whether you run `cargo leptos watch` or a packaged binary
+#   * an ABSOLUTE path is used verbatim ("/srv/phonix/uploads", "D:/uploads")
+# One directory per tenant is created beneath it.
+root = "resources/uploads"
+# How stored files are laid out beneath the tenant:
+#   date_sharded      bucket/YYYY/MM/<uuid>.<ext>     (default)
+#   content_addressed bucket/ab/cd/<sha256>.<ext>     one object per distinct file
+#   flat              bucket/<uuid>.<ext>             right for an object store
+naming = "date_sharded"
+# The hard ceiling the HTTP layer refuses past, before a byte is written. Must
+# be at least as large as the biggest bucket limit in phonix_core::files, and
+# startup refuses to proceed if it is not - a smaller value here would make a
+# bucket's own limit unreachable and the failure would be a truncated upload.
+max_upload_bytes = 26214400
+# Uploads are slower than pages and must not be judged by the same clock: 25 MB
+# in 30 seconds needs 7 Mbit/s, which a phone on a train does not have.
+upload_timeout_secs = 300
+# How long bytes may sit unverified before the sweeper removes them. Reached
+# only when a job never ran - a process killed between the write and the row.
+quarantine_ttl_mins = 60
+
+# The worker that verifies uploads. Turning this off leaves uploads stuck at
+# "queued" for ever, which is why it defaults on.
+[storage.jobs]
+enabled = true
+# Uploads verified at once, per tenant sweep. Verification is a read of the
+# file plus a hash, so this is disk-bound rather than CPU-bound.
+concurrency = 2
+# The safety net, not the usual path: an upload is dispatched the moment its
+# bytes land, and this catches the ones whose process died first.
+poll_interval_secs = 15
+# Attempts before an upload is given up on and marked failed. Only transient
+# failures are retried; a rejected file is terminal on the first look.
+max_attempts = 5
+# A job claimed and not finished within this is treated as abandoned and
+# offered to another worker. Longer than any verification could legitimately
+# take, because reclaiming a job that is still running means doing it twice.
+claim_timeout_secs = 300

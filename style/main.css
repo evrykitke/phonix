@@ -1,0 +1,707 @@
+/* ==========================================================================
+   Phonix - Tailwind v4 entry point and theme.
+
+   Tailwind v4 is CSS-first: there is no tailwind.config.js. Design tokens are
+   declared here and become utilities automatically (--color-surface ->
+   bg-surface, text-surface, border-surface, ...).
+
+   The structure is deliberately three-layer:
+
+     1. PALETTE  - raw neutral ramps. Nothing in the app refers to these.
+     2. ACCENT   - one brand ramp per selectable accent, chosen by [data-accent]
+                   on <html>. Also never referenced directly.
+     3. SEMANTIC - roles the UI actually uses (surface, content, brand, edge),
+                   with a light set and a dark set. Components use only these.
+
+   That indirection is what makes both re-theming and the in-app appearance menu
+   a change to this file alone: a component says `bg-surface-raised`, never
+   `bg-slate-800`, so light, dark and six accents are the same markup.
+
+   Two attributes drive everything, both written by `phonix_web::theme`:
+
+     <html data-theme="dark" data-accent="violet">
+
+   `data-theme` is *absent* when the viewer follows their operating system -
+   that absence is what lets `prefers-color-scheme` apply, since an attribute of
+   any value would win over the media query.
+
+   The look is deliberately compact - 13px body text, 28-32px rows, tight
+   gutters - which is what makes a dense work application readable rather than
+   airy.
+   ========================================================================== */
+
+@import "tailwindcss";
+
+/* --------------------------------------------------------------------------
+   1. PALETTE - neutrals and status
+   Raw ramps in oklch, which keeps perceived lightness even across hues. The
+   neutrals carry a trace of violet (hue 286) so greys sit beside the accent
+   rather than fighting it.
+   -------------------------------------------------------------------------- */
+:root {
+    --phonix-neutral-0: oklch(1 0 0);
+    --phonix-neutral-50: oklch(0.985 0.002 286);
+    --phonix-neutral-100: oklch(0.968 0.004 286);
+    --phonix-neutral-150: oklch(0.945 0.005 286);
+    --phonix-neutral-200: oklch(0.922 0.006 286);
+    --phonix-neutral-300: oklch(0.871 0.008 286);
+    --phonix-neutral-400: oklch(0.715 0.012 286);
+    --phonix-neutral-500: oklch(0.565 0.014 286);
+    --phonix-neutral-600: oklch(0.455 0.015 286);
+    --phonix-neutral-700: oklch(0.372 0.015 286);
+    --phonix-neutral-800: oklch(0.278 0.013 286);
+    --phonix-neutral-850: oklch(0.232 0.012 286);
+    --phonix-neutral-900: oklch(0.205 0.011 286);
+    --phonix-neutral-950: oklch(0.165 0.01 286);
+    --phonix-neutral-1000: oklch(0.128 0.008 286);
+
+    --phonix-danger-300: oklch(0.82 0.11 22);
+    --phonix-danger-400: oklch(0.71 0.17 22);
+    --phonix-danger-500: oklch(0.64 0.21 25);
+    --phonix-danger-600: oklch(0.58 0.22 27);
+    --phonix-danger-700: oklch(0.5 0.2 27);
+    --phonix-danger-50: oklch(0.97 0.02 25);
+    --phonix-danger-950: oklch(0.26 0.09 26);
+
+    --phonix-success-400: oklch(0.76 0.15 152);
+    --phonix-success-500: oklch(0.66 0.16 152);
+    --phonix-warning-400: oklch(0.82 0.15 78);
+    --phonix-warning-500: oklch(0.75 0.16 76);
+}
+
+/* --------------------------------------------------------------------------
+   2. ACCENT RAMPS
+
+   One block per accent, selected by [data-accent] on <html>. They set the
+   *ramp*, not the roles - so light mode picks 600 out of whichever ramp is
+   active and dark mode picks 400, and adding a seventh accent is one block
+   here plus one variant in `theme::Accent`.
+
+   Violet is the default and is attached to bare :root as well, so a document
+   rendered before the preference is known still looks like the product.
+   -------------------------------------------------------------------------- */
+:root,
+:root[data-accent="violet"] {
+    --phonix-brand-50: oklch(0.97 0.022 292);
+    --phonix-brand-100: oklch(0.94 0.05 292);
+    --phonix-brand-200: oklch(0.89 0.09 292);
+    --phonix-brand-300: oklch(0.82 0.14 292);
+    --phonix-brand-400: oklch(0.72 0.19 292);
+    --phonix-brand-500: oklch(0.63 0.23 292);
+    --phonix-brand-600: oklch(0.56 0.245 292);
+    --phonix-brand-700: oklch(0.49 0.22 292);
+    --phonix-brand-800: oklch(0.42 0.18 292);
+    --phonix-brand-900: oklch(0.37 0.15 292);
+    --phonix-brand-950: oklch(0.26 0.1 292);
+}
+
+:root[data-accent="blue"] {
+    --phonix-brand-50: oklch(0.97 0.018 255);
+    --phonix-brand-100: oklch(0.93 0.04 255);
+    --phonix-brand-200: oklch(0.88 0.07 255);
+    --phonix-brand-300: oklch(0.81 0.11 255);
+    --phonix-brand-400: oklch(0.71 0.16 255);
+    --phonix-brand-500: oklch(0.62 0.19 255);
+    --phonix-brand-600: oklch(0.55 0.21 257);
+    --phonix-brand-700: oklch(0.48 0.19 258);
+    --phonix-brand-800: oklch(0.42 0.16 258);
+    --phonix-brand-900: oklch(0.37 0.13 259);
+    --phonix-brand-950: oklch(0.26 0.08 259);
+}
+
+:root[data-accent="teal"] {
+    --phonix-brand-50: oklch(0.97 0.015 195);
+    --phonix-brand-100: oklch(0.94 0.03 195);
+    --phonix-brand-200: oklch(0.89 0.055 195);
+    --phonix-brand-300: oklch(0.83 0.08 195);
+    --phonix-brand-400: oklch(0.75 0.1 195);
+    --phonix-brand-500: oklch(0.67 0.115 196);
+    --phonix-brand-600: oklch(0.58 0.11 197);
+    --phonix-brand-700: oklch(0.5 0.095 198);
+    --phonix-brand-800: oklch(0.43 0.08 198);
+    --phonix-brand-900: oklch(0.38 0.065 199);
+    --phonix-brand-950: oklch(0.27 0.045 199);
+}
+
+:root[data-accent="green"] {
+    --phonix-brand-50: oklch(0.97 0.02 149);
+    --phonix-brand-100: oklch(0.94 0.045 149);
+    --phonix-brand-200: oklch(0.89 0.08 149);
+    --phonix-brand-300: oklch(0.83 0.11 149);
+    --phonix-brand-400: oklch(0.74 0.14 150);
+    --phonix-brand-500: oklch(0.65 0.16 150);
+    --phonix-brand-600: oklch(0.56 0.15 151);
+    --phonix-brand-700: oklch(0.48 0.13 152);
+    --phonix-brand-800: oklch(0.42 0.11 152);
+    --phonix-brand-900: oklch(0.37 0.09 153);
+    --phonix-brand-950: oklch(0.26 0.06 153);
+}
+
+:root[data-accent="amber"] {
+    --phonix-brand-50: oklch(0.98 0.02 80);
+    --phonix-brand-100: oklch(0.95 0.05 80);
+    --phonix-brand-200: oklch(0.9 0.09 78);
+    --phonix-brand-300: oklch(0.85 0.13 75);
+    --phonix-brand-400: oklch(0.79 0.155 72);
+    --phonix-brand-500: oklch(0.72 0.165 65);
+    --phonix-brand-600: oklch(0.61 0.15 55);
+    --phonix-brand-700: oklch(0.52 0.13 50);
+    --phonix-brand-800: oklch(0.45 0.11 48);
+    --phonix-brand-900: oklch(0.4 0.09 48);
+    --phonix-brand-950: oklch(0.28 0.06 50);
+}
+
+:root[data-accent="rose"] {
+    --phonix-brand-50: oklch(0.97 0.018 12);
+    --phonix-brand-100: oklch(0.94 0.04 12);
+    --phonix-brand-200: oklch(0.89 0.07 12);
+    --phonix-brand-300: oklch(0.82 0.11 12);
+    --phonix-brand-400: oklch(0.72 0.16 12);
+    --phonix-brand-500: oklch(0.64 0.2 13);
+    --phonix-brand-600: oklch(0.57 0.22 15);
+    --phonix-brand-700: oklch(0.5 0.2 16);
+    --phonix-brand-800: oklch(0.43 0.17 16);
+    --phonix-brand-900: oklch(0.38 0.14 16);
+    --phonix-brand-950: oklch(0.27 0.09 16);
+}
+
+/* --------------------------------------------------------------------------
+   3. SEMANTIC ROLES - light (default)
+   -------------------------------------------------------------------------- */
+:root {
+    /* Backgrounds, from furthest back to nearest the reader. The shell is the
+       chrome behind the sidebar and top bar; content sits on `raised`. */
+    --surface: var(--phonix-neutral-50);
+    --surface-raised: var(--phonix-neutral-0);
+    --surface-sunken: var(--phonix-neutral-100);
+    --surface-shell: var(--phonix-neutral-100);
+    /* The wash under a hovered row. Translucent so it works over any of them. */
+    --surface-hover: oklch(0.55 0.014 286 / 0.08);
+    --surface-active: oklch(0.55 0.014 286 / 0.12);
+    --overlay: oklch(0.205 0.011 286 / 0.35);
+
+    /* Text, from most to least prominent. */
+    --content: var(--phonix-neutral-900);
+    --content-muted: var(--phonix-neutral-600);
+    --content-subtle: var(--phonix-neutral-500);
+    --content-inverted: var(--phonix-neutral-0);
+
+    /* Borders and dividers. */
+    --edge: var(--phonix-neutral-200);
+    --edge-strong: var(--phonix-neutral-300);
+
+    /* Accent, resolved out of whichever ramp [data-accent] selected. */
+    --brand: var(--phonix-brand-600);
+    --brand-hover: var(--phonix-brand-700);
+    --brand-subtle: var(--phonix-brand-50);
+    --brand-subtle-hover: var(--phonix-brand-100);
+    --on-brand: var(--phonix-neutral-0);
+
+    /* Status. */
+    --danger: var(--phonix-danger-600);
+    --danger-hover: var(--phonix-danger-700);
+    --danger-subtle: var(--phonix-danger-50);
+    --on-danger: var(--phonix-neutral-0);
+    --success: var(--phonix-success-500);
+    --warning: var(--phonix-warning-500);
+
+    /* Focus ring - one value so every interactive element matches. */
+    --ring: var(--phonix-brand-500);
+
+    /* Elevation. Light mode leans on shadow, dark mode on lighter surfaces. */
+    --elevation-panel: 0 1px 2px oklch(0.205 0.011 286 / 0.06);
+    --elevation-pop:
+        0 10px 30px -12px oklch(0.205 0.011 286 / 0.25),
+        0 2px 8px -2px oklch(0.205 0.011 286 / 0.08);
+
+    color-scheme: light;
+}
+
+/* --------------------------------------------------------------------------
+   3b. SEMANTIC ROLES - dark
+
+   Written twice on purpose. The media query serves "follow my system", and it
+   is guarded with :not([data-theme="light"]) so an explicit light choice still
+   wins on a dark desktop. The attribute rule serves the explicit dark choice.
+   Only the role values change; every utility class in the components stays
+   exactly the same.
+   -------------------------------------------------------------------------- */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --surface: var(--phonix-neutral-950);
+        --surface-raised: var(--phonix-neutral-900);
+        --surface-sunken: var(--phonix-neutral-1000);
+        --surface-shell: var(--phonix-neutral-1000);
+        --surface-hover: oklch(0.98 0.002 286 / 0.06);
+        --surface-active: oklch(0.98 0.002 286 / 0.1);
+        --overlay: oklch(0.128 0.008 286 / 0.6);
+
+        --content: var(--phonix-neutral-100);
+        --content-muted: var(--phonix-neutral-400);
+        --content-subtle: var(--phonix-neutral-500);
+        --content-inverted: var(--phonix-neutral-950);
+
+        --edge: var(--phonix-neutral-850);
+        --edge-strong: var(--phonix-neutral-700);
+
+        --brand: var(--phonix-brand-400);
+        --brand-hover: var(--phonix-brand-300);
+        --brand-subtle: var(--phonix-brand-950);
+        --brand-subtle-hover: var(--phonix-brand-900);
+        --on-brand: var(--phonix-neutral-1000);
+
+        --danger: var(--phonix-danger-400);
+        --danger-hover: var(--phonix-danger-300);
+        --danger-subtle: var(--phonix-danger-950);
+        --on-danger: var(--phonix-neutral-1000);
+        --success: var(--phonix-success-400);
+        --warning: var(--phonix-warning-400);
+
+        --ring: var(--phonix-brand-400);
+
+        --elevation-panel: 0 1px 2px oklch(0 0 0 / 0.4);
+        --elevation-pop:
+            0 12px 32px -12px oklch(0 0 0 / 0.7), 0 2px 8px -2px oklch(0 0 0 / 0.4);
+
+        color-scheme: dark;
+    }
+}
+
+:root[data-theme="dark"] {
+    --surface: var(--phonix-neutral-950);
+    --surface-raised: var(--phonix-neutral-900);
+    --surface-sunken: var(--phonix-neutral-1000);
+    --surface-shell: var(--phonix-neutral-1000);
+    --surface-hover: oklch(0.98 0.002 286 / 0.06);
+    --surface-active: oklch(0.98 0.002 286 / 0.1);
+    --overlay: oklch(0.128 0.008 286 / 0.6);
+
+    --content: var(--phonix-neutral-100);
+    --content-muted: var(--phonix-neutral-400);
+    --content-subtle: var(--phonix-neutral-500);
+    --content-inverted: var(--phonix-neutral-950);
+
+    --edge: var(--phonix-neutral-850);
+    --edge-strong: var(--phonix-neutral-700);
+
+    --brand: var(--phonix-brand-400);
+    --brand-hover: var(--phonix-brand-300);
+    --brand-subtle: var(--phonix-brand-950);
+    --brand-subtle-hover: var(--phonix-brand-900);
+    --on-brand: var(--phonix-neutral-1000);
+
+    --danger: var(--phonix-danger-400);
+    --danger-hover: var(--phonix-danger-300);
+    --danger-subtle: var(--phonix-danger-950);
+    --on-danger: var(--phonix-neutral-1000);
+    --success: var(--phonix-success-400);
+    --warning: var(--phonix-warning-400);
+
+    --ring: var(--phonix-brand-400);
+
+    --elevation-panel: 0 1px 2px oklch(0 0 0 / 0.4);
+    --elevation-pop:
+        0 12px 32px -12px oklch(0 0 0 / 0.7), 0 2px 8px -2px oklch(0 0 0 / 0.4);
+
+    color-scheme: dark;
+}
+
+/* --------------------------------------------------------------------------
+   4. TOKENS -> UTILITIES
+
+   `@theme inline` emits utilities that reference the custom properties rather
+   than copying their values. That is what makes the light/dark/accent overrides
+   above take effect at runtime; a plain `@theme` would freeze the light violet
+   values into every utility at build time.
+   -------------------------------------------------------------------------- */
+@theme inline {
+    --color-surface: var(--surface);
+    --color-surface-raised: var(--surface-raised);
+    --color-surface-sunken: var(--surface-sunken);
+    --color-surface-shell: var(--surface-shell);
+    --color-surface-hover: var(--surface-hover);
+    --color-surface-active: var(--surface-active);
+    --color-overlay: var(--overlay);
+
+    --color-content: var(--content);
+    --color-content-muted: var(--content-muted);
+    --color-content-subtle: var(--content-subtle);
+    --color-content-inverted: var(--content-inverted);
+
+    --color-edge: var(--edge);
+    --color-edge-strong: var(--edge-strong);
+
+    --color-brand: var(--brand);
+    --color-brand-hover: var(--brand-hover);
+    --color-brand-subtle: var(--brand-subtle);
+    --color-brand-subtle-hover: var(--brand-subtle-hover);
+    --color-on-brand: var(--on-brand);
+
+    --color-danger: var(--danger);
+    --color-danger-hover: var(--danger-hover);
+    --color-danger-subtle: var(--danger-subtle);
+    --color-on-danger: var(--on-danger);
+    --color-success: var(--success);
+    --color-warning: var(--warning);
+
+    --shadow-panel: var(--elevation-panel);
+    --shadow-pop: var(--elevation-pop);
+}
+
+/* --------------------------------------------------------------------------
+   4b. STATIC TOKENS
+
+   A plain @theme, not `inline`: these do not change at runtime, so there is
+   nothing to gain from the extra indirection.
+
+   The type scale is one step tighter than Tailwind's default - `text-sm` is
+   13px, not 14px - because the whole layout is built around it. Changing these
+   two numbers restyles the density of the entire application.
+   -------------------------------------------------------------------------- */
+@theme {
+    --font-sans:
+        ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+    --font-mono:
+        ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas,
+        monospace;
+
+    --text-2xs: 0.625rem; /* 10px - keyboard hints, counters */
+    --text-2xs--line-height: 0.875rem;
+    --text-xs: 0.6875rem; /* 11px - section headings, meta */
+    --text-xs--line-height: 1rem;
+    --text-sm: 0.8125rem; /* 13px - the body size of the application */
+    --text-sm--line-height: 1.25rem;
+    --text-base: 0.875rem; /* 14px */
+    --text-base--line-height: 1.375rem;
+    --text-lg: 1rem;
+    --text-lg--line-height: 1.5rem;
+    --text-xl: 1.125rem;
+    --text-xl--line-height: 1.625rem;
+    --text-2xl: 1.375rem;
+    --text-2xl--line-height: 1.875rem;
+
+    /* The chrome's fixed dimensions, as utilities: `w-sidebar`, `h-topbar`. */
+    --spacing-rail: 3rem; /* collapsed sidebar - icons only */
+    --spacing-sidebar: 14.5rem; /* expanded sidebar */
+    --spacing-topbar: 2.75rem; /* 44px */
+    --spacing-row: 1.75rem; /* 28px - a nav row */
+
+    /* The Real Estate Rule's width vocabulary, and `max-w-compact` /
+       `max-w-measure` / `max-w-long` as utilities. A control is as wide as the
+       value it holds, not as wide as whatever contains it - see the ceiling in
+       the base layer, which spends these by default. */
+    --container-compact: 9rem; /* a number, a date, a six-digit code */
+    --container-measure: 26rem; /* a name, an email, a host, a password */
+    --container-long: 44rem; /* a paragraph */
+
+    --radius-control: 0.375rem;
+    --radius-card: 0.5rem;
+    --radius-pop: 0.75rem;
+}
+
+/* --------------------------------------------------------------------------
+   5. BASE
+   -------------------------------------------------------------------------- */
+@layer base {
+    html {
+        /* Anchor links and router navigations scroll instead of jumping, but
+           only for users who have not asked for reduced motion. */
+        scroll-behavior: smooth;
+        /* The shell owns scrolling: the document itself never scrolls, so the
+           top bar and sidebar stay put without position: fixed. */
+        height: 100%;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        html {
+            scroll-behavior: auto;
+        }
+    }
+
+    body {
+        height: 100%;
+        font-family: var(--font-sans);
+        font-size: var(--text-sm);
+        line-height: var(--text-sm--line-height);
+        background-color: var(--surface);
+        color: var(--content);
+        -webkit-font-smoothing: antialiased;
+    }
+
+    /* One consistent focus ring, and only for keyboard users. */
+    :focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: 2px;
+    }
+
+    /* Every text-like control in the application, styled once.
+       ------------------------------------------------------------------
+       Same reasoning as `select` below: a control nobody has to remember to
+       decorate cannot drift. Before this rule there were five spellings of
+       "a text box" in the codebase - the form kit's, `components/forms.rs`,
+       the account page's, the settings page's - and the invitation screen,
+       which had none at all and rendered the browser's own grey box.
+
+       Written with `:where()` so the whole selector has the specificity of a
+       bare element. Any utility class in the markup - `w-32`, `h-8`,
+       `border-danger`, `bg-transparent` - therefore wins without `!important`
+       and without a longer selector, which is what lets a call site override
+       exactly the one property it cares about and inherit the rest.
+
+       The exclusions are the types that are not a box: a checkbox and a radio
+       are drawn by the platform and tinted below, a range is a slider, and a
+       file input is a button plus a filename. `.control-bare` is the opt-out
+       for a control that lives *inside* its own chrome - the grid's search box
+       and the command palette - where a second border would be visible. */
+    input:where(:not(
+            [type="checkbox"],
+            [type="radio"],
+            [type="range"],
+            [type="file"],
+            [type="submit"],
+            [type="button"],
+            [type="reset"],
+            [type="image"],
+            [type="color"],
+            .control-bare
+        )),
+    textarea:where(:not(.control-bare)) {
+        /* Block, because the ceiling below made it possible for a control to
+           sit *beside* its own label. An input is inline-block by default, and
+           while it was 100% wide that never showed - there was no room left on
+           the line. Capped at 26rem there is, so a label that is a bare inline
+           `<label>` ends up on the same row as the box it names.
+
+           Fixing it here rather than on each label: the ceiling is permanent
+           now, so this is a trap every future form would walk into once. It
+           also drops the descender gap an inline-block leaves underneath. */
+        display: block;
+        width: 100%;
+        /* The Real Estate Rule: a box 1500px wide holding an eight-character
+           password reads as broken before anybody types in it, and the row it
+           bleeds across is vertical space somebody has to scroll past. `width`
+           stays 100% so the control still collapses on a phone; the ceiling is
+           what stops it growing past the value it holds.
+
+           A `max-width` rather than a `width` because the two answer different
+           questions - how much it may take, versus how much it takes - and only
+           the first one has an answer that holds at every viewport. */
+        max-width: var(--container-measure);
+        appearance: none;
+        border-radius: var(--radius-control);
+        border: 1px solid var(--edge);
+        background-color: var(--surface-raised);
+        color: var(--content);
+        padding: 0.375rem 0.5rem;
+        font-family: inherit;
+        font-size: var(--text-sm);
+        line-height: var(--text-sm--line-height);
+    }
+
+    /* Two exceptions to that one ceiling, because two kinds of value are not a
+       measure of prose.
+
+       A number, a date and a time are a handful of characters whose length the
+       browser already knows - and the number box carries a spinner, so a wide
+       one puts its own controls an inch from its digits.
+
+       A textarea is the opposite: it is asked for when the answer is long, and
+       a comfortable line is wider than a comfortable name.
+
+       Both are inside `:where()`, so they still weigh nothing and a call site
+       that means something else - `w-32` on the code box, `max-w-none` on a
+       relay hostname - keeps winning without `!important`. */
+    input:where(
+            [type="number"],
+            [type="date"],
+            [type="time"],
+            [type="datetime-local"],
+            [type="month"],
+            [type="week"]
+        ) {
+        max-width: var(--container-compact);
+    }
+
+    textarea:where(:not(.control-bare)) {
+        max-width: var(--container-long);
+    }
+
+    /* `:focus-visible` is the rule for the ring elsewhere, but a text box is
+       the one control where a plain click means "I am typing here now", so the
+       border follows `:focus` as well. The ring itself still comes from the
+       global `:focus-visible` rule, so a mouse click borders and a tab does
+       both. */
+    input:where(:not([type="checkbox"], [type="radio"], .control-bare)):focus,
+    textarea:where(:not(.control-bare)):focus {
+        border-color: var(--brand);
+    }
+
+    input:where(:not(.control-bare))::placeholder,
+    textarea:where(:not(.control-bare))::placeholder {
+        color: var(--content-subtle);
+    }
+
+    input:where(:not(.control-bare)):disabled,
+    textarea:where(:not(.control-bare)):disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
+    }
+
+    /* A checkbox and a radio keep the platform's drawing and take the brand
+       colour, which is the whole of what a themed tick needs. */
+    input:where([type="checkbox"], [type="radio"]) {
+        accent-color: var(--brand);
+    }
+
+    /* Chrome draws its own clear button in a colour of its own choosing, which
+       does not know about the dark theme. The grid's search box supplies one. */
+    input::-webkit-search-cancel-button {
+        appearance: none;
+    }
+
+    /* Spinners on a number field are three pixels wide, hard to hit, and
+       change a value by an amount nobody asked for. */
+    input[type="number"] {
+        -moz-appearance: textfield;
+    }
+
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button {
+        appearance: none;
+        margin: 0;
+    }
+
+    /* Every dropdown in the application, styled once.
+       ------------------------------------------------------------------
+       On the element rather than in a class because a `<select>` is not a
+       component anybody should have to remember to decorate: the platform
+       control is themed by default, and markup that wants one just writes
+       `<select>`. Left as-is, browsers each draw their own - grey chrome on
+       Windows, a rounded pill on macOS, neither of which knows about dark
+       mode - so the one control the user reaches for most is the one that
+       looks foreign.
+
+       `appearance: none` is what makes that possible, and it takes the
+       arrow with it, so the arrow is drawn back as a background image. It
+       is inlined as a data URI - the CSP forbids fetching one - and its
+       stroke is `currentColor`, so it follows the theme without a second
+       copy for dark mode. */
+    select {
+        appearance: none;
+        /* The same ceiling as a text box, and for the same reason - the form
+           kit asks for `w-full` so a select fills its column, and a column on a
+           wide screen is not a width any list of choices needs. */
+        max-width: var(--container-measure);
+        border-radius: var(--radius-control);
+        border: 1px solid var(--edge);
+        background-color: var(--surface-raised);
+        color: var(--content);
+        /* Room on the right for the arrow, which sits in the padding. */
+        padding: 0.125rem 1.5rem 0.125rem 0.5rem;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 0.375rem center;
+        background-size: 0.75rem;
+        cursor: pointer;
+    }
+
+    /* The arrow is a black SVG tinted to the current text colour. `mask`
+       would be cleaner but cannot be combined with the background above, so
+       the dark theme swaps the stroke instead. */
+    :root[data-theme="dark"] select,
+    :root:not([data-theme="light"]) select {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    }
+
+    @media (prefers-color-scheme: light) {
+        :root:not([data-theme="dark"]) select {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+        }
+    }
+
+    select:hover {
+        border-color: var(--edge-strong);
+    }
+
+    select:disabled {
+        cursor: not-allowed;
+        color: var(--content-subtle);
+    }
+
+    /* The popup list is drawn by the OS, not by us; these are the only two
+       properties it honours, and without them a dark theme opens a white
+       menu. */
+    select option {
+        background-color: var(--surface-raised);
+        color: var(--content);
+    }
+
+    /* Dense panels scroll often; the platform default bar is too heavy for a
+       224px sidebar. Firefox takes the standard properties, Chromium the
+       -webkit ones, and either way it inherits the theme. */
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--edge-strong) transparent;
+    }
+
+    ::-webkit-scrollbar {
+        width: 0.5rem;
+        height: 0.5rem;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background-color: var(--edge-strong);
+        border-radius: 999px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   6. UTILITIES
+
+   Only what a utility cannot express. Everything else stays in the markup.
+   -------------------------------------------------------------------------- */
+@layer utilities {
+    /* Truncate a nav label as the sidebar narrows, without a fixed width. */
+    .truncate-fade {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+
+    /* An alert arriving: a toast, a dialog, a row menu.
+
+       Here rather than in the markup because it is a keyframe, which a utility
+       cannot express, and because every surface in `ui::alert` has to arrive
+       the same way - a toast that slides and a dialog that pops read as two
+       different applications.
+
+       Deliberately short. This runs on something the person is waiting to
+       read, so the animation is a hint that it is new, not a performance. */
+    @keyframes alert-enter {
+        from {
+            opacity: 0;
+            transform: translateY(0.375rem) scale(0.98);
+        }
+        to {
+            opacity: 1;
+            transform: none;
+        }
+    }
+
+    .alert-enter {
+        animation: alert-enter 140ms ease-out;
+    }
+
+    /* Anyone who has asked not to be moved is not moved. The element still
+       appears - only the travel is dropped. */
+    @media (prefers-reduced-motion: reduce) {
+        .alert-enter {
+            animation: none;
+        }
+    }
+}

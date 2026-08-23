@@ -1,0 +1,31 @@
+# ===========================================================================
+# Phonix - per-machine overrides.
+#
+#   copy  config/local.example.toml  ->  config/local.toml
+#
+# config/local.toml is gitignored and loaded AFTER the environment file, so
+# anything here wins over base.toml and development.toml (but environment
+# variables still win over this file).
+#
+# Use it for things that are true of your machine only: a different Postgres
+# port, a personal log directory, pointing at a colleague's RabbitMQ, etc.
+# ===========================================================================
+
+# [database]
+# port = 5433
+# username = "smartenduser"
+
+# [redis]
+# port = 6380
+
+# [rabbitmq]
+# host = "127.0.0.1"
+
+# [telemetry]
+# level = "trace"
+
+# [telemetry.file]
+# directory = "D:/Ak/Home/Project001/phonix/logs"
+
+# [tenancy]
+# default_tenant = "acme"

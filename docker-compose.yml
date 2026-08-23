@@ -1,0 +1,93 @@
+# ===========================================================================
+# Phonix - local infrastructure (Docker Desktop / Windows)
+#
+# In scope:  Redis (cache), RabbitMQ (messaging)
+# Out of scope: PostgreSQL - it runs baremetal on this host as the Windows
+#               service "postgresql-x64-18" on port 5432.
+#
+#   docker compose up -d
+#   docker compose ps
+#   docker compose logs -f rabbitmq
+#   docker compose down            # keeps data
+#   docker compose down -v         # wipes data
+#
+# Values come from .env (see .env.example). Ports are published to 127.0.0.1
+# only, so nothing here is reachable from your LAN.
+# ===========================================================================
+
+name: phonix
+
+services:
+  redis:
+    image: redis:8-alpine
+    container_name: phonix-redis
+    restart: unless-stopped
+    # The mounted config holds the tuning; the password is injected here so it
+    # can stay in .env instead of being baked into a committed file.
+    command: >
+      redis-server /usr/local/etc/redis/redis.conf
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required - copy .env.example to .env}
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    stop_grace_period: 30s
+    networks: [phonix]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: phonix-rabbitmq
+    restart: unless-stopped
+    hostname: phonix-rabbit # pinned: RabbitMQ keys its data directory by hostname
+    ports:
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672" # AMQP
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672" # Management UI
+      - "127.0.0.1:15692:15692" # Prometheus metrics
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?RABBITMQ_USER is required}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-phonix}
+    volumes:
+      - ./docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./docker/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      # rabbitmq-diagnostics accepts exactly ONE command per invocation, so the
+      # two checks are chained through a shell rather than passed together.
+      test:
+        [
+          "CMD-SHELL",
+          "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_port_connectivity",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    stop_grace_period: 30s
+    networks: [phonix]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  redis-data:
+    name: phonix-redis-data
+  rabbitmq-data:
+    name: phonix-rabbitmq-data
+
+networks:
+  phonix:
+    name: phonix
+    driver: bridge

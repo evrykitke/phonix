@@ -1,0 +1,49 @@
+[package]
+name = "phonix-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "phonix-server"
+path = "src/main.rs"
+
+[dependencies]
+phonix-core = { workspace = true }
+phonix-config = { workspace = true }
+phonix-telemetry = { workspace = true }
+phonix-db = { workspace = true }
+phonix-services = { workspace = true }
+secrecy = { workspace = true }
+phonix-cache = { workspace = true }
+phonix-messaging = { workspace = true }
+phonix-storage = { workspace = true }
+# The Leptos app, compiled for the server.
+phonix-web = { workspace = true, features = ["ssr"] }
+
+leptos = { workspace = true, features = ["ssr"] }
+leptos_axum = { workspace = true }
+leptos_meta = { workspace = true, features = ["ssr"] }
+leptos_router = { workspace = true, features = ["ssr"] }
+
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+http = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+# Streaming a stored file back to the browser without loading it into memory.
+tokio-stream = { version = "0.1", features = ["io-util"] }
+futures = { workspace = true }
+
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v7"] }
+tracing = { workspace = true }
+
+[features]
+# cargo-leptos passes --features ssr to the bin package; the binary is
+# server-only, so the flag simply has nothing extra to switch on.
+ssr = []

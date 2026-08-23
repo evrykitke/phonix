@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 700" width="860" height="700" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+  <title>Phonix layered architecture</title>
+  <desc>Crates are layers; folders inside them are domains. Presentation calls the application layer, which calls the data access layer, which reaches PostgreSQL. The domain crate is shared by all and compiles to WebAssembly.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-light" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+    </marker>
+    <style>
+      .layer      { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.5; rx: 10; }
+      .accent     { fill: #f8fafc; stroke: #94a3b8; stroke-width: 1.5; rx: 10; }
+      .crate      { font-size: 15px; font-weight: 650; fill: #0f172a; }
+      .role       { font-size: 11.5px; font-weight: 600; fill: #64748b; letter-spacing: .06em; }
+      .detail     { font-size: 12px; fill: #475569; }
+      .mono       { font-size: 11.5px; fill: #334155; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .edge       { stroke: #64748b; stroke-width: 1.6; fill: none; }
+      .edge-soft  { stroke: #94a3b8; stroke-width: 1.4; fill: none; stroke-dasharray: 5 4; }
+      .edgelabel  { font-size: 11px; fill: #64748b; }
+      .note       { font-size: 11.5px; fill: #475569; }
+      .rule       { font-size: 12.5px; fill: #0f172a; font-weight: 600; }
+    </style>
+  </defs>
+
+  <rect width="860" height="700" fill="#ffffff"/>
+
+  <text x="32" y="38" class="crate" font-size="18">Phonix — crates are layers, folders are domains</text>
+  <text x="32" y="58" class="note">Adding a domain (inventory, billing) adds a folder to each layer it touches and no new crate.</text>
+
+  <!-- Presentation -->
+  <rect x="32" y="84" width="470" height="86" class="layer"/>
+  <text x="48" y="106" class="role">PRESENTATION</text>
+  <text x="48" y="127" class="crate">phonix-web</text>
+  <text x="48" y="146" class="detail">Leptos pages and components, server functions, session cookie</text>
+  <text x="48" y="162" class="mono">app · pages/ · components/ · server_fns/ · server/cookie</text>
+
+  <!-- Composition root -->
+  <rect x="522" y="84" width="306" height="86" class="accent"/>
+  <text x="538" y="106" class="role">COMPOSITION ROOT</text>
+  <text x="538" y="127" class="crate">phonix-server</text>
+  <text x="538" y="146" class="detail">axum, middleware, startup, wiring</text>
+  <text x="538" y="162" class="mono">knows every layer; known by none</text>
+
+  <!-- Application -->
+  <rect x="32" y="200" width="470" height="112" class="layer"/>
+  <text x="48" y="222" class="role">APPLICATION — USE CASES</text>
+  <text x="48" y="243" class="crate">phonix-services</text>
+  <text x="48" y="262" class="detail">sign_in · answer_challenge · change_password · onboard_workspace</text>
+  <text x="48" y="279" class="mono">identity/ · workspace/ · caller · crypto/</text>
+  <text x="48" y="299" class="note">Authorization happens here: caller.require("Pages.Inventory.Requisition.Create")</text>
+
+  <!-- Data access -->
+  <rect x="32" y="342" width="470" height="106" class="layer"/>
+  <text x="48" y="364" class="role">DATA ACCESS — REPOSITORIES</text>
+  <text x="48" y="385" class="crate">phonix-db</text>
+  <text x="48" y="404" class="detail">Rows in, rows out. Pools, tenant catalog, migrations.</text>
+  <text x="48" y="421" class="mono">tenancy/ · identity/ · authorization/ · settings · connect</text>
+  <text x="48" y="440" class="note">Never receives a credential in a form it could use.</text>
+
+  <!-- Domain (right column) -->
+  <rect x="522" y="200" width="306" height="248" class="accent"/>
+  <text x="538" y="222" class="role">DOMAIN</text>
+  <text x="538" y="243" class="crate">phonix-core</text>
+  <text x="538" y="262" class="detail">Entities, value objects, policies,</text>
+  <text x="538" y="278" class="detail">invariants. No I/O.</text>
+  <text x="538" y="302" class="mono">identity/ · authorization/ · tenant/</text>
+  <text x="538" y="330" class="note">Compiles to WebAssembly, so the</text>
+  <text x="538" y="346" class="note">browser applies the same rules the</text>
+  <text x="538" y="362" class="note">server enforces — and holds no</text>
+  <text x="538" y="378" class="note">capability: no Argon2 parameters,</text>
+  <text x="538" y="394" class="note">no TOTP arithmetic, no key.</text>
+  <text x="538" y="424" class="mono">PasswordPolicy · PermissionSet</text>
+
+  <!-- PostgreSQL -->
+  <rect x="32" y="478" width="470" height="72" class="accent"/>
+  <text x="48" y="500" class="role">STORAGE</text>
+  <text x="48" y="521" class="crate">PostgreSQL</text>
+  <text x="48" y="540" class="detail">one catalog database + one database per tenant</text>
+
+  <!-- Cross-cutting -->
+  <rect x="522" y="478" width="306" height="72" class="accent"/>
+  <text x="538" y="500" class="role">CROSS-CUTTING</text>
+  <text x="538" y="521" class="crate">config · telemetry · cache · messaging</text>
+  <text x="538" y="540" class="detail">available to every layer, depend on none</text>
+
+  <!-- edges -->
+  <line x1="267" y1="170" x2="267" y2="196" class="edge" marker-end="url(#arrow)"/>
+  <line x1="267" y1="312" x2="267" y2="338" class="edge" marker-end="url(#arrow)"/>
+  <line x1="267" y1="448" x2="267" y2="474" class="edge" marker-end="url(#arrow)"/>
+
+  <path d="M 522 127 L 502 127" class="edge" marker-end="url(#arrow)"/>
+  <path d="M 675 170 L 675 196" class="edge-soft" marker-end="url(#arrow-light)"/>
+
+  <path d="M 502 250 L 522 250" class="edge-soft" marker-end="url(#arrow-light)"/>
+  <path d="M 502 392 L 522 392" class="edge-soft" marker-end="url(#arrow-light)"/>
+  <path d="M 380 170 C 430 170 470 130 502 122" class="edge-soft" marker-end="url(#arrow-light)"/>
+
+  <!-- credential funnel -->
+  <rect x="32" y="580" width="796" height="92" class="layer"/>
+  <text x="48" y="602" class="rule">The rule that falls out of this: a credential is transformed before it descends.</text>
+  <text x="48" y="626" class="mono">password  --argon2-->  PHC string        session token  --sha256-->  digest</text>
+  <text x="48" y="645" class="mono">TOTP secret  --xchacha20poly1305-->  sealed bytes      recovery code  --sha256-->  digest</text>
+  <text x="48" y="664" class="note">All four happen in phonix-services/crypto. A dump of what phonix-db can see is a dump of things nobody can present.</text>
+</svg>

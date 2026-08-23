@@ -1,0 +1,480 @@
+//! The `sessions` table.
+//!
+//! The cookie holds 32 random bytes; this table holds their SHA-256 digest
+//! and everything else. **Every function here takes the digest**, never the
+//! token: minting one and digesting it are the application layer's job
+//! (`phonix_services::identity::session`), so no repository in this crate ever
+//! holds a credential a client could present. The cost is one indexed lookup per request. What it
+//! buys is revocation that actually works - sign out everywhere, suspend an
+//! account, respond to a lost laptop - which a self-contained signed token
+//! cannot do without exactly this table anyway.
+//!
+//! Two deadlines, both enforced in SQL rather than in Rust:
+//!
+//! * `expires_at` slides forward with activity;
+//! * `absolute_expires_at` never moves.
+//!
+//! Putting both in the `WHERE` clause means an expired session cannot be
+//! resurrected by a code path that forgets to check, and the sweeper is only
+//! housekeeping rather than a correctness requirement.
+
+use chrono::{DateTime, Duration, Utc};
+use phonix_config::SessionConfig;
+use phonix_core::identity::UserId;
+use sqlx::{FromRow, PgExecutor, Row};
+use uuid::Uuid;
+
+use crate::error::DbError;
+
+/// A session row, without the token.
+#[derive(Debug, Clone)]
+pub struct SessionRecord {
+    pub id: Uuid,
+    pub user_id: UserId,
+    /// Whether this session cleared the second factor.
+    pub mfa_satisfied: bool,
+    pub ip: Option<String>,
+    pub user_agent: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub absolute_expires_at: DateTime<Utc>,
+}
+
+impl<'r> FromRow<'r, sqlx::postgres::PgRow> for SessionRecord {
+    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: row.try_get("id")?,
+            user_id: row.try_get("user_id")?,
+            mfa_satisfied: row.try_get("mfa_satisfied")?,
+            ip: row.try_get("ip")?,
+            user_agent: row.try_get("user_agent")?,
+            created_at: row.try_get("created_at")?,
+            last_seen_at: row.try_get("last_seen_at")?,
+            expires_at: row.try_get("expires_at")?,
+            absolute_expires_at: row.try_get("absolute_expires_at")?,
+        })
+    }
+}
+
+/// What a client sent along with the request.
+#[derive(Debug, Clone, Default)]
+pub struct ClientFacts<'a> {
+    pub ip: Option<&'a str>,
+    pub user_agent: Option<&'a str>,
+}
+
+const INSERT_SESSION: &str = "INSERT INTO sessions \
+     (user_id, token_hash, mfa_satisfied, ip, user_agent, expires_at, absolute_expires_at) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7) \
+     RETURNING id, user_id, mfa_satisfied, ip, user_agent, created_at, last_seen_at, \
+     expires_at, absolute_expires_at";
+
+/// Open a session for a user.
+///
+/// `token_hash` is the digest of a token the caller has already minted, and
+/// `mfa_satisfied` is false when a second factor is still outstanding - the
+/// session exists so the challenge page has something to attach to, but until
+/// the flag is set the caller is not really signed in.
+pub async fn create<'e, E>(
+    executor: E,
+    user_id: UserId,
+    token_hash: &[u8],
+    cfg: &SessionConfig,
+    remember_me: bool,
+    mfa_satisfied: bool,
+    facts: ClientFacts<'_>,
+) -> Result<SessionRecord, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    let now = Utc::now();
+
+    let absolute_expires_at = if remember_me {
+        now + Duration::days(cfg.remember_me_days as i64)
+    } else {
+        now + Duration::hours(cfg.absolute_timeout_hours as i64)
+    };
+
+    // Clamped, because the idle window may be configured longer than the
+    // absolute one for a non-remembered session, and the schema constraint
+    // `absolute_expires_at >= expires_at` would reject the insert.
+    let expires_at =
+        (now + Duration::minutes(cfg.idle_timeout_mins as i64)).min(absolute_expires_at);
+
+    sqlx::query_as::<_, SessionRecord>(INSERT_SESSION)
+        .bind(user_id)
+        .bind(token_hash)
+        .bind(mfa_satisfied)
+        .bind(facts.ip)
+        .bind(facts.user_agent)
+        .bind(expires_at)
+        .bind(absolute_expires_at)
+        .fetch_one(executor)
+        .await
+        .map_err(DbError::Query)
+}
+
+/// Look up a live session and slide its idle deadline forward.
+///
+/// Lookup and refresh are one statement. As two they would race: a request
+/// arriving just as a session expires could read it as valid and then extend a
+/// session that another request had already seen as dead.
+///
+/// Returns `None` for a token that is unknown, expired or revoked - the three
+/// are indistinguishable to the caller on purpose.
+pub async fn touch<'e, E>(
+    executor: E,
+    token_hash: &[u8],
+    cfg: &SessionConfig,
+) -> Result<Option<SessionRecord>, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    sqlx::query_as::<_, SessionRecord>(
+        "UPDATE sessions
+            SET last_seen_at = now(),
+                -- Never past the absolute ceiling: activity extends a session,
+                -- it does not make one immortal.
+                expires_at = least(
+                    now() + ($2::bigint * interval '1 minute'),
+                    absolute_expires_at
+                )
+          WHERE token_hash = $1
+            AND revoked_at IS NULL
+            AND expires_at > now()
+            AND absolute_expires_at > now()
+      RETURNING id, user_id, mfa_satisfied, ip, user_agent, created_at, last_seen_at,
+                expires_at, absolute_expires_at",
+    )
+    .bind(token_hash)
+    .bind(cfg.idle_timeout_mins as i64)
+    .fetch_optional(executor)
+    .await
+    .map_err(DbError::Query)
+}
+
+/// Read a session without extending it. For listing active sessions.
+pub async fn find<'e, E>(executor: E, token_hash: &[u8]) -> Result<Option<SessionRecord>, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    sqlx::query_as::<_, SessionRecord>(
+        "SELECT id, user_id, mfa_satisfied, ip, user_agent, created_at, last_seen_at,
+                expires_at, absolute_expires_at
+           FROM sessions
+          WHERE token_hash = $1
+            AND revoked_at IS NULL
+            AND expires_at > now()
+            AND absolute_expires_at > now()",
+    )
+    .bind(token_hash)
+    .fetch_optional(executor)
+    .await
+    .map_err(DbError::Query)
+}
+
+/// Start the MFA challenge clock on a half-authenticated session.
+///
+/// A separate deadline from the session's own, and much shorter: a session
+/// lives for hours, but a proven password waiting at a code box must not.
+pub async fn start_mfa_challenge<'e, E>(executor: E, id: Uuid, ttl_mins: i64) -> Result<(), DbError>
+where
+    E: PgExecutor<'e>,
+{
+    sqlx::query(
+        "UPDATE sessions
+            SET mfa_challenge_expires_at = now() + ($2::bigint * interval '1 minute')
+          WHERE id = $1",
+    )
+    .bind(id)
+    .bind(ttl_mins)
+    .execute(executor)
+    .await
+    .map_err(DbError::Query)?;
+    Ok(())
+}
+
+/// How the outstanding challenge on a session stands.
+#[derive(Debug, Clone, Copy)]
+pub struct ChallengeState {
+    pub attempts: i32,
+    /// True when the challenge deadline has passed, or was never set.
+    pub expired: bool,
+}
+
+/// Read the challenge attached to a session.
+///
+/// Returns `None` when the session is unknown, revoked, expired or already past
+/// its second factor - all of which mean there is no challenge to answer.
+pub async fn challenge_state<'e, E>(
+    executor: E,
+    id: Uuid,
+) -> Result<Option<ChallengeState>, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    let row = sqlx::query(
+        "SELECT mfa_attempts,
+                (mfa_challenge_expires_at IS NULL OR mfa_challenge_expires_at <= now())
+                    AS expired
+           FROM sessions
+          WHERE id = $1
+            AND revoked_at IS NULL
+            AND NOT mfa_satisfied
+            AND expires_at > now()
+            AND absolute_expires_at > now()",
+    )
+    .bind(id)
+    .fetch_optional(executor)
+    .await
+    .map_err(DbError::Query)?;
+
+    let Some(row) = row else {
+        return Ok(None);
+    };
+
+    Ok(Some(ChallengeState {
+        attempts: row.try_get("mfa_attempts").map_err(DbError::Query)?,
+        expired: row.try_get("expired").map_err(DbError::Query)?,
+    }))
+}
+
+/// Count one wrong code, returning the new total.
+///
+/// Incremented and read in one statement: two codes submitted at once must not
+/// both read the same count and each conclude one attempt was used.
+pub async fn record_mfa_attempt<'e, E>(executor: E, id: Uuid) -> Result<i32, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    let attempts: i32 = sqlx::query_scalar(
+        "UPDATE sessions SET mfa_attempts = mfa_attempts + 1
+          WHERE id = $1
+      RETURNING mfa_attempts",
+    )
+    .bind(id)
+    .fetch_one(executor)
+    .await
+    .map_err(DbError::Query)?;
+
+    Ok(attempts)
+}
+
+/// Mark a session as having cleared the second factor.
+pub async fn mark_mfa_satisfied<'e, E>(executor: E, id: Uuid) -> Result<(), DbError>
+where
+    E: PgExecutor<'e>,
+{
+    // The challenge deadline goes with it: a satisfied session has no
+    // outstanding challenge, and leaving a stale deadline behind would make
+    // `challenge_state` describe one that no longer exists.
+    sqlx::query(
+        "UPDATE sessions
+            SET mfa_satisfied = TRUE, mfa_challenge_expires_at = NULL
+          WHERE id = $1",
+    )
+    .bind(id)
+    .execute(executor)
+    .await
+    .map_err(DbError::Query)?;
+    Ok(())
+}
+
+/// End one session. Idempotent: revoking an already-revoked session is a no-op.
+pub async fn revoke<'e, E>(executor: E, token_hash: &[u8], reason: &str) -> Result<(), DbError>
+where
+    E: PgExecutor<'e>,
+{
+    sqlx::query(
+        "UPDATE sessions
+            SET revoked_at = now(), revoked_reason = $2
+          WHERE token_hash = $1 AND revoked_at IS NULL",
+    )
+    .bind(token_hash)
+    .bind(reason)
+    .execute(executor)
+    .await
+    .map_err(DbError::Query)?;
+
+    Ok(())
+}
+
+pub async fn revoke_by_id<'e, E>(executor: E, id: Uuid, reason: &str) -> Result<(), DbError>
+where
+    E: PgExecutor<'e>,
+{
+    sqlx::query(
+        "UPDATE sessions SET revoked_at = now(), revoked_reason = $2
+          WHERE id = $1 AND revoked_at IS NULL",
+    )
+    .bind(id)
+    .bind(reason)
+    .execute(executor)
+    .await
+    .map_err(DbError::Query)?;
+    Ok(())
+}
+
+/// End every session a user holds. Returns how many were live.
+///
+/// This is what "sign out everywhere" and "suspend this account" both call, and
+/// it is the reason sessions are rows rather than self-contained tokens.
+pub async fn revoke_all_for_user<'e, E>(
+    executor: E,
+    user_id: UserId,
+    reason: &str,
+) -> Result<u64, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    let result = sqlx::query(
+        "UPDATE sessions
+            SET revoked_at = now(), revoked_reason = $2
+          WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(user_id)
+    .bind(reason)
+    .execute(executor)
+    .await
+    .map_err(DbError::Query)?;
+
+    Ok(result.rows_affected())
+}
+
+/// End every session a user holds except the one presented.
+///
+/// What a password change calls: the person doing it keeps the tab they are
+/// working in, and everything else - including whoever prompted the change by
+/// having their password - is signed out.
+pub async fn revoke_all_for_user_except<'e, E>(
+    executor: E,
+    user_id: UserId,
+    keep_token_hash: &[u8],
+    reason: &str,
+) -> Result<u64, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    let result = sqlx::query(
+        "UPDATE sessions
+            SET revoked_at = now(), revoked_reason = $3
+          WHERE user_id = $1 AND revoked_at IS NULL AND token_hash <> $2",
+    )
+    .bind(user_id)
+    .bind(keep_token_hash)
+    .bind(reason)
+    .execute(executor)
+    .await
+    .map_err(DbError::Query)?;
+
+    Ok(result.rows_affected())
+}
+
+/// Every live session for a user, newest first. Backs a "your devices" screen.
+pub async fn list_for_user<'e, E>(
+    executor: E,
+    user_id: UserId,
+) -> Result<Vec<SessionRecord>, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    sqlx::query_as::<_, SessionRecord>(
+        "SELECT id, user_id, mfa_satisfied, ip, user_agent, created_at, last_seen_at,
+                expires_at, absolute_expires_at
+           FROM sessions
+          WHERE user_id = $1
+            AND revoked_at IS NULL
+            AND expires_at > now()
+            AND absolute_expires_at > now()
+          ORDER BY last_seen_at DESC",
+    )
+    .bind(user_id)
+    .fetch_all(executor)
+    .await
+    .map_err(DbError::Query)
+}
+
+/// Delete sessions that are past their absolute deadline, plus revoked ones
+/// that have aged out.
+///
+/// Pure housekeeping - the `WHERE` clauses above already refuse to hand back an
+/// expired session, so skipping this loses disk, not safety. Revoked rows are
+/// kept for a week first so "when was I signed out?" remains answerable.
+pub async fn purge_expired<'e, E>(executor: E) -> Result<u64, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    let result = sqlx::query(
+        "DELETE FROM sessions
+          WHERE absolute_expires_at < now() - interval '7 days'
+             OR (revoked_at IS NOT NULL AND revoked_at < now() - interval '7 days')",
+    )
+    .execute(executor)
+    .await
+    .map_err(DbError::Query)?;
+
+    Ok(result.rows_affected())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config() -> SessionConfig {
+        SessionConfig {
+            cookie_name: "phonix_session".into(),
+            idle_timeout_mins: 720,
+            absolute_timeout_hours: 168,
+            remember_me_days: 30,
+            secure: false,
+            same_site: phonix_config::SameSitePolicy::Lax,
+            handoff_ttl_secs: 120,
+            purge_interval_mins: 60,
+        }
+    }
+
+    /// Mirrors the deadline arithmetic in `create`, which is the part worth
+    /// testing without a database.
+    fn deadlines(cfg: &SessionConfig, remember_me: bool) -> (DateTime<Utc>, DateTime<Utc>) {
+        let now = Utc::now();
+        let absolute = if remember_me {
+            now + Duration::days(cfg.remember_me_days as i64)
+        } else {
+            now + Duration::hours(cfg.absolute_timeout_hours as i64)
+        };
+        let idle = (now + Duration::minutes(cfg.idle_timeout_mins as i64)).min(absolute);
+        (idle, absolute)
+    }
+
+    #[test]
+    fn remember_me_extends_only_the_absolute_deadline() {
+        let cfg = config();
+
+        let (idle, absolute) = deadlines(&cfg, false);
+        let (remembered_idle, remembered_absolute) = deadlines(&cfg, true);
+
+        // The idle window is the same either way - "remember me" is about how
+        // long you may stay away, not how long a single visit lasts.
+        assert!((remembered_idle - idle).num_seconds().abs() <= 1);
+        assert!(remembered_absolute > absolute);
+        assert!((remembered_absolute - Utc::now()).num_days() >= 29);
+    }
+
+    #[test]
+    fn the_idle_deadline_is_clamped_to_the_absolute_one() {
+        // A deliberately silly configuration: idle longer than absolute.
+        let mut cfg = config();
+        cfg.idle_timeout_mins = 60 * 24 * 30;
+        cfg.absolute_timeout_hours = 1;
+
+        let (idle, absolute) = deadlines(&cfg, false);
+
+        // Unclamped this would violate `absolute_expires_at >= expires_at` and
+        // the insert would be rejected by the schema.
+        assert!(
+            idle <= absolute,
+            "idle {idle} must not exceed absolute {absolute}"
+        );
+    }
+}

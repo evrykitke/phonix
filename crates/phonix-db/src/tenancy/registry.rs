@@ -1,0 +1,156 @@
+//! The tenant pool registry: slug -> live `PgPool`.
+//!
+//! Two caches, with deliberately different lifetimes:
+//!
+//! * **lookup cache** - catalog rows, short TTL. Keeps a suspended tenant from
+//!   serving traffic for long after the change.
+//! * **pool cache**   - live `PgPool`s, evicted by idleness and capacity. This
+//!   is what bounds total Postgres connections: at most
+//!   `max_cached_pools * tenant_pool.max_connections`.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use moka::future::Cache;
+use phonix_config::DatabaseConfig;
+use phonix_core::TenantSlug;
+use sqlx::PgPool;
+
+use super::catalog::{Catalog, TenantRecord};
+use crate::error::DbError;
+
+/// A resolved tenant: its catalog row plus a pool to its database.
+#[derive(Clone)]
+pub struct TenantHandle {
+    pub record: Arc<TenantRecord>,
+    pub pool: PgPool,
+}
+
+#[derive(Clone)]
+pub struct TenantRegistry {
+    catalog: Catalog,
+    config: Arc<DatabaseConfig>,
+    lookups: Cache<String, Arc<TenantRecord>>,
+    pools: Cache<String, PgPool>,
+}
+
+impl TenantRegistry {
+    pub fn new(catalog: Catalog, config: Arc<DatabaseConfig>) -> Self {
+        let registry = &config.tenant_registry;
+
+        let lookups = Cache::builder()
+            .max_capacity(registry.lookup_cache_capacity)
+            .time_to_live(Duration::from_secs(registry.lookup_cache_ttl_secs))
+            .build();
+
+        let pools = Cache::builder()
+            .max_capacity(registry.max_cached_pools)
+            // Idle eviction, not TTL: a busy tenant should keep its pool
+            // indefinitely, while a tenant nobody has touched should release
+            // its connections back to Postgres.
+            .time_to_idle(Duration::from_secs(registry.idle_evict_secs))
+            .eviction_listener(|slug: Arc<String>, pool: PgPool, cause| {
+                tracing::debug!(tenant = %slug, ?cause, "closing idle tenant pool");
+                // `PgPool::close` is async and the listener is sync, so the
+                // close is spawned. Dropping the pool alone would also release
+                // the connections, but only once every clone is gone.
+                tokio::spawn(async move { pool.close().await });
+            })
+            .build();
+
+        Self {
+            catalog,
+            config,
+            lookups,
+            pools,
+        }
+    }
+
+    pub fn catalog(&self) -> &Catalog {
+        &self.catalog
+    }
+
+    /// Resolve a slug to a usable pool, creating one if needed.
+    ///
+    /// Returns [`DbError::UnknownTenant`] for an unregistered slug and
+    /// [`DbError::TenantInactive`] for a suspended or archived one.
+    pub async fn resolve(&self, slug: &TenantSlug) -> Result<TenantHandle, DbError> {
+        let record = self.record_for(slug).await?;
+
+        if !record.status.serves_traffic() {
+            return Err(DbError::TenantInactive {
+                slug: slug.to_string(),
+                status: format!("{:?}", record.status).to_lowercase(),
+            });
+        }
+
+        let pool = self.pool_for(&record).await;
+
+        Ok(TenantHandle { record, pool })
+    }
+
+    /// Fetch a catalog row, going through the short-lived lookup cache.
+    async fn record_for(&self, slug: &TenantSlug) -> Result<Arc<TenantRecord>, DbError> {
+        if let Some(cached) = self.lookups.get(slug.as_str()).await {
+            return Ok(cached);
+        }
+
+        let record = self
+            .catalog
+            .find_by_slug(slug)
+            .await?
+            .ok_or_else(|| DbError::UnknownTenant(slug.to_string()))?;
+
+        // Negative results are intentionally NOT cached: an unknown slug is
+        // usually a scan or a typo, and caching misses would let an attacker
+        // fill the cache with junk keys.
+        let record = Arc::new(record);
+        self.lookups
+            .insert(slug.to_string(), Arc::clone(&record))
+            .await;
+
+        Ok(record)
+    }
+
+    /// Get or create the pool for a tenant.
+    ///
+    /// `get_with` collapses concurrent first requests for the same tenant into
+    /// a single initialisation, so a burst of traffic to a cold tenant creates
+    /// one pool rather than one per request.
+    async fn pool_for(&self, record: &TenantRecord) -> PgPool {
+        let key = record.slug.to_string();
+        let config = Arc::clone(&self.config);
+        let database = record.database_name.clone();
+
+        self.pools
+            .get_with(key, async move {
+                tracing::info!(database = %database, "opening tenant pool");
+                crate::connect::tenant_pool(&config, &database)
+            })
+            .await
+    }
+
+    /// Drop a tenant's cached row and pool.
+    ///
+    /// Call after suspending, migrating or relocating a tenant so the next
+    /// request re-reads the catalog instead of using stale routing.
+    pub async fn invalidate(&self, slug: &TenantSlug) {
+        self.lookups.invalidate(slug.as_str()).await;
+        self.pools.invalidate(slug.as_str()).await;
+        tracing::debug!(tenant = %slug, "invalidated tenant registry entry");
+    }
+
+    /// Number of live tenant pools, for health output and metrics.
+    pub fn live_pools(&self) -> u64 {
+        self.pools.entry_count()
+    }
+
+    /// Close every pool. Called during graceful shutdown.
+    pub async fn close_all(&self) {
+        for (_, pool) in self.pools.iter() {
+            pool.close().await;
+        }
+        self.pools.invalidate_all();
+        self.lookups.invalidate_all();
+    }
+}

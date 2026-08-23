@@ -1,0 +1,26 @@
+[package]
+name = "phonix-db"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+phonix-core = { workspace = true }
+phonix-config = { workspace = true }
+
+sqlx = { workspace = true }
+moka = { workspace = true }
+tokio = { workspace = true }
+secrecy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v7"] }
+chrono = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+
+# No credential crate appears here on purpose. Repositories in this layer take
+# hashes, digests and sealed bytes and store them; argon2, sha2, hmac, sha1,
+# base32, chacha20poly1305 and subtle all live in phonix-services, which is the
+# layer allowed to turn a password or a code into one of those.

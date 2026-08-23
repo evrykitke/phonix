@@ -1,0 +1,144 @@
+# ===========================================================================
+# Phonix - development overrides (PHONIX_ENV=development)
+# Committed. Machine-specific values go in config/local.toml instead.
+# ===========================================================================
+
+[app]
+environment = "development"
+
+[server]
+host = "127.0.0.1"
+port = 3000
+# "localhost" rather than a made-up domain, because Chrome, Edge and Firefox
+# all resolve *.localhost to the loopback address themselves (RFC 6761). That
+# makes every workspace reachable the moment it is created -
+# acme.localhost:3000, globex.localhost:3000 - with no hosts file to edit and
+# no wildcard DNS, which Windows' hosts file cannot express anyway.
+base_domain = "localhost"
+scheme = "http"
+request_timeout_secs = 120
+
+[server.cors]
+enabled = true
+allowed_origins = ["http://localhost:3000"]
+
+[database]
+host = "localhost"
+port = 5432
+ssl_mode = "prefer"
+migrate_on_start = true
+statement_timeout_secs = 120
+
+[database.catalog_pool]
+max_connections = 5
+min_connections = 1
+
+[database.tenant_pool]
+max_connections = 3
+min_connections = 0
+
+[database.tenant_registry]
+max_cached_pools = 10
+idle_evict_secs = 300
+lookup_cache_ttl_secs = 5
+
+[redis]
+enabled = true
+host = "127.0.0.1"
+port = 6379
+default_ttl_secs = 60
+fail_open = true
+
+[rabbitmq]
+enabled = true
+host = "127.0.0.1"
+port = 5672
+vhost = "phonix"
+username = "phonix"
+prefetch_count = 8
+
+[rabbitmq.pool]
+max_size = 4
+
+[telemetry]
+level = "debug"
+directives = [
+    "phonix=trace",
+    "phonix_web=trace",
+    "phonix_server=trace",
+    "tower_http=debug",
+    "sqlx::query=debug",
+    "lapin=info",
+    "hyper=warn",
+    "h2=warn",
+]
+
+[telemetry.console]
+enabled = true
+format = "pretty"
+ansi = true
+show_line_numbers = true
+show_span_events = "close"
+
+[telemetry.file]
+enabled = true
+# -> <workspace>/var/development.001.log
+directory = "var"
+file_name_prefix = "{env}"
+# No date stamp locally: a short, stable name is easier to tail and to open in
+# an editor. The file no longer grows without bound in this mode - the size cap
+# in base.toml rolls it at 10 MB, giving .001, .002 and so on.
+rotation = "never"
+format = "json"
+# Ten files of 10 MB. On a laptop the disk matters more than the history, and
+# anything worth keeping longer than a hundred megabytes of local logs is
+# something to copy out rather than to accumulate.
+max_files = 10
+
+[telemetry.tracing]
+http_spans = true
+request_id = true
+log_bodies = false
+
+[tenancy]
+base_domain = "localhost"
+# Empty on purpose, and the same as production.
+#
+# http://localhost:3000 is the SIGNUP host: no subdomain, therefore no tenant,
+# therefore the marketing page and the onboarding wizard. A workspace lives at
+# http://<slug>.localhost:3000. Pointing the bare host at a fallback tenant
+# would blur exactly the boundary onboarding depends on.
+default_tenant = ""
+# Off now that onboarding creates workspaces properly. With this on, a typo in
+# the host bar silently creates a database.
+auto_provision = false
+
+[security.session]
+# http://localhost, so a Secure cookie would never be stored.
+secure = false
+# Long enough not to interrupt a day's work.
+idle_timeout_mins = 1440
+
+[security.mfa]
+# Obviously fake, committed on purpose so `cargo leptos watch` works from a
+# fresh clone. Production validation refuses to start with this exact value.
+encryption_key = "cGhvbml4LWRldmVsb3BtZW50LW9ubHktbWZhLWtleSE="
+
+[security.password]
+# Full production cost locally too. Hashing that takes 5 ms in development and
+# 300 ms in production hides real latency until it is a production problem.
+memory_kib = 19456
+iterations = 2
+
+# Mailtrap's sandbox: nothing leaves the building, and every message is
+# readable in their inbox. Ports 587 and 465 are also offered; 2525 is the one
+# that survives an ISP blocking outbound 25/587.
+[smtp]
+enabled = true
+host = "sandbox.smtp.mailtrap.io"
+port = 2525
+# username: set PHONIX__SMTP__USERNAME in .env
+# password: set PHONIX__SMTP__PASSWORD in .env
+from_address = "no-reply@phonix.local"
+from_name = "Phonix (development)"
+encryption = "start_tls"

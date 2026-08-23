@@ -1,0 +1,17 @@
+[package]
+name = "phonix-telemetry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+phonix-config = { workspace = true }
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+# The date stamp in a log file's name. Only that - the rotation decision itself
+# is arithmetic on byte counts.
+chrono = { workspace = true }
+thiserror = { workspace = true }

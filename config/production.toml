@@ -1,0 +1,151 @@
+# ===========================================================================
+# Phonix - production overrides (PHONIX_ENV=production)
+#
+# Every secret here MUST arrive via environment variables:
+#   PHONIX__DATABASE__PASSWORD
+#   PHONIX__REDIS__PASSWORD
+#   PHONIX__RABBITMQ__PASSWORD
+# The process refuses to start in production if any of them is empty.
+# ===========================================================================
+
+[app]
+environment = "production"
+
+[server]
+host = "0.0.0.0"
+port = 3000
+scheme = "https"
+shutdown_timeout_secs = 45
+request_timeout_secs = 30
+compression = true
+
+[server.cors]
+enabled = false
+allowed_origins = []
+
+[database]
+ssl_mode = "require"
+# Migrations are applied by a deliberate deploy step, not by the web process.
+migrate_on_start = false
+statement_timeout_secs = 15
+
+[database.catalog_pool]
+max_connections = 20
+min_connections = 5
+acquire_timeout_secs = 5
+idle_timeout_secs = 300
+max_lifetime_secs = 1800
+
+[database.tenant_pool]
+max_connections = 5
+min_connections = 0
+acquire_timeout_secs = 5
+idle_timeout_secs = 120
+max_lifetime_secs = 900
+
+[database.tenant_registry]
+max_cached_pools = 250
+idle_evict_secs = 1800
+lookup_cache_ttl_secs = 300
+
+[redis]
+enabled = true
+default_ttl_secs = 600
+fail_open = true
+connect_timeout_secs = 3
+response_timeout_secs = 3
+
+[rabbitmq]
+enabled = true
+publisher_confirms = true
+prefetch_count = 64
+max_delivery_attempts = 5
+
+[rabbitmq.pool]
+max_size = 16
+
+[telemetry]
+level = "info"
+directives = [
+    "phonix=info",
+    "tower_http=warn",
+    "sqlx::query=warn",
+    "lapin=warn",
+    "hyper=warn",
+    "h2=warn",
+]
+
+# Container stdout is collected by the platform, so console stays on but
+# switches to structured JSON.
+[telemetry.console]
+enabled = true
+format = "json"
+ansi = false
+show_line_numbers = false
+show_span_events = "none"
+
+[telemetry.file]
+enabled = true
+# Relative here, so it resolves to <workspace>/var. Point this at an absolute
+# path such as "/var/log/phonix" once the deploy target has a managed log
+# volume, or set PHONIX__TELEMETRY__FILE__DIRECTORY at deploy time.
+directory = "var"
+file_name_prefix = "{env}"
+# -> var/production.2026-08-17-14.001.log
+rotation = "hourly"
+format = "json"
+# Stated here rather than inherited. base.toml keeps three days, which suits a
+# developer's laptop; three days of production logs is thin for an incident
+# review that starts on a Monday. Seven preserves what `max_files = 168` meant
+# before retention became an age rather than a count.
+retention_days = 7
+# The backstop under that age, not the retention rule itself. Hourly files that
+# also roll at 10 MB can be more than one per hour, so this is deliberately
+# well above 168.
+max_files = 500
+non_blocking = true
+
+[telemetry.tracing]
+http_spans = true
+request_id = true
+log_bodies = false
+
+[tenancy]
+# No implicit tenant in production - an unresolvable host is an error.
+default_tenant = ""
+auto_provision = false
+unknown_tenant_status = 404
+
+[security.session]
+# Served over HTTPS, so the cookie must never travel in clear. Startup
+# validation rejects `false` here rather than trusting the file.
+secure = true
+idle_timeout_mins = 720
+absolute_timeout_hours = 168
+remember_me_days = 30
+
+[security.password]
+# Revisit when the hosts change. The number to watch is wall time per hash on
+# the production box: keep it around 200-500 ms, and raise memory_kib - not
+# iterations - to get there.
+memory_kib = 19456
+iterations = 2
+parallelism = 1
+
+[security.signup]
+# Public onboarding. Set to false for a deployment where workspaces are only
+# created by an administrator.
+enabled = true
+# Flip to true once SMTP is wired up.
+require_email_verification = false
+
+[security.mfa]
+# Supplied through PHONIX__SECURITY__MFA__ENCRYPTION_KEY. Left empty here so a
+# key can never be committed; startup refuses to run without it, and refuses the
+# development key outright.
+#
+#   openssl rand -base64 32
+#
+# Rotating it invalidates every enrolled authenticator app, so treat it as
+# permanent for the life of the deployment.
+encryption_key = ""

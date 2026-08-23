@@ -1,0 +1,4 @@
+# Tenant subdomains serve private application data; nothing here should be
+# indexed. Loosen this per-host once there is a public marketing surface.
+User-agent: *
+Disallow: /

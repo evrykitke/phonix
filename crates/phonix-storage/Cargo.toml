@@ -1,0 +1,31 @@
+[package]
+name = "phonix-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Where uploaded bytes live.
+#
+# An infrastructure crate, beside phonix-db and phonix-cache rather than inside
+# phonix-services: "put these bytes somewhere and give me them back later" is a
+# dependency a use case has, not a use case. Keeping it separate is also what
+# makes a second backend a new file here instead of an edit everywhere.
+#
+# Note what is absent: no HTTP crate, no sqlx, no leptos. This layer knows about
+# bytes, keys and a filesystem, and nothing about requests or rows.
+[dependencies]
+phonix-core = { workspace = true }
+
+tokio = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v7"] }
+chrono = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+# Every stored file is hashed as it is written. The digest is the deduplication
+# handle and the only later proof that the bytes have not changed.
+sha2 = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

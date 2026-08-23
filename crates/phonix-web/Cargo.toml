@@ -1,0 +1,78 @@
+[package]
+name = "phonix-web"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# cdylib for the wasm bundle cargo-leptos builds; rlib so phonix-server can
+# link the same code for server-side rendering.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+phonix-core = { workspace = true }
+
+leptos = { workspace = true }
+leptos_meta = { workspace = true }
+leptos_router = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Both cross the wire in server-function payloads and compile to wasm cleanly.
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# --- hydrate (wasm) only ---
+wasm-bindgen = { workspace = true, optional = true }
+console_error_panic_hook = { workspace = true, optional = true }
+web-sys = { workspace = true, optional = true }
+js-sys = { workspace = true, optional = true }
+wasm-bindgen-futures = { workspace = true, optional = true }
+
+# --- ssr (server) only ---
+phonix-config = { workspace = true, optional = true }
+phonix-db = { workspace = true, optional = true }
+phonix-services = { workspace = true, optional = true }
+# The session cookie is built here: `phonix-server` and the server functions
+# both need it, and this is the lower of the two crates.
+cookie = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+secrecy = { workspace = true, optional = true }
+phonix-cache = { workspace = true, optional = true }
+phonix-messaging = { workspace = true, optional = true }
+phonix-storage = { workspace = true, optional = true }
+leptos_axum = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+qrcode = { workspace = true, optional = true }
+
+[features]
+default = []
+hydrate = [
+    "leptos/hydrate",
+    "dep:wasm-bindgen",
+    "dep:console_error_panic_hook",
+    "dep:web-sys",
+    "dep:js-sys",
+    "dep:wasm-bindgen-futures",
+]
+ssr = [
+    "leptos/ssr",
+    "leptos_meta/ssr",
+    "leptos_router/ssr",
+    "dep:leptos_axum",
+    "dep:axum",
+    "dep:tokio",
+    "dep:tracing",
+    "dep:phonix-config",
+    "dep:phonix-db",
+    "dep:phonix-services",
+    "dep:cookie",
+    "dep:http",
+    "dep:secrecy",
+    "dep:phonix-cache",
+    "dep:phonix-messaging",
+    "dep:phonix-storage",
+    "dep:qrcode",
+]

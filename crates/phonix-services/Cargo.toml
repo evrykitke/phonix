@@ -1,0 +1,48 @@
+[package]
+name = "phonix-services"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# The application layer: use cases. Sits between the domain (phonix-core) and
+# the data access layer (phonix-db), and is what the presentation layer calls.
+#
+# It also owns the infrastructure services that are not persistence - hashing,
+# TOTP, the secret vault, and mail - because those are things a use case
+# *does*, not things a repository stores.
+[dependencies]
+phonix-core = { workspace = true }
+phonix-config = { workspace = true }
+phonix-db = { workspace = true }
+# Where uploaded bytes go. Behind a trait, so this layer names `FileStorage`
+# and never a path.
+phonix-storage = { workspace = true }
+
+# Transactions and pools cross the boundary: a use case that writes two tables
+# atomically has to hold the transaction, so it names the type.
+sqlx = { workspace = true }
+# spawn_blocking, for hashing - the one genuinely CPU-bound thing here.
+tokio = { workspace = true }
+secrecy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v7"] }
+chrono = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+
+# --- credentials ---
+argon2 = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+
+# --- mail ---
+lettre = { workspace = true }
+
+# --- multi-factor authentication ---
+hmac = { workspace = true }
+sha1 = { workspace = true }
+base32 = { workspace = true }
+chacha20poly1305 = { workspace = true }
+subtle = { workspace = true }

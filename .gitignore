@@ -1,0 +1,32 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Secrets & machine-local config
+.env
+.env.*.local
+/config/local.toml
+
+# Runtime artifacts (log files: var/{env}.log)
+/var
+/target/site
+
+# Uploaded files. One directory per tenant beneath this, created on demand -
+# see [storage].root. Never committed: it is other people's data, and on a
+# developer's machine it is whatever was dragged onto a form last week.
+/resources
+
+# Tailwind / node
+/node_modules
+/style/generated.css
+
+# Docker bind-mount data
+/.docker-data
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/settings.json
+*.swp
+Thumbs.db
+desktop.ini

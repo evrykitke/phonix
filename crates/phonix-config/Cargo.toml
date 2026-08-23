@@ -1,0 +1,23 @@
+[package]
+name = "phonix-config"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# The workspace-default policies are deserialised straight into the shared
+# domain types, so the TOML, the stored row and the settings form cannot drift.
+phonix-core = { workspace = true }
+
+config = { workspace = true }
+serde = { workspace = true }
+secrecy = { workspace = true }
+dotenvy = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+# Decoding the MFA secret-box key, which is base64 in the environment.
+base64 = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

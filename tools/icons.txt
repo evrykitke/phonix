@@ -1,0 +1,98 @@
+# Icons compiled into the browser bundle, one lucide name per line.
+#
+# Keep this list minimal and alphabetical. Every name here becomes a variant of
+# `phonix_web::icons::Icon` and its markup is embedded in the wasm bundle, so an
+# icon nobody renders is dead weight shipped to every visitor.
+#
+# Regenerate after editing:  node tools/generate-icons.mjs
+
+# -- shell chrome -----------------------------------------------------------
+bell
+chevron-down
+chevron-left
+chevron-right
+chevron-up
+chevrons-up-down
+command
+ellipsis
+external-link
+languages
+menu
+palette
+panel-left-close
+panel-left-open
+search
+x
+
+# -- theme ------------------------------------------------------------------
+monitor
+moon
+sun
+
+# -- workspace navigation ---------------------------------------------------
+boxes
+building-2
+calendar
+chart-column
+layout-dashboard
+package
+receipt
+shopping-cart
+truck
+warehouse
+
+# -- administration ---------------------------------------------------------
+clipboard-list
+list-tree
+scroll-text
+settings
+sliders-horizontal
+user-plus
+users
+
+# -- account and security ---------------------------------------------------
+ban
+circle-user
+key-round
+key-square
+lock
+log-out
+qr-code
+shield
+shield-check
+shield-off
+smartphone
+user
+
+# -- editing ----------------------------------------------------------------
+arrow-left
+arrow-right
+check
+copy
+corner-down-left
+filter
+minus
+pencil
+plus
+refresh-cw
+save
+trash-2
+
+# -- files ------------------------------------------------------------------
+crop
+download
+eye
+eye-off
+file-text
+image
+upload
+
+# -- status -----------------------------------------------------------------
+circle-alert
+circle-check
+circle-help
+clock
+info
+loader-circle
+mail
+triangle-alert

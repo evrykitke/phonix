@@ -1,0 +1,26 @@
+[package]
+name = "phonix-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Shared domain vocabulary. This crate is compiled for BOTH the server and the
+# wasm client, so it must never depend on tokio, sqlx, redis or lapin.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# `build.rs` turns i18n/en.json into the built-in catalog. It needs a JSON
+# parser on the host; nothing here reaches the wasm bundle.
+[build-dependencies]
+serde_json = { workspace = true }
+
+[dev-dependencies]
+# The encoding a leptos server function actually uses for its arguments. Here
+# so that `PageRequest` can be tested against the wire it crosses rather than
+# against JSON, which represents an empty map and hides the case that matters.
+serde_qs = "0.15"
