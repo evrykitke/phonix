@@ -19,6 +19,17 @@ environment = "development"
 # file - it is compiled into the binary - so a missing directory is fine.
 locales_dir = "locales"
 
+# Where the footer of a signed-out screen points. Every one is optional and an
+# empty value renders no link, because these are pages this application does
+# not serve - the alternative to leaving one blank is a link to a 404. Absolute
+# URLs; they may well live on a marketing site that is not this application.
+[app.links]
+privacy = ""
+terms = ""
+support = ""
+# The product site. Also what the footer wordmark points at.
+website = ""
+
 [server]
 host = "127.0.0.1"
 port = 3000
@@ -354,6 +365,57 @@ code_ttl_mins = 10
 # that keeps answering, so the answering stops. Same reasoning as
 # security.mfa.max_challenge_attempts.
 max_attempts = 5
+
+# ---------------------------------------------------------------------------
+# What an anonymous caller may ask of the public screens.
+#
+# Everything behind sign-in, signup, invitation acceptance and password reset
+# runs before anybody has said who they are: an Argon2 verification sized to be
+# slow, an SMTP conversation, and - in one case - the creation of a whole
+# Postgres database.
+#
+# Three tiers because the costs differ by orders of magnitude. One number for
+# all of them would have to be sized for the cheapest, which leaves the
+# expensive ones unprotected.
+# ---------------------------------------------------------------------------
+[security.rate_limit]
+# Off means no counting at all, not counting-without-refusing.
+enabled = true
+
+# Views of a public screen and the small reads those screens make. Generous:
+# people reload, and a shared office is one address.
+page_requests = 120
+page_window_secs = 60
+
+# Anything presenting a credential - a password, a six-digit code, an
+# invitation token, an MFA answer. Twelve a minute is more than anybody types
+# and far less than a script wants.
+action_requests = 12
+action_window_secs = 60
+
+# Creating a workspace. An hour, not a minute: each one is a database, a
+# schema, a permission tree and a catalog row, and no honest person makes three
+# before lunch.
+signup_requests = 3
+signup_window_secs = 3600
+
+# Which header carries the client's address. GETTING THIS WRONG MAKES THE WHOLE
+# LIMITER DECORATIVE: a limiter keyed on something the caller chooses is not a
+# limiter, because the caller sends a different value and gets a fresh
+# allowance with it.
+#
+# Empty - the default - keys on the peer address of the TCP connection. Nobody
+# can forge that, but it is the proxy's address when a proxy is in front. Name
+# a header only when EVERY request reaching this process has passed through
+# something that overwrites it:
+#
+#   x-real-ip        behind nginx, which sets it from $remote_addr
+#   cf-connecting-ip behind Cloudflare, and only if the origin refuses
+#                    connections that did not come from Cloudflare
+#
+# Never x-forwarded-for: nginx appends to what the client sent, so its first
+# entry is attacker-controlled by construction.
+client_ip_header = ""
 
 [security.mfa]
 # What the authenticator app shows above the code. The workspace slug is added

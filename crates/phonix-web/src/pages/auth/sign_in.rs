@@ -10,17 +10,32 @@
 //! so an established session is turned around with a 302 rather than being
 //! shown a form it then navigates away from.
 //!
+//! # The card, and what is outside it
+//!
+//! One card holds everything somebody does to get in: the fields, the button
+//! and the alternative to the password. Everything *around* it is somewhere
+//! else to go - forgotten password, no workspace yet - and sits outside on
+//! purpose. A person who is signing in successfully should never have to read
+//! past the button, and a person who cannot get in is looking for exactly the
+//! links the card does not contain.
+//!
+//! # Responsive without a single measurement
+//!
+//! `max-w-measure` and a padding step at `sm:` do all of it. Nothing here asks
+//! how wide the window is: a viewport read in Rust renders one tree on the
+//! server and a different one in the browser, and that mismatch is a wasm panic
+//! that freezes the whole application. Every width decision is a CSS class.
+//!
 //! # Every string here comes from the catalog
 //!
-//! This screen is the worked example for `crate::i18n`. Two things about it are
-//! worth copying:
+//! This screen is the worked example for `crate::i18n`. `l!` for words this
+//! file owns, `t` for a [`Message`] that arrived from the server - a rejection
+//! from `sign_in` is the latter, because the service decided *what* was wrong
+//! and this decides how to say it here.
 //!
-//! * `l!` for words this file owns, `t` for a [`Message`] that arrived from the
-//!   server. A rejection from `sign_in` is the latter - the service decided
-//!   *what* was wrong, and this decides how to say it here.
-//! * The language switcher is on the page itself, because this is the one
-//!   screen where somebody who cannot read it has no account to change the
-//!   setting from.
+//! The language picker used to live at the foot of this file. It is in the
+//! public footer now: somebody who cannot read the reset screen has the same
+//! problem as somebody who cannot read this one, and it was only on this one.
 
 use leptos::prelude::*;
 use leptos_meta::Title;
@@ -29,8 +44,7 @@ use leptos_router::hooks::use_query_map;
 
 use phonix_core::identity::PASSWORD_RESET_PATH;
 
-use crate::components::forms::{FieldLabel, FormError, SubmitButton, TextInput};
-use crate::components::language::LanguagePicker;
+use crate::components::forms::{FieldLabel, FormError, PasswordInput, SubmitButton, TextInput};
 use crate::i18n::t;
 use crate::l;
 use crate::server_fns::auth_fns::{SignInInput, sign_in};
@@ -139,139 +153,160 @@ pub fn sign_in_page() -> impl IntoView {
         // two halves.
         <Title text=format!("{} | Phonix", l!("auth.signin.title")) />
 
-        <div class="mx-auto w-full max-w-sm py-12">
-            <h1 class="text-2xl font-semibold tracking-tight text-content">
-                {l!("auth.signin.title")}
-            </h1>
-            <p class="mt-1 text-sm text-content-muted">{l!("auth.signin.welcome")}</p>
+        <div class="mx-auto w-full max-w-measure">
+            <div class="rounded-card border border-edge bg-surface-raised p-5 shadow-sm sm:p-8">
+                <h1 class="text-2xl font-semibold tracking-tight text-content">
+                    {l!("auth.signin.title")}
+                </h1>
+                <p class="mt-1 text-sm text-content-muted">{l!("auth.signin.welcome")}</p>
 
-            <form class="mt-8 space-y-5" on:submit=submit>
-                // Only on the bare domain: on a workspace host the tenant comes
-                // from the request, and a field here could point the attempt at
-                // a different workspace than the page the user is looking at.
+                <form class="mt-6 space-y-4" on:submit=submit>
+                    // Only on the bare domain: on a workspace host the tenant
+                    // comes from the request, and a field here could point the
+                    // attempt at a different workspace than the page the user
+                    // is looking at.
+                    <Suspense fallback=|| ()>
+                        {move || Suspend::new(async move {
+                            tenant
+                                .await
+                                .is_err()
+                                .then(|| {
+                                    view! {
+                                        <div>
+                                            <FieldLabel
+                                                for_id="workspace"
+                                                text=l!("auth.signin.workspace")
+                                            />
+                                            // The placeholder is an example
+                                            // address, not a word: it stays as
+                                            // it is in every language, like a
+                                            // name would.
+                                            <TextInput
+                                                id="workspace"
+                                                value=workspace
+                                                placeholder=l!("signup.slug_placeholder")
+                                                autocomplete="organization"
+                                            />
+                                            <p class="mt-1 text-xs text-content-subtle">
+                                                {l!("auth.signin.workspace_hint")}
+                                            </p>
+                                        </div>
+                                    }
+                                })
+                        })}
+                    </Suspense>
+
+                    <div>
+                        <FieldLabel for_id="email" text=l!("auth.signin.email") />
+                        <TextInput
+                            id="email"
+                            input_type="email"
+                            value=email
+                            autocomplete="username"
+                        />
+                    </div>
+
+                    <div>
+                        // The label row carries the reset link on a workspace
+                        // host. Beside the field it is about rather than at the
+                        // bottom of the page: somebody who has just failed to
+                        // remember a password is looking at that box, not
+                        // reading downwards.
+                        <div class="flex items-baseline justify-between gap-3">
+                            <FieldLabel for_id="password" text=l!("auth.signin.password") />
+
+                            // Only on a workspace host, and unlike the signup
+                            // link below this is not about spam - it is that
+                            // the screen would not work. A reset needs an
+                            // account in one workspace's database, and on the
+                            // bare domain the request carries no tenant to look
+                            // in. Somebody who arrives there types their
+                            // workspace address into the field above and
+                            // reaches their own host, where this appears.
+                            <Suspense fallback=|| ()>
+                                {move || Suspend::new(async move {
+                                    tenant
+                                        .await
+                                        .is_ok()
+                                        .then(|| {
+                                            view! {
+                                                <A
+                                                    href=PASSWORD_RESET_PATH
+                                                    attr:class="shrink-0 text-xs text-content-muted hover:text-content hover:underline"
+                                                >
+                                                    {l!("auth.signin.forgot")}
+                                                </A>
+                                            }
+                                        })
+                                })}
+                            </Suspense>
+                        </div>
+
+                        <PasswordInput
+                            id="password"
+                            value=password
+                            autocomplete="current-password"
+                        />
+                    </div>
+
+                    <label class="flex w-fit items-center gap-2 text-sm text-content-muted">
+                        <input
+                            type="checkbox"
+                            class="h-4 w-4 rounded border-edge-strong"
+                            prop:checked=move || remember_me.get()
+                            on:change=move |ev| remember_me.set(event_target_checked(&ev))
+                        />
+                        {l!("auth.signin.remember")}
+                    </label>
+
+                    <FormError message=message />
+
+                    <SubmitButton label=l!("auth.signin.title") pending=submitting />
+                </form>
+
+                // Below the password form, not above it. The credential most
+                // people here are about to use is the one they typed into this
+                // workspace, and a provider button at the top of a sign-in
+                // screen reliably collects people who then cannot remember
+                // which of the two they used last time.
                 <Suspense fallback=|| ()>
                     {move || Suspend::new(async move {
-                        tenant
+                        google
                             .await
-                            .is_err()
-                            .then(|| {
+                            .ok()
+                            .flatten()
+                            .map(|href| {
                                 view! {
-                                    <div>
-                                        <FieldLabel
-                                            for_id="workspace"
-                                            text=l!("auth.signin.workspace")
-                                        />
-                                        // The placeholder is an example address,
-                                        // not a word: it stays as it is in every
-                                        // language, like a name would.
-                                        <TextInput
-                                            id="workspace"
-                                            value=workspace
-                                            placeholder=l!("signup.slug_placeholder")
-                                            autocomplete="organization"
-                                        />
-                                        <p class="mt-1 text-xs text-content-subtle">
-                                            {l!("auth.signin.workspace_hint")}
-                                        </p>
+                                    <div class="mt-6 flex items-center gap-3">
+                                        <span class="h-px flex-1 bg-edge"></span>
+                                        <span class="text-xs text-content-subtle">
+                                            {l!("auth.signin.or")}
+                                        </span>
+                                        <span class="h-px flex-1 bg-edge"></span>
                                     </div>
+
+                                    // A plain link, not a button with a handler:
+                                    // this is a top-level navigation to another
+                                    // host, which is exactly what an anchor is.
+                                    <a
+                                        href=href
+                                        class="mt-4 flex w-full items-center justify-center gap-2 \
+                                               rounded-control border border-edge-strong px-4 py-2 \
+                                               font-medium text-content hover:bg-surface-sunken \
+                                               focus:outline-none focus:ring-2 focus:ring-brand"
+                                    >
+                                        <GoogleMark />
+                                        {l!("auth.google.continue")}
+                                    </a>
                                 }
                             })
                     })}
                 </Suspense>
+            </div>
 
-                <div>
-                    <FieldLabel for_id="email" text=l!("auth.signin.email") />
-                    <TextInput
-                        id="email"
-                        input_type="email"
-                        value=email
-                        autocomplete="username"
-                    />
-                </div>
-
-                <div>
-                    <FieldLabel for_id="password" text=l!("auth.signin.password") />
-                    <TextInput
-                        id="password"
-                        input_type="password"
-                        value=password
-                        autocomplete="current-password"
-                    />
-                </div>
-
-                <label class="flex items-center gap-2 text-sm text-content-muted">
-                    <input
-                        type="checkbox"
-                        class="h-4 w-4 rounded border-edge-strong"
-                        prop:checked=move || remember_me.get()
-                        on:change=move |ev| remember_me.set(event_target_checked(&ev))
-                    />
-                    {l!("auth.signin.remember")}
-                </label>
-
-                <FormError message=message />
-
-                <SubmitButton label=l!("auth.signin.title") pending=submitting />
-            </form>
-
-            // Below the password form, not above it. The credential most
-            // people here are about to use is the one they typed into this
-            // workspace, and a provider button at the top of a sign-in screen
-            // reliably collects people who then cannot remember which of the
-            // two they used last time.
-            <Suspense fallback=|| ()>
-                {move || Suspend::new(async move {
-                    google.await.ok().flatten().map(|href| {
-                        view! {
-                            <div class="mt-6 flex items-center gap-3">
-                                <span class="h-px flex-1 bg-edge"></span>
-                                <span class="text-xs text-content-subtle">
-                                    {l!("auth.signin.or")}
-                                </span>
-                                <span class="h-px flex-1 bg-edge"></span>
-                            </div>
-
-                            // A plain link, not a button with a handler: this
-                            // is a top-level navigation to another host, which
-                            // is exactly what an anchor is.
-                            <a
-                                href=href
-                                class="mt-4 flex w-full items-center justify-center gap-2                                        rounded-md border border-edge-strong px-4 py-2                                        font-medium text-content hover:bg-surface-sunken                                        focus:outline-none focus:ring-2 focus:ring-brand"
-                            >
-                                <GoogleMark />
-                                {l!("auth.google.continue")}
-                            </a>
-                        }
-                    })
-                })}
-            </Suspense>
-
-            // Only on a workspace host, and unlike the signup link below this
-            // is not about spam - it is that the screen would not work. A reset
-            // needs an account in one workspace's database, and on the bare
-            // domain the request carries no tenant to look in. Somebody who
-            // arrives there types their workspace address into the field above
-            // and reaches their own host, where this appears.
-            <Suspense fallback=|| ()>
-                {move || Suspend::new(async move {
-                    tenant
-                        .await
-                        .is_ok()
-                        .then(|| {
-                            view! {
-                                <p class="mt-4 text-sm">
-                                    <A
-                                        href=PASSWORD_RESET_PATH
-                                        attr:class="text-content-muted hover:underline"
-                                    >
-                                        {l!("auth.signin.forgot")}
-                                    </A>
-                                </p>
-                            }
-                        })
-                })}
-            </Suspense>
-
+            // Outside the card: this is somewhere else to go, not part of
+            // signing in.
+            //
             // Only on the bare domain, and for the same reason the workspace
             // field is: this page is somebody's front door to a workspace that
             // already exists, and the one thing behind this link is building
@@ -285,7 +320,7 @@ pub fn sign_in_page() -> impl IntoView {
                         .is_err()
                         .then(|| {
                             view! {
-                                <p class="mt-6 text-sm text-content-muted">
+                                <p class="mt-6 text-center text-sm text-content-muted">
                                     {l!("auth.signin.no_workspace")} " "
                                     <A
                                         href="/signup"
@@ -298,13 +333,6 @@ pub fn sign_in_page() -> impl IntoView {
                         })
                 })}
             </Suspense>
-
-            // Below the form rather than above it: somebody who can read the
-            // page should reach the password field first, and somebody who
-            // cannot is looking for exactly this and will find it either way.
-            <div class="mt-10 border-t border-edge pt-4">
-                <LanguagePicker />
-            </div>
         </div>
     }
 }

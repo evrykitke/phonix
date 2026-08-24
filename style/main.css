@@ -704,4 +704,114 @@
             animation: none;
         }
     }
+
+    /* ----------------------------------------------------------------------
+       The provisioning screen.
+
+       A workspace takes a second or two to build and the browser then leaves
+       for a different host. Between those two things is the only moment this
+       application ever asks somebody to wait, so it is the one place worth
+       animating properly - and all four keyframes below are here rather than
+       in the markup because a utility cannot express a keyframe.
+
+       Timings are deliberately long. This screen is watched, not glanced at:
+       an animation tuned for a 150ms toast reads as a flicker when it has five
+       seconds to fill.
+       ---------------------------------------------------------------------- */
+
+    /* The bar under the ring, filling once over the life of the screen.
+
+       `transform: scaleX` and not `width`, because width relayouts the row on
+       every frame and a transform is composited. `transform-origin: left` is
+       what makes it grow from the left rather than out of the middle.
+
+       `forwards` so it stays full at the end - without it the bar snaps back
+       to empty for the instant before the browser navigates away, which reads
+       as the whole thing having failed at the last moment. */
+    @keyframes provision-fill {
+        from {
+            transform: scaleX(0);
+        }
+        to {
+            transform: scaleX(1);
+        }
+    }
+
+    .provision-fill {
+        transform-origin: left;
+        animation: provision-fill var(--provision-duration, 5s) linear forwards;
+    }
+
+    /* A step that is finished, arriving. Small and quick: four of these land
+       in sequence, and anything slower turns a checklist into a parade. */
+    @keyframes provision-step-done {
+        from {
+            opacity: 0;
+            transform: scale(0.6);
+        }
+        to {
+            opacity: 1;
+            transform: none;
+        }
+    }
+
+    .provision-step-done {
+        animation: provision-step-done 220ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+    }
+
+    /* A step that has not happened yet: a dot breathing, so the list reads as
+       live rather than as a static bullet list somebody forgot to update.
+
+       It never reaches zero opacity. A dot that vanishes and returns looks
+       like a rendering fault; one that dims looks like it is waiting. */
+    @keyframes provision-waiting {
+        0%,
+        100% {
+            opacity: 0.35;
+            transform: scale(0.85);
+        }
+        50% {
+            opacity: 0.9;
+            transform: scale(1);
+        }
+    }
+
+    .provision-waiting {
+        animation: provision-waiting 1.4s ease-in-out infinite;
+    }
+
+    /* The ring's outer arc, sweeping. Slower than Tailwind's `animate-spin`
+       (1s), which is right for a button and frantic at this size. */
+    @keyframes provision-sweep {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    .provision-sweep {
+        animation: provision-sweep 1.6s linear infinite;
+    }
+
+    /* The inner arc, going the other way and slower. Two arcs at different
+       speeds is what stops a spinner reading as a single rigid object, which
+       is the thing that makes people check whether it has frozen. */
+    .provision-sweep-reverse {
+        animation: provision-sweep 2.4s linear infinite reverse;
+    }
+
+    /* Everything above, for somebody who asked not to be moved.
+
+       The progress bar is the one exception: it is left running, because it is
+       not decoration - it is the only indication of how much longer this
+       screen has, and freezing it at empty would be a worse experience than the
+       motion it is being spared. It is a single linear transform of one
+       element, which is the mildest thing on the page. */
+    @media (prefers-reduced-motion: reduce) {
+        .provision-step-done,
+        .provision-waiting,
+        .provision-sweep,
+        .provision-sweep-reverse {
+            animation: none;
+        }
+    }
 }

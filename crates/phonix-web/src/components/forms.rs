@@ -11,6 +11,7 @@
 use leptos::prelude::*;
 use phonix_core::identity::{PasswordStrength, password_strength};
 
+use crate::icons::{Icon, IconSize};
 use crate::l;
 
 /// A label bound to its input.
@@ -69,6 +70,97 @@ pub fn text_input(
     }
 }
 
+/// A password box with a control that reveals what is in it.
+///
+/// # Why a password field gets its own component
+///
+/// Typing a password you cannot see, on a phone keyboard, with a policy that
+/// wants a symbol in it, is the single most common way somebody locks
+/// themselves out of a screen that was working. The reveal is not a decoration:
+/// it is the difference between "wrong password" and "wrong password, and no
+/// way to find out why".
+///
+/// The toggle is a `<button type="button">`. Inside a form, a button with no
+/// type is a **submit** button - so the browser's default would have made
+/// "show my password" send the form.
+///
+/// # It is not remembered
+///
+/// Revealed state is local to this field and resets on every navigation. A
+/// preference that persisted would eventually show somebody's password on a
+/// shared screen because of a decision they made on their own laptop.
+#[component]
+pub fn password_input(
+    #[prop(into)] id: String,
+    value: RwSignal<String>,
+    /// `new-password` while choosing one, `current-password` while signing in.
+    /// Getting this wrong is what makes a password manager offer to save a
+    /// sign-in, or fill a "choose a new password" box with the old one.
+    #[prop(into)]
+    autocomplete: String,
+    #[prop(optional, into)] error: Option<Signal<Option<String>>>,
+) -> impl IntoView {
+    let name = id.clone();
+    let toggle_for = id.clone();
+    let revealed = RwSignal::new(false);
+    let has_error = move || error.is_some_and(|error| error.get().is_some());
+
+    view! {
+        // `relative` so the button can be positioned over the box. The input
+        // keeps the global styling from `style/main.css` - it is a plain
+        // `input` and not `.control-bare`, so it draws its own border and this
+        // wrapper adds nothing but a position.
+        <div class="relative mt-1 max-w-measure">
+            <input
+                id=id
+                name=name
+                // Reactive: switching the attribute is what reveals it, and it
+                // keeps the value, the cursor and the undo stack intact. A
+                // second input swapped in would lose all three.
+                type=move || if revealed.get() { "text" } else { "password" }
+                autocomplete=autocomplete
+                // `pr-10` so the text never runs under the button. `mt-0`
+                // because the margin is on the wrapper now, not the box.
+                class=move || {
+                    if has_error() { "mt-0 pr-10 border-danger" } else { "mt-0 pr-10" }
+                }
+                prop:value=move || value.get()
+                on:input=move |ev| value.set(event_target_value(&ev))
+            />
+
+            <button
+                // Without this the browser treats it as a submit button and
+                // revealing the password sends the form.
+                type="button"
+                class="absolute inset-y-0 right-0 grid w-10 place-items-center rounded-r-control text-content-subtle hover:text-content"
+                // Named for what pressing it does, not for what it shows: a
+                // screen reader announces the action, and an icon alone
+                // announces nothing at all.
+                aria-label=move || {
+                    if revealed.get() { l!("field.password_hide") } else { l!("field.password_show") }
+                }
+                aria-controls=toggle_for
+                aria-pressed=move || revealed.get().to_string()
+                on:click=move |_| revealed.update(|shown| *shown = !*shown)
+            >
+                {move || {
+                    // The eye is open when the password is hidden - the icon
+                    // shows what the button will do, which is the convention
+                    // every browser and password manager already uses.
+                    let icon = if revealed.get() { Icon::EyeOff } else { Icon::Eye };
+                    view! { <Icon icon=icon size=IconSize::Sm /> }
+                }}
+            </button>
+        </div>
+
+        {move || {
+            error
+                .and_then(|error| error.get())
+                .map(|message| view! { <p class="mt-1 text-sm text-danger">{message}</p> })
+        }}
+    }
+}
+
 /// The form-level error, above the submit button.
 #[component]
 pub fn form_error(message: RwSignal<Option<String>>) -> impl IntoView {
@@ -111,7 +203,25 @@ pub fn submit_button(
                    focus:ring-offset-2 focus:ring-offset-surface disabled:opacity-60"
             disabled=move || pending.get()
         >
-            {move || if pending.get() { pending_label.clone() } else { label.clone() }}
+            // A spinner beside the word, not instead of it. "Working" on its
+            // own is a label that could have been there all along; a moving
+            // thing is what says the press registered.
+            <span class="inline-flex items-center justify-center gap-2">
+                {move || {
+                    pending
+                        .get()
+                        .then(|| {
+                            view! {
+                                <Icon
+                                    icon=Icon::LoaderCircle
+                                    size=IconSize::Sm
+                                    class="animate-spin"
+                                />
+                            }
+                        })
+                }}
+                {move || if pending.get() { pending_label.clone() } else { label.clone() }}
+            </span>
         </button>
     }
 }

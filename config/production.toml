@@ -139,6 +139,19 @@ enabled = true
 # Flip to true once SMTP is wired up.
 require_email_verification = false
 
+[security.rate_limit]
+# nginx sets X-Real-IP from $remote_addr and overwrites whatever the client
+# sent, so it cannot be forged by anyone talking to nginx.
+#
+# CAVEAT, and it matters: with Cloudflare proxying, nginx's $remote_addr is a
+# Cloudflare edge address - so this buckets whole swathes of visitors together
+# and one abuser can exhaust the allowance for everybody behind the same edge.
+# The fix is cf-connecting-ip, which is only safe once the origin firewall
+# refuses connections that did not come from Cloudflare. Until then this is the
+# conservative choice: it over-limits rather than under-limits, and it cannot
+# be bypassed.
+client_ip_header = "x-real-ip"
+
 [security.mfa]
 # Supplied through PHONIX__SECURITY__MFA__ENCRYPTION_KEY. Left empty here so a
 # key can never be committed; startup refuses to run without it, and refuses the

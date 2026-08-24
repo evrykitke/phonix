@@ -4,17 +4,27 @@
 //!
 //! * **The app shell** - navigation panel, top bar, command palette. See
 //!   [`crate::components::shell`].
-//! * **Bare** - the page on its own, centred by the page itself: the sign-in
-//!   and sign-up screens, and the screens that finish a sign-in.
+//! * **Public chrome** - a slim top bar and a footer around a screen somebody
+//!   reaches before they are signed in. See
+//!   [`crate::components::public_chrome`].
 //!
 //! # Chosen by path, guaranteed by `landing`
 //!
 //! Reading the path looks like the fragile option - a list of prefixes that
 //! drifts out of step with the router - and it would be, on its own. What makes
 //! it exact is [`landing`]: a session may only ever be *on* a path that suits
-//! it, because anything else is redirected before the page renders. Bare
+//! it, because anything else is redirected before the page renders. Public
 //! chrome on `/auth/*` is therefore the same statement as "this session has not
 //! finished signing in", arrived at without waiting for a round trip.
+//!
+//! # The list lives in one place now
+//!
+//! [`is_signed_out_chrome`] is the same function [`landing`] asks, and the
+//! rate limiter in `phonix-server` asks it too. It used to be spelled out here
+//! as well, and the copies drifted: `/forgot-password` was added to `landing`
+//! and to nothing else, so it was reachable with no session and rendered
+//! *inside the signed-in application shell* - a navigation panel drawn for
+//! somebody with no account behind it.
 //!
 //! The alternative - awaiting the session here and choosing from it - puts
 //! `<Outlet/>` inside a `Suspend`, and a route outlet inside an async boundary
@@ -30,10 +40,9 @@
 use leptos::prelude::*;
 use leptos_router::components::Outlet;
 use leptos_router::hooks::use_location;
-use phonix_core::identity::{
-    HALF_AUTHENTICATED_PREFIX, Landing, SIGN_IN_PATH, SIGN_UP_PATH, landing,
-};
+use phonix_core::identity::{Landing, is_signed_out_chrome, landing};
 
+use crate::components::public_chrome::PublicChrome;
 use crate::components::shell::AppShell;
 use crate::server_fns::auth_fns::current_user;
 
@@ -41,19 +50,16 @@ use crate::server_fns::auth_fns::current_user;
 pub fn layout() -> impl IntoView {
     let location = use_location();
 
-    // Whether this path is one a finished session belongs on. Reactive, so a
-    // client-side navigation from the challenge to the dashboard swaps the
-    // chrome without a reload.
-    let bare = move || {
-        let path = location.pathname.get();
-        path == SIGN_IN_PATH || path == SIGN_UP_PATH || path.starts_with(HALF_AUTHENTICATED_PREFIX)
-    };
+    // Whether this path belongs to somebody who is not yet through the door.
+    // Reactive, so a client-side navigation from the challenge to the dashboard
+    // swaps the chrome without a reload.
+    let signed_out = move || is_signed_out_chrome(&location.pathname.get());
 
     view! {
         <Gatekeeper />
 
         <Show
-            when=bare
+            when=signed_out
             fallback=|| {
                 view! {
                     <AppShell>
@@ -62,9 +68,9 @@ pub fn layout() -> impl IntoView {
                 }
             }
         >
-            <div class="min-h-full bg-surface text-content">
+            <PublicChrome>
                 <Outlet />
-            </div>
+            </PublicChrome>
         </Show>
     }
 }

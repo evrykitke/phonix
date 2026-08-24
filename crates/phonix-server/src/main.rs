@@ -13,6 +13,7 @@ mod google;
 mod health;
 mod jobs;
 mod middleware;
+mod rate_limit;
 mod startup;
 
 use std::process::ExitCode;

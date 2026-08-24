@@ -44,7 +44,7 @@ pub fn challenge_page() -> impl IntoView {
     view! {
         <Title text=format!("{} | Phonix", l!("challenge.title")) />
 
-        <div class="mx-auto w-full max-w-sm py-12">
+        <div class="mx-auto w-full max-w-measure rounded-card border border-edge bg-surface-raised p-5 shadow-sm sm:p-8">
             <Suspense fallback=|| {
                 view! { <p class="text-sm text-content-subtle">"Loading..."</p> }
             }>

@@ -7,6 +7,7 @@ pub mod layout;
 pub mod logo;
 pub mod page;
 pub mod permission_tree;
+pub mod public_chrome;
 pub mod shell;
 pub mod tenant_badge;
 pub mod user_link;

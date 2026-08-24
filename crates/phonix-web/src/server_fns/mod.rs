@@ -13,6 +13,8 @@
 //! | [`settings_fns`] | This workspace's password and MFA policy           |
 //! | [`admin_fns`]    | The people in this workspace, and what they may do |
 //! | [`file_fns`]     | Where an upload got to, and what to do with it     |
+//! | [`public_fns`]   | What a signed-out screen shows in its chrome        |
+//! | [`reset_fns`]    | A forgotten password: ask for a code, spend it      |
 //!
 //! # These are thin on purpose
 //!
@@ -30,6 +32,7 @@ pub mod admin_fns;
 pub mod auth_fns;
 pub mod file_fns;
 pub mod onboarding_fns;
+pub mod public_fns;
 pub mod reset_fns;
 pub mod settings_fns;
 pub mod tenant_fns;

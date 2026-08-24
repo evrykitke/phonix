@@ -43,7 +43,7 @@ use leptos_router::components::A;
 use phonix_core::identity::{FieldError, SIGN_IN_PATH, validate_password};
 
 use crate::components::forms::{
-    FieldLabel, FormError, SecondaryButton, StrengthMeter, SubmitButton, TextInput,
+    FieldLabel, FormError, PasswordInput, SecondaryButton, StrengthMeter, SubmitButton, TextInput,
 };
 use crate::i18n::t;
 use crate::l;
@@ -211,7 +211,10 @@ pub fn forgot_password_page() -> impl IntoView {
     view! {
         <Title text=format!("{} | Phonix", l!("reset.title")) />
 
-        <div class="mx-auto w-full max-w-sm py-12">
+        // No vertical padding of its own: the public chrome owns the page's
+        // margins, and a screen that adds its own ends up with two.
+        <div class="mx-auto w-full max-w-measure">
+            <div class="rounded-card border border-edge bg-surface-raised p-5 shadow-sm sm:p-8">
             <Show when=move || step.get() == Step::Ask>
                 <h1 class="text-2xl font-semibold tracking-tight text-content">
                     {l!("reset.title")}
@@ -269,9 +272,8 @@ pub fn forgot_password_page() -> impl IntoView {
 
                     <div>
                         <FieldLabel for_id="reset-password" text=l!("reset.new_password") />
-                        <TextInput
+                        <PasswordInput
                             id="reset-password"
-                            input_type="password"
                             value=password
                             autocomplete="new-password"
                             error=error_for("password")
@@ -281,9 +283,8 @@ pub fn forgot_password_page() -> impl IntoView {
 
                     <div>
                         <FieldLabel for_id="reset-confirm" text=l!("reset.confirm_password") />
-                        <TextInput
+                        <PasswordInput
                             id="reset-confirm"
-                            input_type="password"
                             value=confirm
                             autocomplete="new-password"
                             error=error_for("password_confirmation")
@@ -329,11 +330,14 @@ pub fn forgot_password_page() -> impl IntoView {
                 </A>
             </Show>
 
-            <div class="mt-10 border-t border-edge pt-4 text-sm">
+            </div>
+
+            // Outside the card: somewhere else to go, not part of resetting.
+            <p class="mt-6 text-center text-sm">
                 <A href=SIGN_IN_PATH attr:class="text-content-muted hover:underline">
                     {l!("reset.back_to_sign_in")}
                 </A>
-            </div>
+            </p>
         </div>
     }
 }

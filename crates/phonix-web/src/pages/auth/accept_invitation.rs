@@ -25,6 +25,7 @@ use leptos_meta::Title;
 use leptos_router::hooks::use_query_map;
 use phonix_core::identity::SIGN_IN_PATH;
 
+use crate::components::forms::PasswordInput;
 use crate::components::page::{Notice, Panel, PrimaryButton, Tone};
 use crate::icons::{Icon, IconSize};
 use crate::l;
@@ -49,7 +50,7 @@ pub fn accept_invitation_page() -> impl IntoView {
     view! {
         <Title text=format!("{} | Phonix", l!("accept.title")) />
 
-        <div class="mx-auto w-full max-w-measure py-8">
+        <div class="mx-auto w-full max-w-measure rounded-card border border-edge bg-surface-raised p-5 shadow-sm sm:p-8">
             {move || match outcome() {
                 // Done. Nothing left to fill in, so the form goes away rather
                 // than sitting there inviting a second attempt.
@@ -150,15 +151,10 @@ pub fn accept_invitation_page() -> impl IntoView {
                                     >
                                         {l!("field.password")}
                                     </label>
-                                    <input
+                                    <PasswordInput
                                         id="new-password"
-                                        type="password"
+                                        value=password
                                         autocomplete="new-password"
-                                        required
-                                        prop:value=move || password.get()
-                                        on:input=move |event| {
-                                            password.set(event_target_value(&event));
-                                        }
                                     />
                                 </div>
 
@@ -169,15 +165,10 @@ pub fn accept_invitation_page() -> impl IntoView {
                                     >
                                         {l!("accept.password_again")}
                                     </label>
-                                    <input
+                                    <PasswordInput
                                         id="confirm-password"
-                                        type="password"
+                                        value=confirm
                                         autocomplete="new-password"
-                                        required
-                                        prop:value=move || confirm.get()
-                                        on:input=move |event| {
-                                            confirm.set(event_target_value(&event));
-                                        }
                                     />
                                 </div>
 

@@ -33,10 +33,63 @@ pub struct AppSection {
     /// deployment that ships one language should not have to say so.
     #[serde(default = "default_locales_dir")]
     pub locales_dir: String,
+    /// Where the footer of a public screen points.
+    #[serde(default)]
+    pub links: PublicLinks,
 }
 
 fn default_locales_dir() -> String {
     "locales".to_owned()
+}
+
+/// The handful of destinations a signed-out visitor might want.
+///
+/// Every one is optional and every one defaults to empty, which renders no
+/// link at all. That is the point: these are pages this application does not
+/// serve, so the alternative to configuring them is not a sensible default, it
+/// is a footer full of links to a 404. A deployment that has a privacy policy
+/// says where it is; one that has not says nothing.
+///
+/// Absolute URLs. They may well live on a marketing site that is not this
+/// application - which is exactly why they are configuration and not routes.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PublicLinks {
+    #[serde(default)]
+    pub privacy: String,
+    #[serde(default)]
+    pub terms: String,
+    #[serde(default)]
+    pub support: String,
+    /// The product or company site. Also what the footer wordmark points at.
+    #[serde(default)]
+    pub website: String,
+}
+
+impl PublicLinks {
+    /// One link, or `None` when it is not configured.
+    ///
+    /// Trimmed, because a value that is spaces is a value somebody meant to
+    /// remove - and a footer link with an empty `href` reloads the page.
+    fn some(value: &str) -> Option<&str> {
+        let value = value.trim();
+        (!value.is_empty()).then_some(value)
+    }
+
+    pub fn privacy(&self) -> Option<&str> {
+        Self::some(&self.privacy)
+    }
+
+    pub fn terms(&self) -> Option<&str> {
+        Self::some(&self.terms)
+    }
+
+    pub fn support(&self) -> Option<&str> {
+        Self::some(&self.support)
+    }
+
+    pub fn website(&self) -> Option<&str> {
+        Self::some(&self.website)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -60,6 +113,30 @@ impl ServerConfig {
     /// `host:port`, ready for `TcpListener::bind`.
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.host, self.port)
+    }
+
+    /// What every workspace address ends in, e.g. `.phonix.local:3000`.
+    ///
+    /// The signup form shows this beside the address box, so somebody typing
+    /// `acme` can see the host they are about to get. It was a literal
+    /// `".localhost:3000"` in the markup until this existed, which was correct
+    /// on one developer's machine and wrong on the internet - the production
+    /// screen promised every new customer a workspace at
+    /// `acme.localhost:3000`.
+    ///
+    /// Built from the same two fields as [`Self::tenant_origin`], and by the
+    /// same rule about the default port, so the label and the URL cannot
+    /// disagree.
+    pub fn workspace_suffix(&self) -> String {
+        let default_port = match self.scheme.as_str() {
+            "https" => 443,
+            _ => 80,
+        };
+        if self.port == default_port {
+            format!(".{}", self.base_domain)
+        } else {
+            format!(".{}:{}", self.base_domain, self.port)
+        }
     }
 
     /// Absolute origin for a tenant, e.g. `http://acme.phonix.local:3000`.
@@ -414,6 +491,93 @@ pub struct SecurityConfig {
     /// an organization's decision.
     #[serde(default)]
     pub workspace_defaults: WorkspaceDefaults,
+    /// What an anonymous caller may ask of the public screens.
+    #[serde(default)]
+    pub rate_limit: RateLimitConfig,
+}
+
+/// How much unauthenticated traffic one client may send.
+///
+/// Everything here is about the screens somebody reaches *before* they have a
+/// session - see [`phonix_core::identity::is_public_path`]. Behind them sit an
+/// Argon2 verification, an SMTP conversation and, in one case, the creation of
+/// a whole Postgres database, none of which asks anybody who they are first.
+///
+/// # Three tiers, because the costs differ by orders of magnitude
+///
+/// A page view is cheap and people reload. A credential attempt costs a
+/// deliberately slow hash and is the thing an attacker repeats. Creating a
+/// workspace costs a database, a schema, a permission tree and a row in the
+/// catalog, and no honest person does it twice in a minute.
+///
+/// One number for all three would have to be sized for the cheapest, which
+/// leaves the expensive ones unprotected.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RateLimitConfig {
+    /// Off means no counting at all - not counting-without-refusing.
+    pub enabled: bool,
+
+    /// Views of a public screen, and the small reads those screens make.
+    pub page_requests: u32,
+    pub page_window_secs: u64,
+
+    /// Anything that presents a credential: a password, a six-digit code, an
+    /// invitation token, an MFA answer.
+    pub action_requests: u32,
+    pub action_window_secs: u64,
+
+    /// Creating a workspace. Measured in hours, because each one is a database.
+    pub signup_requests: u32,
+    pub signup_window_secs: u64,
+
+    /// Which header carries the client's address, or empty for the socket.
+    ///
+    /// **Getting this wrong makes the whole limiter decorative.** A limiter
+    /// keyed on something the caller chooses is not a limiter: the caller sends
+    /// a different value each time and gets a fresh allowance with it.
+    ///
+    /// Empty - the default - keys on the peer address of the TCP connection,
+    /// which nobody can forge but which is the proxy's address when there is a
+    /// proxy in front. Name a header only when *every* request reaching this
+    /// process has passed through something that overwrites it:
+    ///
+    /// * `x-real-ip` behind nginx, which sets it from `$remote_addr`.
+    /// * `cf-connecting-ip` behind Cloudflare - and only if the origin refuses
+    ///   connections that did not come from Cloudflare, because otherwise
+    ///   anybody who reaches the origin directly writes their own key.
+    ///
+    /// Never `x-forwarded-for`: nginx *appends* to what the client sent, so its
+    /// first entry is attacker-controlled by construction.
+    #[serde(default)]
+    pub client_ip_header: String,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            page_requests: 120,
+            page_window_secs: 60,
+            action_requests: 12,
+            action_window_secs: 60,
+            signup_requests: 3,
+            signup_window_secs: 3600,
+            client_ip_header: String::new(),
+        }
+    }
+}
+
+impl RateLimitConfig {
+    /// The header to read the client address from, lowercased, or `None`.
+    ///
+    /// `None` means the socket address, which is the safe answer and the
+    /// default. A header of whitespace is the same as none rather than a
+    /// header nothing ever sets - a limiter that silently keys every request
+    /// to the same empty value would refuse the whole internet as one client.
+    pub fn ip_header(&self) -> Option<String> {
+        let name = self.client_ip_header.trim().to_ascii_lowercase();
+        (!name.is_empty()).then_some(name)
+    }
 }
 
 /// Signing in with a Google account.
@@ -955,4 +1119,104 @@ pub struct UploadJobsConfig {
     pub max_attempts: u32,
     /// A job claimed and unfinished for this long is offered to another worker.
     pub claim_timeout_secs: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn server(scheme: &str, port: u16) -> ServerConfig {
+        ServerConfig {
+            host: "0.0.0.0".to_owned(),
+            port,
+            base_domain: "example.com".to_owned(),
+            scheme: scheme.to_owned(),
+            shutdown_timeout_secs: 30,
+            request_timeout_secs: 30,
+            body_limit_bytes: 2_097_152,
+            compression: true,
+            cors: CorsConfig {
+                enabled: false,
+                allowed_origins: Vec::new(),
+                allow_credentials: false,
+            },
+        }
+    }
+
+    #[test]
+    fn a_workspace_suffix_hides_the_default_port() {
+        // What the signup form prints next to the address box. A visible
+        // `:443` there would be the first thing a new customer saw and the
+        // first thing they asked about.
+        assert_eq!(server("https", 443).workspace_suffix(), ".example.com");
+        assert_eq!(server("http", 80).workspace_suffix(), ".example.com");
+    }
+
+    #[test]
+    fn a_workspace_suffix_keeps_a_port_that_is_not_the_default() {
+        // Development, where omitting it would print an address that does not
+        // resolve.
+        assert_eq!(server("http", 3000).workspace_suffix(), ".example.com:3000");
+    }
+
+    #[test]
+    fn the_suffix_and_the_origin_agree() {
+        // The label beside the box and the URL somebody is actually sent to
+        // are built from the same fields; this is what stops them drifting.
+        for (scheme, port) in [("https", 443), ("http", 80), ("http", 3000)] {
+            let config = server(scheme, port);
+            let origin = config.tenant_origin("acme");
+            let suffix = config.workspace_suffix();
+
+            assert!(
+                origin.ends_with(&format!("acme{suffix}")),
+                "{origin} does not end in acme{suffix}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unconfigured_link_is_absent_rather_than_empty() {
+        // An empty href reloads the page, which is the worst possible
+        // behaviour for something labelled "Privacy".
+        let links = PublicLinks {
+            privacy: "https://example.com/privacy".to_owned(),
+            terms: "   ".to_owned(),
+            support: String::new(),
+            website: String::new(),
+        };
+
+        assert_eq!(links.privacy(), Some("https://example.com/privacy"));
+        assert_eq!(links.terms(), None);
+        assert_eq!(links.support(), None);
+        assert_eq!(links.website(), None);
+    }
+
+    #[test]
+    fn no_header_named_means_the_socket_address() {
+        let config = RateLimitConfig::default();
+        assert_eq!(config.ip_header(), None);
+    }
+
+    #[test]
+    fn a_named_header_is_matched_case_insensitively() {
+        // HTTP header names are case-insensitive, and a config file written
+        // with the capitals people use in documentation must still match.
+        let config = RateLimitConfig {
+            client_ip_header: "  X-Real-IP  ".to_owned(),
+            ..RateLimitConfig::default()
+        };
+        assert_eq!(config.ip_header().as_deref(), Some("x-real-ip"));
+    }
+
+    #[test]
+    fn a_header_of_whitespace_is_the_same_as_none() {
+        // Otherwise every request keys to one empty value and the entire
+        // internet shares a single allowance.
+        let config = RateLimitConfig {
+            client_ip_header: "   ".to_owned(),
+            ..RateLimitConfig::default()
+        };
+        assert_eq!(config.ip_header(), None);
+    }
 }

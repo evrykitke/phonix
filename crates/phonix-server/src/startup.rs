@@ -20,7 +20,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 
-use crate::{auth, files, google, health, jobs, middleware};
+use crate::{auth, files, google, health, jobs, middleware, rate_limit};
 
 /// Build everything and serve until shutdown.
 pub async fn run(config: AppConfig) -> Result<()> {
@@ -151,6 +151,15 @@ pub async fn run(config: AppConfig) -> Result<()> {
 
     let routes = generate_route_list(App);
 
+    // The counters that keep an anonymous caller from spending this server's
+    // Argon2 budget, its mail relay, or its disk. Built here so there is
+    // exactly one set of them for the life of the process - a limiter
+    // constructed per request would count each request against an empty map.
+    let throttle = rate_limit::RateLimitState {
+        config: Arc::clone(&config),
+        limiter: Arc::new(rate_limit::Limiter::new()),
+    };
+
     // --- Router ------------------------------------------------------------
     let app = Router::new()
         // Health endpoints are registered before the tenant middleware so an
@@ -221,6 +230,18 @@ pub async fn run(config: AppConfig) -> Result<()> {
             middleware::resolve_tenant,
         ))
         .layer(TraceLayer::new_for_http().make_span_with(middleware::make_request_span))
+        // Above tenant resolution, and that ordering is the point: layers apply
+        // bottom-up, so this runs *first*. Resolving a tenant opens a database
+        // pool and may provision one, which is real work to spend on a request
+        // that is about to be refused - and refusing before the lookup means a
+        // flood of unknown subdomains cannot be used to hammer the catalog.
+        //
+        // Its own state, not `AppState`: the counters belong to this process,
+        // and nothing behind a server function should be able to reach them.
+        .layer(axum::middleware::from_fn_with_state(
+            throttle,
+            rate_limit::enforce,
+        ))
         // A panic in one handler returns 500 for that request instead of
         // killing the worker and every connection it was serving.
         .layer(CatchPanicLayer::new());
@@ -253,10 +274,16 @@ pub async fn run(config: AppConfig) -> Result<()> {
         );
     }
 
-    axum::serve(listener, app.into_make_service())
-        .with_graceful_shutdown(shutdown_signal(config.server.shutdown_timeout_secs))
-        .await
-        .context("server error")?;
+    // `_with_connect_info`, not the bare version, and the rate limiter depends
+    // on it: without it there is no `ConnectInfo` extension, every request keys
+    // to the same fallback, and the whole internet shares one allowance.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal(config.server.shutdown_timeout_secs))
+    .await
+    .context("server error")?;
 
     // --- Shutdown ----------------------------------------------------------
     tracing::info!("draining connections");

@@ -92,6 +92,39 @@ pub const SIGN_UP_PATH: &str = "/signup";
 /// screen for a different situation ([`PASSWORD_CHANGE_PATH`]).
 pub const PASSWORD_RESET_PATH: &str = "/forgot-password";
 
+/// Whether `path` is reachable with no session at all.
+///
+/// The four screens somebody uses *before* they have one: signing in, creating
+/// a workspace, accepting an invitation, and resetting a forgotten password.
+///
+/// # Why this is a function and not four comparisons at each call site
+///
+/// Three things need this answer and they must never disagree: [`landing`]
+/// decides who is turned away, the layout decides which chrome the screen
+/// gets, and the server decides which requests are rate limited as public
+/// traffic. When the list was written out in each of them, adding
+/// `/forgot-password` to [`landing`] left the other two behind - so the new
+/// screen was reachable, and rendered inside the signed-in application shell
+/// for somebody with no session to put in it.
+///
+/// A screen is public or it is not. One list, one answer.
+pub fn is_public_path(path: &str) -> bool {
+    path == SIGN_IN_PATH
+        || path == SIGN_UP_PATH
+        || path == INVITATION_ACCEPT_PATH
+        || path == PASSWORD_RESET_PATH
+}
+
+/// Whether `path` belongs to somebody who is not yet through the door.
+///
+/// True for every public screen and for every step of a sign-in that has
+/// started but not finished. This is the question the chrome asks: all of these
+/// are rendered on their own, without the navigation panel and top bar of an
+/// application nobody has been admitted to yet.
+pub fn is_signed_out_chrome(path: &str) -> bool {
+    is_public_path(path) || path.starts_with(HALF_AUTHENTICATED_PREFIX)
+}
+
 /// What to do with a request for `path`, given who is asking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Landing {
@@ -121,10 +154,7 @@ pub enum Landing {
 /// session that gets past this function still cannot read a thing it lacks the
 /// permission for.
 pub fn landing(path: &str, session: Option<&super::user::AuthUser>) -> Landing {
-    let is_public = path == SIGN_IN_PATH
-        || path == SIGN_UP_PATH
-        || path == INVITATION_ACCEPT_PATH
-        || path == PASSWORD_RESET_PATH;
+    let is_public = is_public_path(path);
     let is_sign_in_step = path.starts_with(HALF_AUTHENTICATED_PREFIX);
 
     match session {
@@ -241,6 +271,45 @@ mod tests {
             .to_string()
             .contains("1 minute.")
         );
+    }
+
+    /// The regression that made [`is_public_path`] a function.
+    ///
+    /// `/forgot-password` was added to `landing` and to nothing else, so it was
+    /// reachable with no session and rendered inside the signed-in application
+    /// shell. Anything `landing` treats as public must also get signed-out
+    /// chrome, and this asserts the two cannot part company again.
+    #[test]
+    fn every_public_screen_is_reachable_and_wears_signed_out_chrome() {
+        for path in [
+            SIGN_IN_PATH,
+            SIGN_UP_PATH,
+            INVITATION_ACCEPT_PATH,
+            PASSWORD_RESET_PATH,
+        ] {
+            assert!(is_public_path(path), "{path}");
+            assert!(is_signed_out_chrome(path), "{path}");
+            // Public means exactly this: no session, and the screen renders.
+            assert_eq!(landing(path, None), Landing::Stay, "{path}");
+        }
+    }
+
+    #[test]
+    fn a_screen_inside_the_application_is_neither() {
+        for path in [DASHBOARD_PATH, "/account", "/admin/users"] {
+            assert!(!is_public_path(path), "{path}");
+            assert!(!is_signed_out_chrome(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn a_half_finished_sign_in_gets_signed_out_chrome_without_being_public() {
+        for path in [MFA_CHALLENGE_PATH, MFA_ENROLMENT_PATH, PASSWORD_CHANGE_PATH] {
+            // Not public - reaching these needs a password already accepted.
+            assert!(!is_public_path(path), "{path}");
+            // But still outside the application, so still bare.
+            assert!(is_signed_out_chrome(path), "{path}");
+        }
     }
 
     #[test]
