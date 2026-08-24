@@ -33,9 +33,54 @@ pub struct AppSection {
     /// deployment that ships one language should not have to say so.
     #[serde(default = "default_locales_dir")]
     pub locales_dir: String,
+    /// What the badge in the public top bar says, if anything.
+    ///
+    /// # Why this is not just [`Self::environment`]
+    ///
+    /// It was, and the rule was "show it unless the environment is
+    /// production". That reads sensibly and is wrong for the case that
+    /// actually matters: a deployment running `PHONIX_ENV=production` because
+    /// it needs production's *hardening* - real TLS, a real proxy header for
+    /// the rate limiter, no auto-provisioning - while still being a test box
+    /// somebody is trying things on. Under the old rule that box silently
+    /// claimed to be the real thing.
+    ///
+    /// Turning `PHONIX_ENV` down to `development` to get the badge back is the
+    /// trap this exists to close, because it does not merely relax a label. It
+    /// stops `production.toml` loading at all: the session cookie loses
+    /// `Secure`, `auto_provision` comes back on, and the rate limiter's
+    /// `client_ip_header` empties out - which behind nginx keys every request
+    /// in the world to `127.0.0.1` and puts the entire internet in one bucket.
+    ///
+    /// So: an explicit label, set per deployment. Empty falls back to
+    /// [`Self::environment`] outside production, which keeps a developer's
+    /// machine labelled without configuring anything.
+    #[serde(default)]
+    pub public_label: String,
     /// Where the footer of a public screen points.
     #[serde(default)]
     pub links: PublicLinks,
+}
+
+impl AppSection {
+    /// What to print in the public top bar, or `None` for nothing.
+    ///
+    /// A badge that is always there is furniture nobody reads, so the final
+    /// production deployment shows none - it is the one deployment where
+    /// "which copy of this am I looking at" has an obvious answer.
+    pub fn badge(&self) -> Option<&str> {
+        let explicit = self.public_label.trim();
+        if !explicit.is_empty() {
+            return Some(explicit);
+        }
+
+        let environment = self.environment.trim();
+        if environment.eq_ignore_ascii_case("production") || environment.is_empty() {
+            return None;
+        }
+
+        Some(environment)
+    }
 }
 
 fn default_locales_dir() -> String {
@@ -1173,6 +1218,47 @@ mod tests {
                 "{origin} does not end in acme{suffix}"
             );
         }
+    }
+
+    fn app(environment: &str, label: &str) -> AppSection {
+        AppSection {
+            name: "Phonix".to_owned(),
+            environment: environment.to_owned(),
+            locales_dir: "locales".to_owned(),
+            public_label: label.to_owned(),
+            links: PublicLinks::default(),
+        }
+    }
+
+    #[test]
+    fn the_final_production_deployment_wears_no_badge() {
+        assert_eq!(app("production", "").badge(), None);
+    }
+
+    #[test]
+    fn a_developers_machine_is_labelled_without_configuring_anything() {
+        assert_eq!(app("development", "").badge(), Some("development"));
+    }
+
+    /// The case this field exists for: production hardening on a box that is
+    /// not the real one. Turning `PHONIX_ENV` down to get the badge back would
+    /// stop `production.toml` loading, which un-secures the session cookie,
+    /// re-enables auto-provisioning, and empties the rate limiter's proxy
+    /// header - keying every request behind nginx to `127.0.0.1`.
+    #[test]
+    fn a_hardened_test_box_can_still_say_it_is_a_test_box() {
+        assert_eq!(app("production", "test").badge(), Some("test"));
+    }
+
+    #[test]
+    fn a_label_of_whitespace_is_the_same_as_none() {
+        assert_eq!(app("production", "   ").badge(), None);
+        assert_eq!(app("staging", "  ").badge(), Some("staging"));
+    }
+
+    #[test]
+    fn an_explicit_label_wins_outside_production_too() {
+        assert_eq!(app("development", "sandbox").badge(), Some("sandbox"));
     }
 
     #[test]

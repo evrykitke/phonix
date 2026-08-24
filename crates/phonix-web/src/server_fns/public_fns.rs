@@ -32,11 +32,12 @@ use serde::{Deserialize, Serialize};
 pub struct PublicBranding {
     /// `app.name`. A name, so it is never translated.
     pub product: String,
-    /// `app.environment`, or empty in production.
+    /// What the badge says, or empty for no badge at all.
     ///
-    /// Empty rather than `"production"` on purpose: the badge exists to warn
-    /// somebody that they are looking at a copy, and a badge that is always
-    /// there is furniture nobody reads.
+    /// Decided by `AppSection::badge`, not by this crate: an explicit
+    /// `app.public_label` when one is set, otherwise the environment name
+    /// unless it is production. A test box running with production hardening
+    /// sets the label and says so.
     pub environment: String,
     /// What every workspace address ends in, e.g. `.example.com`.
     pub workspace_suffix: String,
@@ -79,14 +80,12 @@ pub async fn public_branding() -> Result<PublicBranding, ServerFnError> {
     let state = app_state()?;
     let config = &state.config;
 
-    // Production says nothing. Anywhere else names itself, because the single
-    // most expensive mistake with two identical-looking copies of an
-    // application is not knowing which one is in front of you.
-    let environment = if config.app.environment.eq_ignore_ascii_case("production") {
-        String::new()
-    } else {
-        config.app.environment.clone()
-    };
+    // The final production deployment says nothing. Anything else names
+    // itself, because the single most expensive mistake with two
+    // identical-looking copies of an application is not knowing which one is
+    // in front of you - and that is *more* true, not less, of a test box
+    // deliberately running with production's hardening.
+    let environment = config.app.badge().unwrap_or_default().to_owned();
 
     Ok(PublicBranding {
         product: config.app.name.clone(),

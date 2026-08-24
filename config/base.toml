@@ -18,6 +18,17 @@ environment = "development"
 # Where <code>.json translation files are read from at boot. English needs no
 # file - it is compiled into the binary - so a missing directory is fine.
 locales_dir = "locales"
+# What the badge in the public top bar says. Empty falls back to `environment`
+# unless that is "production", which shows nothing - a badge that is always
+# there is furniture nobody reads.
+#
+# Set this on any deployment that runs with PHONIX_ENV=production but is NOT
+# the real thing. Turning PHONIX_ENV down to get the badge back is a trap: it
+# stops production.toml loading at all, which un-secures the session cookie,
+# re-enables tenancy.auto_provision, and empties
+# security.rate_limit.client_ip_header - keying every request behind nginx to
+# 127.0.0.1 and putting the whole internet in one rate-limit bucket.
+public_label = ""
 
 # Where the footer of a signed-out screen points. Every one is optional and an
 # empty value renders no link, because these are pages this application does

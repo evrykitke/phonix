@@ -101,14 +101,26 @@ fn public_top_bar(branding: PublicBranding) -> impl IntoView {
         <header class="flex h-topbar shrink-0 items-center justify-between gap-3 border-b border-edge px-4 sm:px-6">
             <Wordmark branding=branding />
 
-            // The environment badge, and only when there is one. In production
-            // this is empty and nothing renders - a badge that is always there
-            // is furniture, and the whole job of this one is to catch the eye
-            // of somebody who thinks they are looking at the real thing.
+            // The environment badge, and only when there is one. The final
+            // production deployment sets no label and nothing renders - a badge
+            // that is always there is furniture nobody reads.
+            //
+            // Warning-toned, because its whole job is to catch the eye of
+            // somebody who thinks they are looking at the real thing. A grey
+            // chip in a grey bar does not do that, and the deployment this
+            // matters most for is the one running production's hardening while
+            // not being production.
+            //
+            // `role="status"` rather than a bare span: a screen reader should
+            // be told which copy of the application this is, and the visual
+            // treatment says nothing to somebody who cannot see it.
             {(!environment.is_empty())
                 .then(|| {
                     view! {
-                        <span class="rounded-full border border-edge bg-surface-sunken px-2 py-0.5 text-2xs font-medium uppercase tracking-wide text-content-muted">
+                        <span
+                            role="status"
+                            class="shrink-0 rounded-full border border-warning/40 bg-warning/15 px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide text-warning"
+                        >
                             {environment}
                         </span>
                     }
