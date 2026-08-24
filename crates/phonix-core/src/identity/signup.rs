@@ -165,6 +165,14 @@ pub enum SignupResult {
     Rejected(Vec<FieldError>),
     /// Self-service signup is switched off for this deployment.
     Closed,
+    /// This host does not create workspaces.
+    ///
+    /// A workspace is created on the host somebody first arrived at, never
+    /// from inside a workspace that already exists. Reaching this means the
+    /// request carried a tenant - so the caller is on `acme.example.com` and
+    /// one more click would have built a second workspace and a second
+    /// database. See `phonix_web::server_fns::onboarding_fns`.
+    NotHere,
 }
 
 /// Whether a slug is free, and why not when it is taken.

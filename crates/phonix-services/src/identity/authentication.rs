@@ -72,7 +72,9 @@ pub struct SignedIn {
 }
 
 impl SignedIn {
-    fn rejected() -> Self {
+    /// Visible to [`super::federated`], which reaches the same two answers by a
+    /// different route and must not describe them differently.
+    pub(super) fn rejected() -> Self {
         Self {
             result: LoginResult::Rejected,
             token: None,
@@ -81,7 +83,7 @@ impl SignedIn {
         }
     }
 
-    fn locked(retry_after_secs: u64) -> Self {
+    pub(super) fn locked(retry_after_secs: u64) -> Self {
         Self {
             result: LoginResult::Locked { retry_after_secs },
             token: None,
@@ -212,12 +214,24 @@ pub async fn sign_in(
         credentials.remember_me,
         facts,
         delivery,
+        // A password. Nobody vouched for it but the person who typed it.
+        None,
     )
     .await
 }
 
-/// Decide what a correct password actually earns, under this workspace's policy.
-async fn finish_sign_in(
+/// Decide what an accepted credential actually earns, under this workspace's
+/// policy.
+///
+/// Shared with [`super::federated`], and that sharing is the point rather than
+/// a convenience: MFA enforcement, an expired password, the session-versus-
+/// handoff decision and the audit entry are decisions about *this workspace's
+/// account*, not about how the person proved who they were. A second copy for
+/// the federated path would be the place the two stopped agreeing.
+///
+/// `provider` names who vouched, or `None` when it was a password.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn finish_sign_in(
     pool: &PgPool,
     security: &Security<'_>,
     account: UserRecord,
@@ -225,6 +239,7 @@ async fn finish_sign_in(
     remember_me: bool,
     facts: ClientFacts<'_>,
     delivery: Delivery,
+    provider: Option<&'static str>,
 ) -> ServiceResult<SignedIn> {
     let settings = settings_store::load(pool).await?;
     let outcome = Outcome::decide(pool, &settings, &account).await?;
@@ -242,6 +257,9 @@ async fn finish_sign_in(
                     Delivery::Cookie => "cookie",
                     Delivery::Handoff => "handoff",
                 },
+                // Absent for a password, which is what "how did they sign in"
+                // reads as when there is nothing else to say.
+                "provider": provider,
             })),
     )
     .await;

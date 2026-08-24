@@ -25,13 +25,16 @@
 use leptos::prelude::*;
 use leptos_meta::Title;
 use leptos_router::components::A;
+use leptos_router::hooks::use_query_map;
+
+use phonix_core::identity::PASSWORD_RESET_PATH;
 
 use crate::components::forms::{FieldLabel, FormError, SubmitButton, TextInput};
 use crate::components::language::LanguagePicker;
 use crate::i18n::t;
 use crate::l;
 use crate::server_fns::auth_fns::{SignInInput, sign_in};
-use crate::server_fns::tenant_fns::current_tenant;
+use crate::server_fns::tenant_fns::{current_tenant, google_sign_in_url};
 
 #[component]
 pub fn sign_in_page() -> impl IntoView {
@@ -47,6 +50,32 @@ pub fn sign_in_page() -> impl IntoView {
 
     let message = RwSignal::new(Option::<String>::None);
     let submitting = RwSignal::new(false);
+
+    // Where "Continue with Google" points, or `None` when this deployment does
+    // not offer it. Cross-host, so only the server can build it.
+    let google = OnceResource::new(google_sign_in_url());
+
+    // A Google sign-in that failed comes back here as a query parameter,
+    // because the flow finishes on a different host and has nowhere else to
+    // put the reason. Read once on mount rather than watched: the browser
+    // arrived with it, and nothing on this page changes it.
+    Effect::new(move |_| {
+        let query = use_query_map();
+        let reason = query.with_untracked(|params| params.get("google"));
+
+        if let Some(reason) = reason {
+            message.set(Some(match reason.as_str() {
+                // Verified by Google, and not a member here. Said plainly -
+                // see the note in `phonix_server::google` on why this one
+                // outcome is allowed to be specific.
+                "no_account" => l!("auth.google.no_account"),
+                "refused" => l!("auth.google.refused"),
+                "expired" => l!("auth.google.expired"),
+                "unavailable" => l!("auth.google.unavailable"),
+                _ => l!("auth.google.failed"),
+            }));
+        }
+    });
 
     let submit = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
@@ -185,12 +214,90 @@ pub fn sign_in_page() -> impl IntoView {
                 <SubmitButton label=l!("auth.signin.title") pending=submitting />
             </form>
 
-            <p class="mt-6 text-sm text-content-muted">
-                {l!("auth.signin.no_workspace")} " "
-                <A href="/signup" attr:class="font-medium text-brand hover:underline">
-                    {l!("auth.signin.create")}
-                </A>
-            </p>
+            // Below the password form, not above it. The credential most
+            // people here are about to use is the one they typed into this
+            // workspace, and a provider button at the top of a sign-in screen
+            // reliably collects people who then cannot remember which of the
+            // two they used last time.
+            <Suspense fallback=|| ()>
+                {move || Suspend::new(async move {
+                    google.await.ok().flatten().map(|href| {
+                        view! {
+                            <div class="mt-6 flex items-center gap-3">
+                                <span class="h-px flex-1 bg-edge"></span>
+                                <span class="text-xs text-content-subtle">
+                                    {l!("auth.signin.or")}
+                                </span>
+                                <span class="h-px flex-1 bg-edge"></span>
+                            </div>
+
+                            // A plain link, not a button with a handler: this
+                            // is a top-level navigation to another host, which
+                            // is exactly what an anchor is.
+                            <a
+                                href=href
+                                class="mt-4 flex w-full items-center justify-center gap-2                                        rounded-md border border-edge-strong px-4 py-2                                        font-medium text-content hover:bg-surface-sunken                                        focus:outline-none focus:ring-2 focus:ring-brand"
+                            >
+                                <GoogleMark />
+                                {l!("auth.google.continue")}
+                            </a>
+                        }
+                    })
+                })}
+            </Suspense>
+
+            // Only on a workspace host, and unlike the signup link below this
+            // is not about spam - it is that the screen would not work. A reset
+            // needs an account in one workspace's database, and on the bare
+            // domain the request carries no tenant to look in. Somebody who
+            // arrives there types their workspace address into the field above
+            // and reaches their own host, where this appears.
+            <Suspense fallback=|| ()>
+                {move || Suspend::new(async move {
+                    tenant
+                        .await
+                        .is_ok()
+                        .then(|| {
+                            view! {
+                                <p class="mt-4 text-sm">
+                                    <A
+                                        href=PASSWORD_RESET_PATH
+                                        attr:class="text-content-muted hover:underline"
+                                    >
+                                        {l!("auth.signin.forgot")}
+                                    </A>
+                                </p>
+                            }
+                        })
+                })}
+            </Suspense>
+
+            // Only on the bare domain, and for the same reason the workspace
+            // field is: this page is somebody's front door to a workspace that
+            // already exists, and the one thing behind this link is building
+            // another one. Offering it here turns a mis-click into a second
+            // Postgres database. `create_workspace` refuses on a tenant host
+            // regardless - this is so nobody is invited to find that out.
+            <Suspense fallback=|| ()>
+                {move || Suspend::new(async move {
+                    tenant
+                        .await
+                        .is_err()
+                        .then(|| {
+                            view! {
+                                <p class="mt-6 text-sm text-content-muted">
+                                    {l!("auth.signin.no_workspace")} " "
+                                    <A
+                                        href="/signup"
+                                        attr:class="font-medium text-brand hover:underline"
+                                    >
+                                        {l!("auth.signin.create")}
+                                    </A>
+                                </p>
+                            }
+                        })
+                })}
+            </Suspense>
 
             // Below the form rather than above it: somebody who can read the
             // page should reach the password field first, and somebody who
@@ -207,4 +314,41 @@ pub fn sign_in_page() -> impl IntoView {
 /// The message may name a host or an endpoint; the user gets a fixed string.
 fn tracing_error(err: &ServerFnError) {
     leptos::logging::error!("sign-in request failed: {err}");
+}
+
+/// Google's "G", inline.
+///
+/// Drawn here rather than fetched: the strict content-security policy this app
+/// is served under blocks an external image, and a sign-in button whose logo
+/// silently fails to load is a button people do not recognise. The four paths
+/// are Google's own brand mark and its colours are fixed - it is a logo, so it
+/// does not take a theme token and does not change in dark mode.
+#[component]
+fn google_mark() -> impl IntoView {
+    view! {
+        <svg
+            class="h-4 w-4"
+            viewBox="0 0 18 18"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+            focusable="false"
+        >
+            <path
+                fill="#4285F4"
+                d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z"
+            />
+            <path
+                fill="#34A853"
+                d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18Z"
+            />
+            <path
+                fill="#FBBC05"
+                d="M3.97 10.72a5.41 5.41 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33Z"
+            />
+            <path
+                fill="#EA4335"
+                d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58Z"
+            />
+        </svg>
+    }
 }

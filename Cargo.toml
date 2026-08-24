@@ -47,6 +47,17 @@ http = "1.5"
 # extractor.
 cookie = "0.18"
 
+# --- federated sign-in ---
+# One POST to Google's token endpoint, and nothing else in the workspace makes
+# an outbound HTTP request. rustls rather than native-tls so the binary does not
+# depend on the host's OpenSSL - this is deployed to a shared box where the
+# other sites are not ours to upgrade. `charset` and `http2` are off: the one
+# response is small JSON over a connection used once.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+# Percent-encoding for the authorize URL's query. A hand-rolled encoder here
+# would be the reason Google refuses a redirect_uri that looks correct.
+form_urlencoded = "1.2"
+
 # --- identity / credentials ---
 # argon2id for password hashing. `std` brings in the error impls; the default
 # `password-hash` + `rand` features give the PHC string format and the OS RNG

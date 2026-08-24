@@ -34,8 +34,8 @@ pub use edit::UserEdit;
 pub use invitation::{InvitationIssued, UserInvite};
 pub use login::{
     Credentials, DASHBOARD_PATH, HALF_AUTHENTICATED_PREFIX, INVITATION_ACCEPT_PATH, Landing,
-    LoginResult, MFA_CHALLENGE_PATH, MFA_ENROLMENT_PATH, PASSWORD_CHANGE_PATH, SIGN_IN_PATH,
-    SIGN_UP_PATH, landing,
+    LoginResult, MFA_CHALLENGE_PATH, MFA_ENROLMENT_PATH, PASSWORD_CHANGE_PATH, PASSWORD_RESET_PATH,
+    SIGN_IN_PATH, SIGN_UP_PATH, landing,
 };
 pub use mfa::{
     MfaChallenge, MfaChallengeResult, MfaEnforcement, MfaFactorKind, MfaFactorSummary, MfaPolicy,

@@ -12,17 +12,18 @@
 //! the messages are the same ones the server will produce; the server runs it
 //! again because this endpoint is reachable without a browser.
 
+use leptos::either::Either;
 use leptos::prelude::*;
 use leptos_meta::Title;
 use leptos_router::components::A;
-use phonix_core::identity::{
-    FieldError, PasswordStrength, SignupInput, SignupResult, password_strength,
-    slug_from_organization_name,
-};
+use phonix_core::identity::{FieldError, SignupInput, SignupResult, slug_from_organization_name};
 
-use crate::components::forms::{FieldLabel, FormError, SecondaryButton, SubmitButton, TextInput};
+use crate::components::forms::{
+    FieldLabel, FormError, SecondaryButton, StrengthMeter, SubmitButton, TextInput,
+};
 use crate::l;
 use crate::server_fns::onboarding_fns::{check_workspace_address, create_workspace};
+use crate::server_fns::tenant_fns::current_tenant;
 
 /// Which screen the wizard is on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,8 +33,100 @@ enum Step {
     Provisioning,
 }
 
+/// The two fields the workspace screen actually renders.
+const WORKSPACE_FIELDS: [&str; 2] = ["organization_name", "workspace_slug"];
+
+/// Errors the workspace screen has no field to attach to.
+///
+/// `validate()` judges the whole form, but the last screen shows two of its
+/// seven fields - so a rejection can easily be about a password or an email
+/// that is nowhere on the page. Binding those to `error_for` puts them in a
+/// DOM node that does not exist, and the submit button appears to do nothing.
+/// They are collected here and said at form level instead, where there is
+/// somewhere to say them.
+fn unshowable_here(errors: &[FieldError]) -> Vec<&FieldError> {
+    errors
+        .iter()
+        .filter(|err| !WORKSPACE_FIELDS.contains(&err.field.as_str()))
+        .collect()
+}
+
+/// One sentence naming the problems this screen has no field for.
+///
+/// `None` when there are none, so the caller can hand the result straight to
+/// the form-level alert and have it disappear on the next clean submit.
+fn summarise(errors: &[&FieldError]) -> Option<String> {
+    if errors.is_empty() {
+        return None;
+    }
+
+    // Each message is already a finished sentence ending in a full stop, so
+    // they join with a space rather than a comma.
+    let problems = errors
+        .iter()
+        .map(|err| crate::i18n::t(&err.message))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    Some(l!("signup.problems_on_previous_step", problems = problems))
+}
+
+/// The signup screen, or the reason there isn't one here.
+///
+/// Split from the wizard below so that the tenant lookup wraps a component
+/// rather than the wizard's body: `Suspense` calls its child more than once,
+/// and the wizard owns closures that cannot be moved out of one.
 #[component]
 pub fn sign_up_page() -> impl IntoView {
+    // `Err` on the bare domain, which is where signup belongs. A tenant here
+    // means somebody followed a stale link or typed the path into a workspace
+    // they are already a member of.
+    let tenant = OnceResource::new(current_tenant());
+
+    view! {
+        <Suspense fallback=|| ()>
+            {move || Suspend::new(async move {
+                if tenant.await.is_ok() {
+                    Either::Left(view! { <NotHere /> })
+                } else {
+                    Either::Right(view! { <SignupWizard /> })
+                }
+            })}
+        </Suspense>
+    }
+}
+
+/// What a workspace host says instead of the wizard.
+///
+/// No link to the signup host: this deployment cannot name it. `server.host`
+/// is a bind address, and `base_domain` is the tenancy root - which is the
+/// signup host in development and one label above it in production, where
+/// pointing there would send somebody to a different site altogether. So the
+/// screen offers the thing the visitor almost certainly wanted, which is to
+/// sign in to the workspace they are already looking at.
+#[component]
+fn not_here() -> impl IntoView {
+    view! {
+        <Title text=format!("{} | Phonix", l!("signup.not_here.title")) />
+
+        <div class="mx-auto w-full max-w-sm py-12">
+            <h1 class="text-2xl font-semibold tracking-tight text-content">
+                {l!("signup.not_here.title")}
+            </h1>
+            <p class="mt-2 text-sm text-content-muted">{l!("signup.not_here.body")}</p>
+
+            <A
+                href="/"
+                attr:class="mt-6 inline-block font-medium text-brand hover:underline"
+            >
+                {l!("signup.not_here.sign_in")}
+            </A>
+        </div>
+    }
+}
+
+#[component]
+fn signup_wizard() -> impl IntoView {
     let step = RwSignal::new(Step::Account);
 
     let first_name = RwSignal::new(String::new());
@@ -91,6 +184,11 @@ pub fn sign_up_page() -> impl IntoView {
 
         let input = input_of();
         if let Err(found) = input.validate() {
+            // The user stays on this screen: being thrown back to screen one
+            // loses the workspace name they just typed and hides what went
+            // wrong. Anything this screen cannot show is said at form level,
+            // and "Back" still reaches the field itself with the error on it.
+            form_error.set(summarise(&unshowable_here(&found)));
             errors.set(found);
             return;
         }
@@ -110,25 +208,26 @@ pub fn sign_up_page() -> impl IntoView {
                 }
                 Ok(SignupResult::Rejected(found)) => {
                     submitting.set(false);
-                    // Back to whichever screen owns the first problem, rather
-                    // than leaving the user on a spinner with a message they
-                    // cannot act on.
-                    let workspace_fields = ["organization_name", "workspace_slug"];
-                    let on_workspace_screen = found
-                        .iter()
-                        .any(|err| workspace_fields.contains(&err.field.as_str()));
-
+                    // Off the spinner and back onto the form, with the same
+                    // treatment the client-side check gets: the screen keeps
+                    // what the user typed and states anything it cannot show.
+                    step.set(Step::Workspace);
+                    form_error.set(summarise(&unshowable_here(&found)));
                     errors.set(found);
-                    step.set(if on_workspace_screen {
-                        Step::Workspace
-                    } else {
-                        Step::Account
-                    });
                 }
                 Ok(SignupResult::Closed) => {
                     submitting.set(false);
                     step.set(Step::Workspace);
                     form_error.set(Some(l!("signup.closed")));
+                }
+                // Unreachable from this screen, which does not render on a
+                // workspace host - but the endpoint is public and the match
+                // has to be total, so it says the true thing rather than
+                // falling into the generic failure below.
+                Ok(SignupResult::NotHere) => {
+                    submitting.set(false);
+                    step.set(Step::Workspace);
+                    form_error.set(Some(l!("signup.not_here.body")));
                 }
                 Err(err) => {
                     submitting.set(false);
@@ -335,50 +434,6 @@ fn step_indicator(step: RwSignal<Step>) -> impl IntoView {
     }
 }
 
-/// The password meter.
-///
-/// Advisory: it never blocks submission. `password_strength` is the same
-/// function the server has, so a green bar and a server-side rejection cannot
-/// disagree.
-#[component]
-fn strength_meter(password: RwSignal<String>) -> impl IntoView {
-    let strength = move || password_strength(&password.get());
-
-    view! {
-        <div class="mt-2" aria-live="polite">
-            <div class="flex gap-1">
-                {(0..4)
-                    .map(|bar| {
-                        view! {
-                            <div class=move || {
-                                let filled = bar < strength().filled_bars();
-                                let colour = match strength() {
-                                    PasswordStrength::Strong | PasswordStrength::Good => "bg-success",
-                                    PasswordStrength::Fair => "bg-warning",
-                                    _ => "bg-danger",
-                                };
-                                format!(
-                                    "h-1 flex-1 rounded-full transition-colors {}",
-                                    if filled { colour } else { "bg-surface-sunken" },
-                                )
-                            }></div>
-                        }
-                    })
-                    .collect::<Vec<_>>()}
-            </div>
-            <p class="mt-1 text-xs text-content-subtle">
-                {move || {
-                    // An empty box has no strength to report, so it gets the
-                    // advice instead of a word.
-                    strength()
-                        .message()
-                        .map_or_else(|| l!("signup.password_hint"), |word| crate::i18n::t(&word))
-                }}
-            </p>
-        </div>
-    }
-}
-
 /// The subdomain field, with its availability check.
 ///
 /// Suggests an address from the organization name until the user edits it, then
@@ -523,5 +578,55 @@ fn provisioning_step(#[prop(into)] text: String) -> impl IntoView {
             <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-brand"></span>
             {text}
         </li>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn err(field: &str) -> FieldError {
+        FieldError::new(field, phonix_core::msg!("validation.field.required"))
+    }
+
+    fn fields<'a>(errors: &[&'a FieldError]) -> Vec<&'a str> {
+        errors.iter().map(|err| err.field.as_str()).collect()
+    }
+
+    #[test]
+    fn the_workspace_screens_own_fields_are_shown_on_it() {
+        let found = vec![err("organization_name"), err("workspace_slug")];
+        assert!(unshowable_here(&found).is_empty());
+    }
+
+    /// The regression this guards. `password_echoes_identity` compares the
+    /// password against the organization name, which is only collected on
+    /// screen two - so a password containing it clears screen one and fails on
+    /// submit with an error against `password`, a field screen two does not
+    /// render. Binding that to a non-existent node is why the button appeared
+    /// to do nothing.
+    #[test]
+    fn a_password_error_raised_on_the_workspace_screen_is_reported_not_dropped() {
+        let found = vec![err("workspace_slug"), err("password")];
+        assert_eq!(fields(&unshowable_here(&found)), ["password"]);
+    }
+
+    #[test]
+    fn every_account_field_is_unshowable_on_the_workspace_screen() {
+        for field in [
+            "first_name",
+            "last_name",
+            "email",
+            "password",
+            "password_confirmation",
+        ] {
+            let found = vec![err(field)];
+            assert_eq!(fields(&unshowable_here(&found)), [field], "{field}");
+        }
+    }
+
+    #[test]
+    fn nothing_to_report_leaves_the_alert_empty() {
+        assert!(summarise(&[]).is_none());
     }
 }

@@ -1,14 +1,21 @@
 //! The primitives the stored credentials are defined in terms of.
 //!
-//! Nothing here opens a connection or runs a statement - these four modules are
+//! Nothing here opens a connection or runs a statement - these five modules are
 //! pure computation, and they sit in this crate for one reason: every column
 //! they exist for is in this crate's tables.
+//!
+//! [`token`] and [`code`] both fill `user_tokens.token_hash` and are not
+//! interchangeable. A token is 32 random bytes that nothing can guess; a code
+//! is six digits that anything can, and is safe only because the row counting
+//! the guesses stops answering. Which one a purpose uses is a security
+//! decision, made in [`super::identity`] and not here.
 //!
 //! | Column                            | Module         |
 //! | --------------------------------- | -------------- |
 //! | `users.password_hash`             | [`password`]   |
 //! | `sessions.token_hash`             | [`token`]      |
-//! | `user_tokens.token_hash`          | [`token`]      |
+//! | `user_tokens.token_hash` (link)   | [`token`]      |
+//! | `user_tokens.token_hash` (code)   | [`code`]       |
 //! | `user_mfa_factors.secret_encrypted` (TOTP)          | [`vault`] |
 //! | `user_mfa_factors.secret_encrypted` (recovery code) | [`token`] |
 //! | the code checked against a TOTP secret              | [`totp`]  |
@@ -32,11 +39,13 @@
 //! in core because the sign-up form has to apply it; the Argon2 parameters live
 //! here because nothing outside the server may ever see them.
 
+pub mod code;
 pub mod password;
 pub mod token;
 pub mod totp;
 pub mod vault;
 
+pub use code::IssuedCode;
 pub use password::{Hasher, PasswordError};
 pub use token::IssuedToken;
 pub use totp::TotpParams;

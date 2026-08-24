@@ -65,6 +65,7 @@ pub mod error;
 pub mod files;
 pub mod identity;
 pub mod mail;
+pub mod oauth;
 pub mod workspace;
 
 pub use caller::Caller;

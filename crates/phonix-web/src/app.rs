@@ -18,7 +18,9 @@ use crate::pages::admin::user_edit::UserEditPage;
 use crate::pages::admin::user_invite::UserInvitePage;
 use crate::pages::admin::user_permissions::UserPermissionsPage;
 use crate::pages::admin::users::UsersPage;
-use crate::pages::auth::{AcceptInvitationPage, ChallengePage, SignInPage, SignUpPage};
+use crate::pages::auth::{
+    AcceptInvitationPage, ChallengePage, ForgotPasswordPage, SignInPage, SignUpPage,
+};
 use crate::pages::{dashboard::DashboardPage, not_found::NotFoundPage};
 use crate::theme::{Theme, ThemePreference};
 use crate::ui::alert::{AlertLayer, Alerts};
@@ -136,6 +138,10 @@ pub fn app() -> impl IntoView {
                     // Public, like the two above: an invitation is followed by
                     // somebody who has no session yet.
                     <Route path=path!("/invitations/accept") view=AcceptInvitationPage />
+                    // Public for the plainest reason of the four: whoever is
+                    // here has forgotten the password a session is made from.
+                    // `landing` has to agree - see PASSWORD_RESET_PATH.
+                    <Route path=path!("/forgot-password") view=ForgotPasswordPage />
 
                     // Half-authenticated: the password was accepted and the
                     // second factor has not been. `LoginResult::next_path`

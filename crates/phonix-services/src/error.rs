@@ -61,6 +61,18 @@ pub enum ServiceError {
     /// somebody else had the page open is an ordinary Tuesday.
     #[error("{0} not found")]
     NotFound(&'static str),
+
+    /// A service outside this deployment could not do what was asked.
+    ///
+    /// Google's token endpoint, so far - the only outbound HTTP request the
+    /// workspace makes. Distinct from [`Self::Db`] and [`Self::Storage`]
+    /// because it is the one failure nobody operating this system can fix, and
+    /// from [`Self::Crypto`] because it is worth retrying.
+    ///
+    /// The string names what happened for the log. It does not reach a browser
+    /// - see the mapping below.
+    #[error("upstream service failed: {0}")]
+    Upstream(String),
 }
 
 impl ServiceError {
@@ -114,6 +126,14 @@ impl From<ServiceError> for CoreError {
                 }
             }
             ServiceError::NotFound(what) => CoreError::NotFound(what.to_owned()),
+            // The detail can name a host, an endpoint and whatever a third
+            // party chose to put in an error body. Logged here, and what
+            // crosses is the fact that it was somebody else's fault and is
+            // worth another go.
+            ServiceError::Upstream(detail) => {
+                tracing::warn!(error = %detail, "an upstream service failed");
+                CoreError::Unavailable("upstream".to_owned())
+            }
         }
     }
 }

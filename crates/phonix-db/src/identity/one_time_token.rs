@@ -135,6 +135,119 @@ where
     }
 }
 
+/// Redeem a *guessable* secret, spending one attempt whether or not it is right.
+///
+/// [`consume`] is the right operation for a 32-byte token: nothing guesses one,
+/// so an endpoint that answers "no" forever costs an attacker nothing and gains
+/// them nothing. A six-digit code inverts that. A million values is a few
+/// minutes of scripted guessing, and the only thing standing between a mailbox
+/// nobody read and somebody else's account is that the answering stops.
+///
+/// So the count lives on the row and moves in the same transaction as the
+/// comparison. Two guesses arriving together both take `FOR UPDATE`, so the
+/// second waits for the first to commit and sees the incremented count - the
+/// alternative is a limit of five that a concurrent client can turn into
+/// however many requests it can open at once.
+///
+/// The row is burned - `consumed_at` set - on the attempt that reaches
+/// `max_attempts`, not on the one after it. An exhausted code that is still
+/// technically live is a code the next request can keep guessing at.
+///
+/// Returns the user on a correct code and `None` on every other outcome:
+/// wrong, expired, exhausted, already spent, never issued. Indistinguishable
+/// for the same reason [`consume`]'s four cases are, and with one more here -
+/// the caller has an email address in hand, so "there is no reset in progress
+/// for that address" would be an account oracle.
+///
+/// `max_attempts` of 0 or less means the code cannot be redeemed at all, which
+/// is the honest reading of "no attempts are allowed" rather than a licence for
+/// unlimited ones.
+pub async fn redeem_code(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    purpose: TokenPurpose,
+    presented_hash: &[u8],
+    max_attempts: i16,
+) -> Result<Option<UserId>, DbError> {
+    if max_attempts <= 0 {
+        return Ok(None);
+    }
+
+    let mut tx = pool.begin().await.map_err(DbError::Query)?;
+
+    // `FOR UPDATE` is the whole point of the transaction: it serialises
+    // concurrent guesses at the same code onto the same count.
+    let row = sqlx::query(
+        "SELECT id, token_hash, attempts
+           FROM user_tokens
+          WHERE user_id = $1
+            AND purpose = $2
+            AND consumed_at IS NULL
+            AND expires_at > now()
+          FOR UPDATE",
+    )
+    .bind(user_id)
+    .bind(purpose.as_str())
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(DbError::Query)?;
+
+    let Some(row) = row else {
+        // Nothing outstanding. Commit rather than roll back: there is nothing
+        // to undo, and a rollback here would be indistinguishable in the logs
+        // from one that mattered.
+        tx.commit().await.map_err(DbError::Query)?;
+        return Ok(None);
+    };
+
+    let id: Uuid = row.try_get("id").map_err(DbError::Query)?;
+    let stored: Vec<u8> = row.try_get("token_hash").map_err(DbError::Query)?;
+    let attempts: i16 = row.try_get("attempts").map_err(DbError::Query)?;
+
+    // Constant-time. The comparison is against a SHA-256 digest rather than the
+    // code itself, so a timing leak would reveal a prefix of the digest and not
+    // of the secret - but the cost of doing it properly is nil and reasoning
+    // about which comparisons are safe to shortcut is not.
+    let matched = constant_time_eq(&stored, presented_hash);
+    let spent = attempts.saturating_add(1);
+
+    // Burn it when it is right, and when this attempt was the last one it had.
+    let burn = matched || spent >= max_attempts;
+
+    sqlx::query(
+        "UPDATE user_tokens
+            SET attempts = $2,
+                consumed_at = CASE WHEN $3 THEN now() ELSE consumed_at END
+          WHERE id = $1",
+    )
+    .bind(id)
+    .bind(spent)
+    .bind(burn)
+    .execute(&mut *tx)
+    .await
+    .map_err(DbError::Query)?;
+
+    tx.commit().await.map_err(DbError::Query)?;
+
+    Ok(matched.then_some(user_id))
+}
+
+/// Compare two digests without letting the clock describe them.
+///
+/// `Vec<u8> == Vec<u8>` returns at the first differing byte. Nothing here is
+/// remotely close to exploitable, and writing the loop that does not stop early
+/// is cheaper than establishing that every time somebody reads it.
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+
+    left.iter()
+        .zip(right)
+        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+        == 0
+}
+
 /// Invalidate every outstanding token of one purpose for a user.
 ///
 /// Called after a password change, so a reset link mailed before the change

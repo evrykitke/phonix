@@ -30,3 +30,8 @@
 *.swp
 Thumbs.db
 desktop.ini
+
+# Deployment notes and copies of the live server config. Local reference only:
+# the server is the source of truth, and this can hold host names and paths
+# that have no business in a public repository.
+/deploy

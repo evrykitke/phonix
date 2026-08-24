@@ -310,6 +310,51 @@ purge_interval_mins = 60
 max_failed_attempts = 10
 lockout_mins = 15
 
+[security.google]
+# "Continue with Google". Off until a Google Cloud OAuth client exists.
+#
+# This signs people IN. It never creates an account: the verified address Google
+# returns has to already belong to a member of the workspace, or the sign-in is
+# refused. A workspace is joined by invitation, and that does not change here.
+enabled = false
+# From the Google Cloud console, APIs & Services -> Credentials -> OAuth client
+# ID (type: Web application). The id is public - it travels in a URL.
+client_id = ""
+# NEVER set here. Production reads PHONIX__SECURITY__GOOGLE__CLIENT_SECRET from
+# the environment, like every other secret.
+client_secret = ""
+# Where Google sends the browser back, and it must match a registered redirect
+# URI byte for byte - a trailing slash or the wrong scheme is a refusal.
+#
+# It cannot contain a wildcard, which decides the whole shape of this flow.
+# Workspaces live on *.<base_domain> and no single registered URI covers them,
+# so ONE fixed host starts and finishes every sign-in and then hands the session
+# to the workspace through the same one-time token signup already uses.
+#
+# Its origin is also how a workspace page knows where that host is - nothing
+# else in this file names it. In development that is the bare domain:
+#   http://localhost:3000/auth/google/callback
+redirect_uri = ""
+# Restrict sign-in to one Google Workspace domain, e.g. "acme.com". Empty means
+# any Google account, personal @gmail.com addresses included.
+hosted_domain = ""
+
+[security.password_reset]
+# Self-service reset: "I forgot my password", a code by email, a new password.
+# When false the endpoints refuse and the sign-in screen does not offer it -
+# for a deployment where an administrator is meant to do this instead.
+enabled = true
+# Minutes the emailed code works for. Short on purpose, and nothing like the
+# invitation TTL: the person who asked for this is at the screen waiting, and
+# every extra minute is more time an unattended mailbox is a way in.
+code_ttl_mins = 10
+# Wrong codes before the code is destroyed and a new one must be requested.
+# THIS is what makes a six-digit code safe - not the six digits. A million
+# values at one SHA-256 each is minutes of scripted guessing against an endpoint
+# that keeps answering, so the answering stops. Same reasoning as
+# security.mfa.max_challenge_attempts.
+max_attempts = 5
+
 [security.mfa]
 # What the authenticator app shows above the code. The workspace slug is added
 # per account, so somebody with two workspaces can tell the entries apart.

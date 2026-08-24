@@ -9,6 +9,7 @@
 
 mod auth;
 mod files;
+mod google;
 mod health;
 mod jobs;
 mod middleware;

@@ -83,6 +83,15 @@ pub const HALF_AUTHENTICATED_PREFIX: &str = "/auth/";
 /// Where a workspace is created. Reachable with no session, like [`SIGN_IN_PATH`].
 pub const SIGN_UP_PATH: &str = "/signup";
 
+/// Where somebody who cannot sign in asks for a code and sets a new password.
+///
+/// Public for the plainest possible reason: the person using it has forgotten
+/// the credential a session is made from. Deliberately *not* under
+/// [`HALF_AUTHENTICATED_PREFIX`] - nothing has been proved at this point, and
+/// putting it there would make it reachable mid-sign-in, which is a different
+/// screen for a different situation ([`PASSWORD_CHANGE_PATH`]).
+pub const PASSWORD_RESET_PATH: &str = "/forgot-password";
+
 /// What to do with a request for `path`, given who is asking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Landing {
@@ -112,7 +121,10 @@ pub enum Landing {
 /// session that gets past this function still cannot read a thing it lacks the
 /// permission for.
 pub fn landing(path: &str, session: Option<&super::user::AuthUser>) -> Landing {
-    let is_public = path == SIGN_IN_PATH || path == SIGN_UP_PATH || path == INVITATION_ACCEPT_PATH;
+    let is_public = path == SIGN_IN_PATH
+        || path == SIGN_UP_PATH
+        || path == INVITATION_ACCEPT_PATH
+        || path == PASSWORD_RESET_PATH;
     let is_sign_in_step = path.starts_with(HALF_AUTHENTICATED_PREFIX);
 
     match session {
@@ -295,9 +307,14 @@ mod tests {
     }
 
     #[test]
-    fn nobody_may_reach_anything_but_the_two_public_screens() {
+    fn nobody_may_reach_anything_but_the_public_screens() {
         assert_eq!(landing(SIGN_IN_PATH, None), Landing::Stay);
         assert_eq!(landing(SIGN_UP_PATH, None), Landing::Stay);
+        assert_eq!(landing(INVITATION_ACCEPT_PATH, None), Landing::Stay);
+        // The one that is easiest to get wrong: somebody who cannot sign in is
+        // exactly who this screen is for, so a guard that sends them to the
+        // sign-in form would be a loop with no way out of it.
+        assert_eq!(landing(PASSWORD_RESET_PATH, None), Landing::Stay);
 
         for path in [DASHBOARD_PATH, "/account", "/admin/users"] {
             assert_eq!(
@@ -345,7 +362,15 @@ mod tests {
         let done = user(true, true);
         assert!(done.is_fully_authenticated());
 
-        for path in [SIGN_IN_PATH, SIGN_UP_PATH, MFA_CHALLENGE_PATH] {
+        for path in [
+            SIGN_IN_PATH,
+            SIGN_UP_PATH,
+            MFA_CHALLENGE_PATH,
+            // Somebody who is signed in has not forgotten their password, and
+            // the screen for changing one on purpose is in the account
+            // settings behind a current-password check.
+            PASSWORD_RESET_PATH,
+        ] {
             assert_eq!(
                 landing(path, Some(&done)),
                 Landing::Redirect(DASHBOARD_PATH),

@@ -2,6 +2,18 @@
 //!
 //! Runs on the bare domain, where there is no tenant: the whole point of these
 //! two calls is that one does not exist yet.
+//!
+//! # Why the tenant check is here and not only on the page
+//!
+//! A workspace is created on the host somebody first arrived at. From inside
+//! `acme.example.com` there is nothing sensible to create - a second workspace
+//! reached from the first one's sign-in screen is almost always somebody who
+//! meant to sign in, and it costs a catalog row and a whole Postgres database
+//! before anybody notices.
+//!
+//! Hiding the link is worth doing and is not the control: an endpoint is
+//! reachable whether or not a page links to it. The check that matters is the
+//! one below.
 
 use leptos::prelude::*;
 use phonix_core::identity::{SignupInput, SignupResult, SlugAvailability};
@@ -71,7 +83,15 @@ pub async fn create_workspace(input: SignupInput) -> Result<SignupResult, Server
 
     use crate::state::app_state;
 
+    use crate::state::optional_tenant;
+
     let state = app_state()?;
+
+    // Before anything else, including the config switch: this is about where
+    // the request arrived, and it is true whether signup is open or shut.
+    if optional_tenant().await.is_some() {
+        return Ok(SignupResult::NotHere);
+    }
 
     if !state.config.security.signup.enabled {
         return Ok(SignupResult::Closed);

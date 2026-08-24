@@ -402,6 +402,10 @@ pub struct SecurityConfig {
     pub signup: SignupConfig,
     pub mfa: MfaConfig,
     pub invitations: InvitationConfig,
+    pub password_reset: PasswordResetConfig,
+    /// Signing in with a Google account. Off unless configured.
+    #[serde(default)]
+    pub google: GoogleConfig,
     /// The policies a newly created workspace starts with.
     ///
     /// Only a *starting point*: once a workspace exists, its own row in
@@ -410,6 +414,126 @@ pub struct SecurityConfig {
     /// an organization's decision.
     #[serde(default)]
     pub workspace_defaults: WorkspaceDefaults,
+}
+
+/// Signing in with a Google account.
+///
+/// `Default` is "off with nothing filled in", so a deployment that has never
+/// heard of this starts up unchanged and the button does not appear.
+///
+/// # `redirect_uri` is load-bearing twice over
+///
+/// Google compares it byte for byte against a URI registered in the Cloud
+/// console and refuses the exchange on any difference - trailing slash,
+/// `http` for `https`, a different port. It cannot contain a wildcard, which
+/// is the whole reason this flow runs where it does: workspaces live on
+/// `*.example.com` and no single registered URI can cover them, so **one fixed
+/// host** starts and finishes every sign-in and hands the session to the
+/// workspace afterwards through the existing handoff token.
+///
+/// Its origin is also where that host *is*. Nothing else in the configuration
+/// names the signup host - `server.host` is a bind address and
+/// `tenancy.base_domain` is one label above it - so the button on a workspace
+/// page is built from this URI's scheme and authority. Changing it moves both
+/// halves at once, which is the property worth having.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct GoogleConfig {
+    /// When false, nothing is registered, the button does not render, and the
+    /// endpoints answer as though they did not exist.
+    pub enabled: bool,
+    /// The OAuth client id from the Google Cloud console. Public by design -
+    /// it travels in a URL the browser follows.
+    pub client_id: String,
+    /// The client secret. **Never in a committed file**: production reads
+    /// `PHONIX__SECURITY__GOOGLE__CLIENT_SECRET` from the environment.
+    pub client_secret: SecretString,
+    /// Absolute URL Google sends the browser back to. Must match a registered
+    /// redirect URI exactly. See the note above.
+    pub redirect_uri: String,
+    /// Restrict sign-in to one Google Workspace domain, e.g. `acme.com`.
+    ///
+    /// `None` or empty means any Google account, which includes every personal
+    /// `@gmail.com` address. Set for a deployment where every member is in one
+    /// company - it narrows the account picker and is checked against the
+    /// token's own `hd` claim afterwards.
+    pub hosted_domain: Option<String>,
+}
+
+impl GoogleConfig {
+    /// Whether this is filled in well enough to attempt a sign-in.
+    ///
+    /// `enabled` alone is not it: a deployment that turned this on and left the
+    /// client id blank would render a button that leads to a Google error page,
+    /// which is worse than no button.
+    pub fn is_usable(&self) -> bool {
+        self.enabled
+            && !self.client_id.trim().is_empty()
+            && !self.client_secret.expose_secret().trim().is_empty()
+            && !self.redirect_uri.trim().is_empty()
+    }
+
+    /// The origin of [`Self::redirect_uri`] - scheme and authority, no path.
+    ///
+    /// This is the host that starts and finishes every Google sign-in. Derived
+    /// rather than configured separately so the two cannot disagree: a start
+    /// URL on one host and a callback registered on another is a flow that
+    /// fails at the last step, after the person has already consented.
+    ///
+    /// `None` when the URI will not parse that far, which
+    /// [`Self::is_usable`] does not catch - it checks that something is set,
+    /// not that it is a URL.
+    pub fn auth_origin(&self) -> Option<String> {
+        let uri = self.redirect_uri.trim();
+        let (scheme, rest) = uri.split_once("://")?;
+
+        if scheme.is_empty() {
+            return None;
+        }
+
+        let authority = rest.split('/').next()?;
+        if authority.is_empty() {
+            return None;
+        }
+
+        Some(format!("{scheme}://{authority}"))
+    }
+}
+
+/// Self-service password reset: whether, how long, and how many guesses.
+///
+/// The three numbers are one decision, not three. A six-digit code is a
+/// million values, and none of the entropy is what keeps it safe - the TTL and
+/// the attempt limit are. Loosening either without looking at the other is how
+/// a code that was fine becomes guessable.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PasswordResetConfig {
+    /// When false the endpoints refuse and the link is not offered. For a
+    /// deployment where accounts are managed by an administrator and a reset
+    /// should go through them.
+    pub enabled: bool,
+    /// Minutes before the code stops working.
+    ///
+    /// Short, and deliberately unlike [`InvitationConfig::ttl_hours`]: the
+    /// person who asked for this is sitting at the screen waiting for it. Every
+    /// extra minute is more time an unattended mailbox is a way in.
+    pub code_ttl_mins: u64,
+    /// Wrong codes before the code is destroyed and a new one has to be
+    /// requested.
+    ///
+    /// This is the control. Six digits is a million guesses at an endpoint that
+    /// would otherwise answer forever, and each one costs a SHA-256 rather than
+    /// an Argon2 hash - nothing about the arithmetic makes guessing expensive,
+    /// so the limit is what makes it finite. The same bargain
+    /// [`MfaConfig::max_challenge_attempts`] strikes.
+    pub max_attempts: i16,
+}
+
+impl PasswordResetConfig {
+    /// The TTL as seconds, which is what the token store takes.
+    pub const fn ttl_secs(&self) -> i64 {
+        self.code_ttl_mins as i64 * 60
+    }
 }
 
 /// How long somebody has to accept an invitation.

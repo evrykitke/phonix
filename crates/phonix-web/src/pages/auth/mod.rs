@@ -7,16 +7,24 @@
 //! reason: the person following an invitation link has no session yet, which is
 //! the entire point of an invitation.
 //!
+//! `forgot_password` is `/forgot-password`, and is the most obviously public of
+//! all of them: the person using it has forgotten the one thing a session is
+//! made from. Unlike the three above it needs a *tenant* - a password belongs
+//! to an account in one workspace's database - so it is reachable only on a
+//! workspace host.
+//!
 //! `challenge` is the odd one: a session exists by the time it renders, but it
 //! has not finished authenticating, so nothing in `pages/admin` would let it
 //! through either. It belongs here because it is part of signing in.
 
 pub mod accept_invitation;
 pub mod challenge;
+pub mod forgot_password;
 pub mod sign_in;
 pub mod sign_up;
 
 pub use accept_invitation::AcceptInvitationPage;
 pub use challenge::ChallengePage;
+pub use forgot_password::ForgotPasswordPage;
 pub use sign_in::SignInPage;
 pub use sign_up::SignUpPage;

@@ -28,6 +28,12 @@ leptos_meta = { workspace = true, features = ["ssr"] }
 leptos_router = { workspace = true, features = ["ssr"] }
 
 axum = { workspace = true }
+# Session cookies are built through `phonix_web::server::cookie`; the Google
+# flow's short-lived cookie is built here, next to the two handlers that are
+# the only things that ever read it.
+cookie = { workspace = true }
+# Percent-encoding for the handoff token in a redirect built here.
+form_urlencoded = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
 http = { workspace = true }

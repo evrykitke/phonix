@@ -30,5 +30,6 @@ pub mod admin_fns;
 pub mod auth_fns;
 pub mod file_fns;
 pub mod onboarding_fns;
+pub mod reset_fns;
 pub mod settings_fns;
 pub mod tenant_fns;

@@ -34,6 +34,8 @@ thiserror = { workspace = true }
 
 # --- credentials ---
 argon2 = { workspace = true }
+reqwest = { workspace = true }
+form_urlencoded = { workspace = true }
 sha2 = { workspace = true }
 base64 = { workspace = true }
 

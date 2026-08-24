@@ -93,6 +93,81 @@ pub fn invitation(
     }
 }
 
+/// "Here is your code." - the one message that carries a secret and no link.
+///
+/// # Why a code and not a link, when everything else here is a link
+///
+/// An invitation is opened on whatever device is reading the mail, and that is
+/// fine: the invitation *is* the start of the session. A reset is different -
+/// somebody is already sitting in front of a browser that is refusing to let
+/// them in, and the mail is very often on a phone. A link moves the reset to
+/// the phone, or gets copied out of a URL bar by hand. Six digits go the other
+/// way, from the phone to the browser, which is the direction the person is
+/// already working in.
+///
+/// # What this message must not do
+///
+/// **It never says whether an account exists.** It is only ever sent to an
+/// address that has one - the caller's silence is what covers the other case -
+/// so nothing here has to hedge. And it carries no link at all, so there is
+/// nothing in it that a mail scanner following URLs can spend on the user's
+/// behalf; a scanner that fetched a reset *link* would consume the token before
+/// the person ever saw it.
+///
+/// The "if you did not ask for this" line is the whole security value of the
+/// message for the person who did not: a reset they did not request is the
+/// first sign somebody knows their address, and the code alone does nothing
+/// until it is typed in.
+pub fn password_reset_code(
+    to_address: &str,
+    to_name: &str,
+    workspace: &str,
+    code: &str,
+    expires_in_mins: i64,
+) -> Mail {
+    let greeting = if to_name.trim().is_empty() {
+        "Hello"
+    } else {
+        to_name.trim()
+    };
+    let expiry = minutes(expires_in_mins);
+
+    let text = format!(
+        "{greeting},
+
+         Someone asked to reset the password for your {workspace} account.
+
+         Your code is: {code}
+
+         Enter it on the page you started from. It expires in {expiry} and          works once.
+
+         If you did not ask for this, you can ignore this message - your          password has not changed, and the code is useless on its own.
+"
+    );
+
+    let html = wrap(
+        "Your password reset code",
+        &format!(
+            "<p>{greeting},</p>             <p>Someone asked to reset the password for your               <strong>{workspace}</strong> account.</p>             {digits}             <p style=\"color:#64748b;font-size:13px\">Enter it on the page you started from.               It expires in {expiry} and works once.</p>             <p style=\"color:#64748b;font-size:13px\">If you did not ask for this, you can               ignore this message - your password has not changed, and the code is useless on               its own.</p>",
+            greeting = escape(greeting),
+            workspace = escape(workspace),
+            digits = digits(code),
+            expiry = escape(&expiry),
+        ),
+    );
+
+    Mail {
+        to_address: to_address.to_owned(),
+        to_name: to_name.to_owned(),
+        // The code is deliberately NOT in the subject. Subject lines show on a
+        // lock screen, and a code visible without unlocking the phone is a code
+        // that did not need the mailbox at all.
+        subject: format!("Reset your {workspace} password"),
+        text,
+        html,
+    }
+}
+
 /// "Does this relay work?" - what the settings screen sends to prove it.
 pub fn relay_test(to_address: &str, workspace: &str, host: &str) -> Mail {
     let text = format!(
@@ -119,6 +194,30 @@ pub fn relay_test(to_address: &str, workspace: &str, host: &str) -> Mail {
         text,
         html,
     }
+}
+
+/// "10 minutes" - the short end of the same idea as [`hours`].
+fn minutes(minutes: i64) -> String {
+    match minutes {
+        ..=0 => "less than a minute".to_owned(),
+        1 => "1 minute".to_owned(),
+        m if m < 120 => format!("{m} minutes"),
+        m => hours(m / 60),
+    }
+}
+
+/// The code, set out to be read off a screen and typed into another one.
+///
+/// Monospace and spaced, because the failure this is guarding against is a
+/// person reading `0` as `O` or losing their place in six identical-width
+/// digits. Not a button and not a link: there is nothing to click, and a
+/// message that looks clickable is a message somebody waits to be able to act
+/// on.
+fn digits(code: &str) -> String {
+    format!(
+        "<p style=\"margin:24px 0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,          monospace;font-size:30px;font-weight:700;letter-spacing:0.28em;color:#0f172a\">         {code}</p>",
+        code = escape(code),
+    )
 }
 
 /// "24 hours", "3 days" - a duration somebody can act on.

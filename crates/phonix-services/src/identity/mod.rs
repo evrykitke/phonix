@@ -18,10 +18,12 @@
 pub mod audit_view;
 pub mod authentication;
 pub mod directory;
+pub mod federated;
 pub mod invitation;
 pub mod mfa;
 pub mod one_time_token;
 pub mod password;
+pub mod password_reset;
 pub mod session;
 
 pub use authentication::{

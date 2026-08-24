@@ -20,7 +20,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 
-use crate::{auth, files, health, jobs, middleware};
+use crate::{auth, files, google, health, jobs, middleware};
 
 /// Build everything and serve until shutdown.
 pub async fn run(config: AppConfig) -> Result<()> {
@@ -161,6 +161,11 @@ pub async fn run(config: AppConfig) -> Result<()> {
         // a single-use token. Registered before the Leptos routes because it
         // answers with a redirect and a cookie, not with a page.
         .route("/auth/handoff", get(auth::handoff))
+        // The Google flow, both halves on this one host - Google will not
+        // redirect to a wildcard, so a workspace subdomain can never be the
+        // registered URI. See `google` for what follows from that.
+        .route("/auth/google/start", get(google::start))
+        .route("/auth/google/callback", get(google::callback))
         .leptos_routes_with_context(
             &state,
             routes,

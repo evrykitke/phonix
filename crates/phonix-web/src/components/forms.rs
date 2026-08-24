@@ -9,6 +9,9 @@
 //! a change to that file alone.
 
 use leptos::prelude::*;
+use phonix_core::identity::{PasswordStrength, password_strength};
+
+use crate::l;
 
 /// A label bound to its input.
 #[component]
@@ -98,7 +101,7 @@ pub fn submit_button(
     pending: RwSignal<bool>,
     #[prop(optional, into)] pending_label: Option<String>,
 ) -> impl IntoView {
-    let pending_label = pending_label.unwrap_or_else(|| "Working...".to_owned());
+    let pending_label = pending_label.unwrap_or_else(|| l!("common.working"));
 
     view! {
         <button
@@ -128,5 +131,54 @@ pub fn secondary_button(
         >
             {label}
         </button>
+    }
+}
+
+/// The password meter.
+///
+/// Advisory: it never blocks submission. `password_strength` is the same
+/// function the server has, so a green bar and a server-side rejection cannot
+/// disagree.
+///
+/// Shared by every screen that sets a password - signup, and the reset that
+/// follows a forgotten one. It lives here rather than beside either of them
+/// because two copies would be two sets of thresholds, and a meter that says
+/// "good" on one screen and "fair" on another is worse than no meter.
+#[component]
+pub fn strength_meter(password: RwSignal<String>) -> impl IntoView {
+    let strength = move || password_strength(&password.get());
+
+    view! {
+        <div class="mt-2" aria-live="polite">
+            <div class="flex gap-1">
+                {(0..4)
+                    .map(|bar| {
+                        view! {
+                            <div class=move || {
+                                let filled = bar < strength().filled_bars();
+                                let colour = match strength() {
+                                    PasswordStrength::Strong | PasswordStrength::Good => "bg-success",
+                                    PasswordStrength::Fair => "bg-warning",
+                                    _ => "bg-danger",
+                                };
+                                format!(
+                                    "h-1 flex-1 rounded-full transition-colors {}",
+                                    if filled { colour } else { "bg-surface-sunken" },
+                                )
+                            }></div>
+                        }
+                    })
+                    .collect::<Vec<_>>()}
+            </div>
+            <p class="mt-1 text-xs text-content-subtle">
+                {move || {
+                    // An empty box has no strength to report, so it gets the
+                    // advice instead of a word.
+                    strength()
+                        .message()
+                        .map_or_else(|| l!("signup.password_hint"), |word| crate::i18n::t(&word))
+                }}
+            </p>
+        </div>
     }
 }
