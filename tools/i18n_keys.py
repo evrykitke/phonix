@@ -60,7 +60,12 @@ def _write(path: Path, catalog: dict[str, str]) -> None:
         )
 
     lines.append("}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # `newline=""` rather than the default, which translates "\n" to os.linesep
+    # and hands a Windows checkout CRLF. The catalogs are committed as LF - see
+    # .gitattributes - and one that comes back CRLF is a whole-file diff on every
+    # run plus a working tree that disagrees with what git stores.
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        handle.write("\n".join(lines) + "\n")
 
 
 def add(entries: dict[str, dict[str, str]]) -> None:
