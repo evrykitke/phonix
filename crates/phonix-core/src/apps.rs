@@ -214,6 +214,19 @@ pub fn enabled_in<'a>(
         .filter(move |app| app.always_on || enabled.iter().any(|id| id == app.id))
 }
 
+/// Whether a workspace holding `enabled` can hold this permission at all.
+///
+/// The question a permission editor has to ask before it draws a checkbox: a
+/// tick beside an app nobody has subscribed to is a control that is ignored
+/// when it is saved, which is worse than a control that is absent.
+///
+/// Always-on apps pass whatever `enabled` says, and a permission no app owns
+/// passes too - the tests here make the second case impossible, and refusing
+/// it at a call site would hide a new permission rather than a bug.
+pub fn covers(enabled: &[String], permission: &str) -> bool {
+    owner_of(permission).is_none_or(|app| app.always_on || enabled.iter().any(|id| id == app.id))
+}
+
 /// Which app a permission belongs to, if any.
 ///
 /// `None` for a permission no app claims, which is a bug the tests here catch
@@ -401,6 +414,25 @@ mod tests {
                 definition.name
             );
         }
+    }
+
+    #[test]
+    fn a_workspace_can_only_hold_the_permissions_of_apps_it_has() {
+        let books_only = vec![BOOKS.to_owned()];
+
+        // Its own, and core's, which is on in every workspace.
+        assert!(covers(&books_only, names::INVOICES_POST));
+        assert!(covers(&books_only, names::USERS));
+        assert!(covers(&books_only, names::PAGES));
+
+        // Not the neighbour's.
+        assert!(!covers(&books_only, names::PARTIES));
+        assert!(!covers(&books_only, names::MASTER));
+
+        // A workspace with nothing optional still has core.
+        let nothing: Vec<String> = Vec::new();
+        assert!(covers(&nothing, names::AUDIT_LOGS));
+        assert!(!covers(&nothing, names::INVOICES));
     }
 
     #[test]

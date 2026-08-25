@@ -13,12 +13,13 @@
 //! permission to install sees the heading and no buttons - which is honest:
 //! their administrator can, and now they know what to ask for.
 //!
-//! # Why the list is a resource and the names are not
+//! # Why only the ids travel
 //!
-//! `enabled_apps` returns ids. Everything else - the name, the summary, the
-//! icon, the route - is [`phonix_core::apps::CATALOG`], compiled into this
-//! bundle. So the round trip is a handful of short strings, and the menu is
-//! drawn from a constant.
+//! The shell already knows which apps are on - it resolves the list once for
+//! the whole page, see [`crate::apps::InstalledApps`]. Everything else - the
+//! name, the summary, the icon, the route - is
+//! [`phonix_core::apps::CATALOG`], compiled into this bundle. So this menu
+//! costs no round trip of its own and is drawn from a constant.
 
 use leptos::prelude::*;
 use leptos::wasm_bindgen::JsCast;
@@ -28,11 +29,10 @@ use phonix_core::apps::{self, AppDescriptor};
 use phonix_core::authorization::names;
 
 use super::Shell;
-use crate::apps::icon_of;
+use crate::apps::{InstalledApps, icon_of};
 use crate::i18n::t;
 use crate::icons::{Icon, IconSize};
 use crate::l;
-use crate::server_fns::app_fns::enabled_apps;
 
 /// The store, and the one route that has to agree with `nav::tree`.
 pub const APPS_HREF: &str = "/admin/apps";
@@ -42,10 +42,7 @@ pub fn app_launcher() -> impl IntoView {
     let shell = Shell::get();
     let open = RwSignal::new(false);
 
-    // Not blocking: the top bar must draw immediately, and a launcher that
-    // arrives a moment later is a button that fills in, not a layout that
-    // shifts - it is a fixed-size control either way.
-    let enabled = Resource::new(|| (), |()| async move { enabled_apps().await.ok() });
+    let enabled = InstalledApps::get();
 
     // The same outside-click rule the avatar menu uses, registered
     // unconditionally for the same reason: a listener that adds itself while
@@ -101,9 +98,8 @@ pub fn app_launcher() -> impl IntoView {
                     class="absolute right-0 z-40 mt-1 w-72 overflow-hidden rounded-pop border border-edge bg-surface-raised shadow-pop"
                     role="menu"
                 >
-                    <Suspense fallback=|| ()>
-                        {move || Suspend::new(async move {
-                            let installed = enabled.await.unwrap_or_default();
+                    {move || {
+                            let installed = enabled.get().unwrap_or_default();
 
                             // Core is always on and has no screen of its own -
                             // it *is* the shell. Listing it would be listing
@@ -171,8 +167,7 @@ pub fn app_launcher() -> impl IntoView {
                                     </div>
                                 </Show>
                             }
-                        })}
-                    </Suspense>
+                    }}
                 </div>
             </Show>
         </div>

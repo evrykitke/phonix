@@ -10,9 +10,43 @@
 //! `tools/icons.txt`. So the declaration stays with the app and the resolution
 //! stays with the drawings, and neither can drift without something going red.
 
+use leptos::prelude::*;
 use phonix_core::apps::AppDescriptor;
 
 use crate::icons::Icon;
+
+/// Which apps this workspace has switched on, for anything that has to draw
+/// differently because of it.
+///
+/// The same shape as [`crate::ui::viewer::Viewer`] and for the same reason: the
+/// launcher, the dashboard's opening card and the permission editor all need
+/// this list, and three components each opening their own resource would be
+/// three round trips for one constant-sized answer.
+///
+/// # `None` means "not yet", and it is not the same as "nothing"
+///
+/// An empty list is a real answer - a workspace with only core. Unresolved has
+/// to be told apart from it, because the two want opposite defaults: a
+/// permission editor that treated "not yet" as "nothing" would draw a third of
+/// its tree, then grow. Where the difference matters, `None` should mean *show
+/// everything* and let the answer narrow it, which is the way round that never
+/// hides a control somebody was reaching for.
+#[derive(Clone, Copy)]
+pub struct InstalledApps(pub Signal<Option<Vec<String>>>);
+
+impl InstalledApps {
+    /// Make the list available to everything rendered below. The shell calls
+    /// this once.
+    pub fn provide(apps: Signal<Option<Vec<String>>>) {
+        provide_context(Self(apps));
+    }
+
+    /// The list, or a permanently unresolved signal where no host has provided
+    /// one - a test rendering a component on its own, most often.
+    pub fn get() -> Signal<Option<Vec<String>>> {
+        use_context::<Self>().map_or_else(|| Signal::derive(|| None), |apps| apps.0)
+    }
+}
 
 /// The drawing for an app's declared icon.
 ///

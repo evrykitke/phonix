@@ -18,10 +18,10 @@ use leptos_router::components::A;
 use phonix_core::apps;
 use phonix_core::authorization::names;
 
+use crate::apps::InstalledApps;
 use crate::components::shell::app_launcher::APPS_HREF;
 use crate::icons::{Icon, IconSize};
 use crate::l;
-use crate::server_fns::app_fns::enabled_apps;
 use crate::server_fns::tenant_fns::tenant_user_count;
 use crate::ui::viewer::Viewer;
 
@@ -90,12 +90,16 @@ pub fn dashboard_page() -> impl IntoView {
 #[component]
 fn get_started() -> impl IntoView {
     let viewer = Viewer::get();
-    let enabled = OnceResource::new(async move { enabled_apps().await.unwrap_or_default() });
+    let enabled = InstalledApps::get();
 
     view! {
-        <Suspense fallback=|| ()>
-            {move || Suspend::new(async move {
-                let installed = enabled.await;
+        {move || {
+                // `None` is "not resolved yet", and drawing the card then
+                // would be telling somebody their workspace is empty before
+                // anybody has looked. It resolves before the first paint - the
+                // shell's resource is blocking - so this branch is only ever
+                // hit by a component rendered outside a shell.
+                let installed = enabled.get()?;
                 let anything_on = apps::optional().any(|app| {
                     installed.iter().any(|id| id == app.id)
                 });
@@ -129,7 +133,6 @@ fn get_started() -> impl IntoView {
                         </div>
                     }
                 })
-            })}
-        </Suspense>
+        }}
     }
 }
