@@ -1,0 +1,48 @@
+# Line endings, and why this file is not optional on Windows.
+#
+# `core.autocrlf=true` is the default on a Windows install: git stores LF and
+# hands the working tree CRLF. For source that is invisible - the compiler does
+# not care. For **migrations** it is a live fault.
+#
+# `sqlx::migrate!` embeds each migration by hashing the bytes it finds in the
+# working tree, and every database records the hash of what was applied to it.
+# So a file that git rewrote on checkout - which happens on a merge, a branch
+# switch, a fresh clone - gets a different hash from the one already in
+# `_sqlx_migrations`, and every boot afterwards fails with:
+#
+#     migration 1 was previously applied but has been modified
+#
+# Nothing was modified. The bytes on disk simply stopped matching the bytes git
+# stores. That cost a broken tenant sweep once; this file is what stops it
+# recurring, by making the working tree identical to the object store.
+#
+# `text=auto eol=lf` also keeps the repository readable from Linux, which is
+# where it is deployed - see `[[phonix-runs-on-a-vps-at-evrykit]]`.
+
+* text=auto eol=lf
+
+# Stated again for the files whose bytes are a contract, so that anybody
+# loosening the rule above has to walk past the reason.
+*.sql   text eol=lf
+*.rs    text eol=lf
+*.toml  text eol=lf
+*.json  text eol=lf
+
+# Windows-native scripts are read by cmd.exe and PowerShell, which want CRLF.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# Never touched. A "line ending" in a PNG is a corrupted PNG.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.pdf   binary
+*.wasm  binary
