@@ -6,6 +6,7 @@
 //! that *is* administration - changing a tax rate - is gated separately.
 //!
 //! ```text
+//! /master                    the app's home    counts and the ways in
 //! /master/parties            the list          a grid
 //! /master/parties/new        add one           a form
 //! /master/parties/:id        one party         Details | Addresses | Contacts | History
@@ -16,6 +17,7 @@
 //! /master/tax-groups/:id     one group         a form
 //! ```
 
+pub mod home;
 pub mod parties;
 pub mod party;
 pub mod tax;

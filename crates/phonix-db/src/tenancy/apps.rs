@@ -50,9 +50,11 @@ pub const CORE_APP_ID: &str = "core";
 /// Commercial master data: the parties a workspace trades with, and the tax
 /// codes, rates and groups it applies to them.
 ///
-/// An ordinary app, installed unconditionally for now because every commercial
-/// product needs it. A pure clinical build would leave it out, and nothing in
-/// `core` would notice.
+/// An app here, with its own schema and its own stream - and *not* an app in
+/// the store: it is what the other apps reference, so a workspace cannot be
+/// without it. See `always_on` in `phonix_core::apps::AppDescriptor` for why
+/// "a clinical build would leave this out" is an argument about which crates
+/// are compiled in and not about what one workspace subscribes to.
 pub const MASTER_APP_ID: &str = "master";
 
 /// Sales: what the workspace invoices, and what it is owed for it.

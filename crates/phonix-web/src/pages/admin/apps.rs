@@ -306,13 +306,19 @@ fn app_card(
                                 })
                             />
                         </Show>
-                        <a
-                            href=app.home()
-                            class="inline-flex h-8 items-center gap-1.5 rounded-control px-3 text-sm text-content-muted hover:bg-surface-hover hover:text-content"
-                        >
-                            {l!("common.open")}
-                            <Icon icon=Icon::ArrowRight size=IconSize::Xs />
-                        </a>
+                        {app
+                            .home
+                            .map(|home| {
+                                view! {
+                                    <a
+                                        href=home
+                                        class="inline-flex h-8 items-center gap-1.5 rounded-control px-3 text-sm text-content-muted hover:bg-surface-hover hover:text-content"
+                                    >
+                                        {l!("common.open")}
+                                        <Icon icon=Icon::ArrowRight size=IconSize::Xs />
+                                    </a>
+                                }
+                            })}
                     }
                         .into_any()
                 } else {
@@ -484,7 +490,7 @@ fn install_dialog(
                                     // control were rendered against a
                                     // permission set that has just changed.
                                     <a
-                                        href=app.home()
+                                        href=app.home.unwrap_or("/")
                                         class="inline-flex h-8 items-center gap-1.5 rounded-control bg-brand px-3 text-sm font-medium text-on-brand hover:bg-brand-hover"
                                     >
                                         {t(

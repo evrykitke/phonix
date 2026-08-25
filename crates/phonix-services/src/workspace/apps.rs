@@ -98,8 +98,15 @@ pub async fn install(pool: &PgPool, caller: &Caller, app_id: &str) -> ServiceRes
     // Dependencies first, and the catalog guarantees they come earlier in it -
     // so this is one pass, not a graph walk. `requires` is one level deep by
     // construction; a test in `phonix_core::apps` refuses anything else.
+    //
+    // An always-on dependency is skipped rather than written. It is on by
+    // definition, and a row claiming somebody subscribed to it on a Tuesday
+    // would be a subscription record for something nobody chose.
     for needed in app.requires {
         let dependency = known(needed)?;
+        if dependency.always_on {
+            continue;
+        }
         if enable(pool, caller, dependency).await? {
             switched_on.push(dependency.id.to_owned());
         }

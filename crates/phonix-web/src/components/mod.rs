@@ -1,3 +1,4 @@
+pub mod app_home;
 pub mod avatar;
 pub mod diff;
 pub mod forms;

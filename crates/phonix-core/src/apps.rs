@@ -98,11 +98,40 @@ pub struct AppDescriptor {
     /// another app's schema.
     pub requires: &'static [&'static str],
 
-    /// Not offered, not removable, always on.
+    /// The app's own front page, or `None` for one that *is* the shell.
     ///
-    /// `core` is the only one: it is the sign-in page, the user list and the
-    /// audit trail, and a workspace that had switched it off would be a
-    /// workspace nobody could sign in to.
+    /// Declared rather than derived from [`Self::permission`]. It was derived
+    /// once, which produced `/pages` for core - an address that has never
+    /// existed - because core's permission root is the tree's root. A field
+    /// that is sometimes wrong is worse than a field somebody has to fill in,
+    /// and `every_home_sits_under_its_permission` keeps the two in step.
+    ///
+    /// `None` is what the launcher skips. Core has nowhere to send anybody:
+    /// it is the window every other app is drawn in.
+    pub home: Option<&'static str>,
+
+    /// Not offered in the store, not removable, always on.
+    ///
+    /// Two apps are, for different reasons. `core` is the sign-in page, the
+    /// user list and the audit trail - a workspace that had switched it off
+    /// would be one nobody could sign in to.
+    ///
+    /// `master` is the harder call and the more interesting one. It looked
+    /// optional: a clinical build would not want a customer list. But that is
+    /// an argument about which crates get *compiled in*, and this field is
+    /// about what one workspace of a running deployment subscribes to - a
+    /// different axis, and treating them as one is the mistake. Master data is
+    /// what the other apps *reference*: an invoice names a party and a tax
+    /// group, a purchase order would name a supplier, a CRM would name both.
+    /// Make it switchable and every app that reads it has to answer "what if
+    /// the thing I point at is off", which in practice means every app
+    /// declaring `requires: ["master"]` - always-on again, with a dependency
+    /// graph to maintain on top.
+    ///
+    /// It stays an app in every other sense: its own schema, its own migration
+    /// stream, no foreign key reaching out of it. That is the boundary in
+    /// `docs/adr/0001-core-boundary.md`, and it is worth keeping whether or
+    /// not anybody can switch the thing off.
     pub always_on: bool,
 }
 
@@ -119,28 +148,9 @@ impl AppDescriptor {
                 .is_some_and(|rest| rest.starts_with('.'))
     }
 
-    /// Where the launcher sends somebody who picks this app.
-    ///
-    /// Derived from the permission rather than stored: the route and the
-    /// permission are already the same fact said twice, and one of the two
-    /// spellings would eventually be wrong.
-    pub fn home(&self) -> String {
-        let path = self
-            .permission
-            .strip_prefix("Pages.")
-            .unwrap_or(self.permission);
-
-        let mut href = String::with_capacity(path.len() + 1);
-        for segment in path.split('.') {
-            href.push('/');
-            for (index, ch) in segment.char_indices() {
-                if ch.is_ascii_uppercase() && index > 0 {
-                    href.push('-');
-                }
-                href.push(ch.to_ascii_lowercase());
-            }
-        }
-        href
+    /// Whether the launcher has anywhere to send somebody who picks this.
+    pub const fn is_a_place(&self) -> bool {
+        self.home.is_some()
     }
 }
 
@@ -163,6 +173,8 @@ pub const CATALOG: &[AppDescriptor] = &[
         icon: "layout-dashboard",
         version: "1.0.0",
         permission: names::PAGES,
+        // The shell itself. There is nowhere to go: you are already there.
+        home: None,
         requires: &[],
         always_on: true,
     },
@@ -173,8 +185,11 @@ pub const CATALOG: &[AppDescriptor] = &[
         icon: "boxes",
         version: "0.1.0",
         permission: names::MASTER,
+        home: Some("/master"),
         requires: &[],
-        always_on: false,
+        // Part of every workspace - see the field. It keeps its own schema and
+        // its own migration stream all the same.
+        always_on: true,
     },
     AppDescriptor {
         id: BOOKS,
@@ -183,9 +198,11 @@ pub const CATALOG: &[AppDescriptor] = &[
         icon: "file-text",
         version: "0.1.0",
         permission: names::SALES,
+        home: Some("/sales"),
         // An invoice names a customer and a tax group, and both are master's.
-        // Books without master would be a screen that can only ever say the
-        // list is empty.
+        // Always satisfied now that master is part of every workspace, and
+        // stated anyway: it is true, and it is what an installer would need if
+        // that ever stopped being so.
         requires: &[MASTER],
         always_on: false,
     },
@@ -332,14 +349,21 @@ mod tests {
     }
 
     #[test]
-    fn core_is_the_only_app_nobody_can_switch_off() {
+    fn the_store_offers_only_what_a_workspace_can_do_without() {
+        // Core is the shell. Master data is what the other apps *reference* -
+        // see the field's documentation for why that makes it a workspace
+        // artifact rather than a subscription.
         let always_on: Vec<&str> = CATALOG
             .iter()
             .filter(|app| app.always_on)
             .map(|app| app.id)
             .collect();
 
-        assert_eq!(always_on, vec![CORE]);
+        assert_eq!(always_on, vec![CORE, MASTER]);
+        assert_eq!(
+            optional().map(|app| app.id).collect::<Vec<_>>(),
+            vec![BOOKS]
+        );
     }
 
     #[test]
@@ -420,18 +444,16 @@ mod tests {
     fn a_workspace_can_only_hold_the_permissions_of_apps_it_has() {
         let books_only = vec![BOOKS.to_owned()];
 
-        // Its own, and core's, which is on in every workspace.
+        // Its own, and the always-on apps, which every workspace has.
         assert!(covers(&books_only, names::INVOICES_POST));
         assert!(covers(&books_only, names::USERS));
         assert!(covers(&books_only, names::PAGES));
+        assert!(covers(&books_only, names::PARTIES));
 
-        // Not the neighbour's.
-        assert!(!covers(&books_only, names::PARTIES));
-        assert!(!covers(&books_only, names::MASTER));
-
-        // A workspace with nothing optional still has core.
+        // A workspace with nothing optional still has core and master.
         let nothing: Vec<String> = Vec::new();
         assert!(covers(&nothing, names::AUDIT_LOGS));
+        assert!(covers(&nothing, names::TAXES_EDIT));
         assert!(!covers(&nothing, names::INVOICES));
     }
 
@@ -456,20 +478,55 @@ mod tests {
     }
 
     #[test]
-    fn home_is_the_route_the_permission_names() {
-        assert_eq!(find(BOOKS).expect("books").home(), "/sales");
-        assert_eq!(find(MASTER).expect("master").home(), "/master");
+    fn every_home_sits_under_its_permission() {
+        // The route and the permission root are the same fact said twice, and
+        // deriving one from the other put core at `/pages`. So they are stated
+        // separately and checked against each other: `Pages.Sales` implies
+        // something beginning `/sales`, and a screen that answered on a
+        // different path would be one the permission does not guard.
+        for app in CATALOG {
+            let Some(home) = app.home else {
+                assert!(app.always_on, "{} has no home and is not the shell", app.id);
+                continue;
+            };
+
+            assert!(home.starts_with('/'), "{} has a relative home", app.id);
+
+            let implied = app
+                .permission
+                .strip_prefix("Pages.")
+                .map(str::to_ascii_lowercase)
+                .unwrap_or_default();
+
+            assert_eq!(
+                home,
+                format!("/{implied}"),
+                "{}'s home and its permission root disagree",
+                app.id,
+            );
+        }
     }
 
     #[test]
-    fn a_workspace_always_has_core_whatever_it_has_enabled() {
+    fn only_the_shell_has_nowhere_to_go() {
+        let homeless: Vec<&str> = CATALOG
+            .iter()
+            .filter(|app| !app.is_a_place())
+            .map(|app| app.id)
+            .collect();
+
+        assert_eq!(homeless, vec![CORE]);
+    }
+
+    #[test]
+    fn a_workspace_always_has_the_always_on_apps_whatever_it_enabled() {
         let nothing: Vec<String> = Vec::new();
         let ids: Vec<&str> = enabled_in(&nothing).map(|app| app.id).collect();
-        assert_eq!(ids, vec![CORE]);
+        assert_eq!(ids, vec![CORE, MASTER]);
 
         let some = vec![BOOKS.to_owned()];
         let ids: Vec<&str> = enabled_in(&some).map(|app| app.id).collect();
-        assert_eq!(ids, vec![CORE, BOOKS]);
+        assert_eq!(ids, vec![CORE, MASTER, BOOKS]);
     }
 
     #[test]

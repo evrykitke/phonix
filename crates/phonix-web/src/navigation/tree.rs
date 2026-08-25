@@ -69,14 +69,22 @@ pub static MENU: &[NavNode] = &[
         "sales",
         "nav.sales",
         Icon::ShoppingCart,
-        &[NavNode::leaf(
-            "invoices",
-            "nav.invoices",
-            Icon::FileText,
-            "/sales/invoices",
-        )
-        .require(names::INVOICES)
-        .keywords(&["bill", "billing", "receivable", "sales", "customer"])],
+        &[
+            // First in each app's group: the group heading opens and closes,
+            // it does not navigate, so without this an app's own front page
+            // is reachable from the launcher and from nowhere in the menu.
+            NavNode::leaf("sales-overview", "nav.overview", Icon::LayoutGrid, "/sales")
+                .require(names::SALES)
+                .keywords(&["books", "home", "start"]),
+            NavNode::leaf(
+                "invoices",
+                "nav.invoices",
+                Icon::FileText,
+                "/sales/invoices",
+            )
+            .require(names::INVOICES)
+            .keywords(&["bill", "billing", "receivable", "sales", "customer"]),
+        ],
     )
     .require(names::SALES),
     NavNode::group(
@@ -84,6 +92,14 @@ pub static MENU: &[NavNode] = &[
         "nav.master",
         Icon::Boxes,
         &[
+            NavNode::leaf(
+                "master-overview",
+                "nav.overview",
+                Icon::LayoutGrid,
+                "/master",
+            )
+            .require(names::MASTER)
+            .keywords(&["home", "start"]),
             NavNode::leaf("parties", "nav.parties", Icon::Users, "/master/parties")
                 .require(names::PARTIES)
                 .keywords(&["customers", "suppliers", "clients", "vendors", "contacts"]),

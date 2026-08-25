@@ -22,11 +22,13 @@ use crate::pages::admin::users::UsersPage;
 use crate::pages::auth::{
     AcceptInvitationPage, ChallengePage, ForgotPasswordPage, SignInPage, SignUpPage,
 };
+use crate::pages::master::home::MasterHomePage;
 use crate::pages::master::parties::{PartiesPage, PartyNewPage};
 use crate::pages::master::party::PartyPage;
 use crate::pages::master::tax::TaxPage;
 use crate::pages::master::tax_group::{TaxGroupNewPage, TaxGroupPage};
 use crate::pages::master::taxes::{TaxNewPage, TaxesPage};
+use crate::pages::sales::home::SalesHomePage;
 use crate::pages::sales::invoice::{InvoiceNewPage, InvoicePage};
 use crate::pages::sales::invoices::InvoicesPage;
 use crate::pages::{dashboard::DashboardPage, not_found::NotFoundPage};
@@ -162,6 +164,9 @@ pub fn app() -> impl IntoView {
 
                     // Sales. The first app, and the first routes that are a
                     // product rather than infrastructure.
+                    // The app's own front page, which is where the launcher
+                    // and the store send anybody who picks Books.
+                    <Route path=path!("/sales") view=SalesHomePage />
                     <Route path=path!("/sales/invoices") view=InvoicesPage />
                     // Before the parameter, so "new" is a screen rather than an
                     // invoice id that fails to parse.
@@ -175,6 +180,7 @@ pub fn app() -> impl IntoView {
                     // Master data. Not under /admin, for the reason the
                     // permission tree is not: keeping a customer list up to
                     // date is ordinary commercial work.
+                    <Route path=path!("/master") view=MasterHomePage />
                     <Route path=path!("/master/parties") view=PartiesPage />
                     // Before the parameter, so "new" is a screen rather than a
                     // party id that fails to parse.

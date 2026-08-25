@@ -847,29 +847,33 @@ mod tests {
         // services prune through `for_enabled_apps` before they write. Offering
         // a control and then discarding what it says is worse than not
         // offering it.
-        let rows = scoped_to(&["master"]);
+        let rows = scoped_to(&[]);
 
         assert!(!rows.iter().any(|name| name.starts_with("Pages.Sales")));
+        // The always-on apps are there whatever the list says.
         assert!(rows.contains(&perms::PARTIES));
-        // Core is on in every workspace, whatever the list says.
         assert!(rows.contains(&perms::USERS));
         assert!(rows.contains(&perms::PAGES));
     }
 
     #[test]
-    fn a_workspace_with_nothing_optional_still_has_the_whole_of_core() {
+    fn a_workspace_that_has_subscribed_to_nothing_still_has_the_always_on_apps() {
         let rows = scoped_to(&[]);
 
         assert!(rows.contains(&perms::AUDIT_LOGS));
         assert!(rows.contains(&perms::APPS_INSTALL));
-        assert!(!rows.iter().any(|name| name.starts_with("Pages.Master")));
+        // Master data is part of every workspace - nobody subscribes to it and
+        // nobody can switch it off - so its permissions are always grantable.
+        assert!(rows.contains(&perms::PARTIES));
+        // Books is the one thing that is actually optional.
+        assert!(!rows.iter().any(|name| name.starts_with("Pages.Sales")));
     }
 
     #[test]
     fn a_branch_counts_only_the_children_this_workspace_could_hold() {
         // `Pages` would otherwise sit permanently part-ticked over children
         // nobody in this workspace can ever be granted.
-        let books_off: Vec<String> = vec!["master".to_owned()];
+        let books_off: Vec<String> = Vec::new();
 
         let (_, total) = tally(&PermissionSet::new(), perms::PAGES, Some(&books_off));
         let (_, everything) = tally(&PermissionSet::new(), perms::PAGES, None);
@@ -892,12 +896,12 @@ mod tests {
     fn select_all_in_a_narrowed_tree_is_what_the_service_would_keep() {
         // The screen and the server must not disagree about what a click meant
         // - the same rule the grant and revoke helpers exist for.
-        let enabled = vec!["master".to_owned()];
+        let enabled: Vec<String> = Vec::new();
         let picked = PermissionSet::all().for_enabled_apps(&enabled);
 
         assert!(picked.is_granted(perms::PARTIES));
         assert!(picked.is_granted(perms::USERS));
         assert!(!picked.is_granted(perms::INVOICES));
-        assert_eq!(picked.len(), scoped_to(&["master"]).len());
+        assert_eq!(picked.len(), scoped_to(&[]).len());
     }
 }

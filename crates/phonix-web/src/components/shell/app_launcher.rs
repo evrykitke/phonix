@@ -101,11 +101,15 @@ pub fn app_launcher() -> impl IntoView {
                     {move || {
                             let installed = enabled.get().unwrap_or_default();
 
-                            // Core is always on and has no screen of its own -
-                            // it *is* the shell. Listing it would be listing
-                            // the window the launcher is drawn in.
+                            // Everything with somewhere to go. Core is skipped
+                            // because it has no home - it *is* the shell, and
+                            // listing it would be listing the window the
+                            // launcher is drawn in. Master data is listed even
+                            // though nobody can switch it off: it has real
+                            // screens, and "cannot be removed" is no reason to
+                            // hide the way to them.
                             let on: Vec<&'static AppDescriptor> = apps::enabled_in(&installed)
-                                .filter(|app| !app.always_on)
+                                .filter(|app| app.is_a_place())
                                 .collect();
                             let off: Vec<&'static AppDescriptor> = apps::optional()
                                 .filter(|app| !installed.iter().any(|id| id == app.id))
@@ -179,7 +183,7 @@ pub fn app_launcher() -> impl IntoView {
 fn launcher_entry(app: &'static AppDescriptor) -> impl IntoView {
     view! {
         <A
-            href=app.home()
+            href=app.home.unwrap_or("/")
             attr:class="flex w-full items-start gap-2.5 rounded-control px-2 py-1.5 text-left hover:bg-surface-hover"
             attr:role="menuitem"
         >

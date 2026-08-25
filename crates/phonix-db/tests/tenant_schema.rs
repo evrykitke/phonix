@@ -404,26 +404,19 @@ async fn switching_an_app_on_and_off_moves_its_permissions_with_it() {
     .await
     .expect("write an invoice");
 
-    // Switch both on, the way the install use case does: enable, then sync
-    // once for the whole set.
-    for app in ["master", "books"] {
-        assert!(
-            installs::enable(&pool, app, "0.1.0", None)
-                .await
-                .expect("enable"),
-            "{app} was off, so enabling it is a change",
-        );
-    }
+    // Switch Books on, the way the install use case does: enable, then sync.
+    assert!(
+        installs::enable(&pool, "books", "0.1.0", None)
+            .await
+            .expect("enable"),
+        "books was off, so enabling it is a change",
+    );
     role::sync_static_roles(&pool).await.expect("sync");
 
     let on = admin_grants(&pool).await;
     assert!(
         on.iter().any(|name| name == "Pages.Sales.Invoices.Post"),
         "installing Books has to grant its permissions",
-    );
-    assert!(
-        on.iter().any(|name| name == "Pages.Master.Parties"),
-        "installing master data has to grant its permissions",
     );
 
     // Enabling something already on is not a change, and must not rewrite the

@@ -15,8 +15,8 @@ currencies, taxes, and document numbers.
 ```
 phonix_tenant_acme
   ├── core.*      infrastructure. Always installed. Cannot be uninstalled.
-  ├── master.*    commercial master data. An ordinary app, always installed
-  │               for commercial products, absent from a pure clinical one.
+  ├── master.*    commercial master data. Its own schema and stream like any
+  │               app, but never offered in the store - see section 8.
   └── books.*     an app.
       procurement.*
 ```
@@ -975,3 +975,65 @@ only when the date changes.
   requiring the master-data permission as well would mean nobody in sales could
   invoice anyone. It is also the only way `master` can learn the party is in
   use, since it has no foreign key into `books`.
+
+
+## 8. Installing an app, and the one that turned out not to be one
+
+Step 6 raised a question the design above does not answer: what does it mean
+for a workspace to *have* an app? Every app compiled into the build had its
+schema migrated into every tenant database, and `installed_apps.state` was read
+by nothing. A boundary that lets you leave an app out of a build but not out of
+a workspace is only half a boundary, and the missing half is the one with a
+subscription attached to it.
+
+**Installing is enabling, and enabling is a permission grant.** The schema is
+already there - migrating under a live request is a fault, not a feature - so
+an install writes `installed_apps.enabled_at` and re-syncs the static roles.
+Every gate downstream already answers to permissions: the menu, the command
+palette, the grids, `Caller::require` in every service. Granting the subtree
+beneath an app's permission root switches all of them on at once, and there is
+deliberately no second mechanism to keep in step with that one.
+
+The rule it imposes: **an app owns a whole permission subtree and nothing
+outside it.** Revocation is a prefix match on a dotted boundary, so two apps
+sharing a parent would take each other down. Tests refuse a catalog that
+overlaps, and refuse a permission no app owns.
+
+### `master` is not an app you can decline
+
+The registry above called it "an ordinary app, always installed for commercial
+products, absent from a pure clinical one". Implementing the store showed that
+sentence to be two arguments wearing one coat.
+
+Whether a *build* contains `phonix-master` is a composition question, and the
+answer there stands: a clinical product would not compile it in, and nothing in
+`core` would notice. Whether a *workspace of a running deployment* subscribes to
+its own customer list is a different question, and the answer is no - it is not
+a thing anybody would sell.
+
+The technical reason is the one that settles it. Master data is what the other
+apps *reference*: an invoice names a party and a tax group, a purchase order
+would name a supplier, a CRM would name both, and none of them holds a foreign
+key to say so. Make it switchable and every app that reads it has to answer
+"what if the thing I point at is off" - which in practice means every app
+declaring `requires: ["master"]`, which is always-on again with a dependency
+graph to maintain on top.
+
+So `master` is `always_on`, alongside `core`, and keeps everything else: its own
+schema, its own migration stream, no foreign key reaching out of it. The
+boundary is worth keeping whether or not anybody can switch the thing off - it
+is what lets an app be *added*, which is the direction that actually happens.
+
+### Two lists that cannot be one
+
+`phonix_db::tenancy::apps::APPS` holds `sqlx::Migrator` and can never compile to
+wasm. `phonix_core::apps::CATALOG` holds the name, summary, icon, version and
+home, and must, because the browser draws the store. A test asserts they name
+the same apps in the same order; the drift is quiet and expensive both ways -
+an app in the registry alone gets a schema nobody can switch on, and one in the
+catalog alone is offered, installed, and fails on its first query.
+
+An app declares its **home** rather than deriving it from its permission root.
+That was derived once and produced `/pages` for core, because core's root *is*
+the tree's root. A test now checks the two agree instead, which keeps the
+property without the failure.
