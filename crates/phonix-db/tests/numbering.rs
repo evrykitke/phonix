@@ -528,7 +528,11 @@ async fn scoped_sequences_count_independently() {
     // Two rows, one per branch - and asked for this app alone, because a
     // scratch database also carries whatever series the real apps installed.
     let all = numbering::list(&pool, Some(APP)).await.expect("list");
-    assert_eq!(all.len(), 2, "expected one sequence per branch, got {all:?}");
+    assert_eq!(
+        all.len(),
+        2,
+        "expected one sequence per branch, got {all:?}"
+    );
 
     clean_up(&cfg, pool).await;
 }

@@ -27,6 +27,8 @@ use phonix_db::tenancy::{apps, provision};
 const FRESH: &str = "phonix_test_schema_fresh";
 /// Built the way a database created before 0014 was: everything in `public`.
 const LEGACY: &str = "phonix_test_schema_legacy";
+/// Aged back a release, to see whether the sweep catches the role up.
+const PERMISSIONS: &str = "phonix_test_schema_permissions";
 
 /// Every table core's stream creates, all of which must live in `core`.
 const CORE_TABLES: &[&str] = &[
@@ -324,6 +326,99 @@ async fn assert_core_is_recorded(pool: &PgPool, context: &str) {
     // Named explicitly as well, so the reason core comes first stays visible:
     // it is the app that creates the table the others record themselves in.
     assert_app_is_recorded(pool, apps::CORE_APP_ID, context).await;
+}
+
+/// Every permission Admin holds in this database.
+async fn admin_grants(pool: &PgPool) -> Vec<String> {
+    sqlx::query(
+        "SELECT rp.name
+           FROM role_permissions rp
+           JOIN roles r ON r.id = rp.role_id
+          WHERE lower(r.name) = 'admin'
+          ORDER BY rp.name",
+    )
+    .fetch_all(pool)
+    .await
+    .expect("list admin grants")
+    .into_iter()
+    .map(|row| row.get::<String, _>("name"))
+    .collect()
+}
+
+#[tokio::test]
+#[ignore = "needs a live PostgreSQL server"]
+async fn a_migration_pass_gives_admin_the_permissions_this_build_added() {
+    // # The bug this exists to stop
+    //
+    // `sync_static_roles` is documented as the upgrade path - run it again and
+    // a newly defined permission reaches every workspace's Admin role. For a
+    // long time the only caller was signup, so a workspace got the tree that
+    // existed on the day it was created and never another entry. Sales and
+    // Master shipped that way: the routes answered, the pages rendered, and
+    // `Pages.Sales.Invoices` was held by nobody, so the navigation entry was
+    // simply not drawn. There is no error to go looking for in that - it reads
+    // as a feature that was never built.
+    let cfg = database_config();
+    recreate(&cfg, PERMISSIONS).await;
+
+    provision::migrate_tenant(&cfg, PERMISSIONS)
+        .await
+        .expect("first migration pass");
+
+    let pool = open(&cfg, PERMISSIONS);
+    let whole = admin_grants(&pool).await;
+    assert!(
+        !whole.is_empty(),
+        "a migrated database has an Admin role with grants",
+    );
+
+    // Stand in for the release that adds a page: before it, this database's
+    // Admin held everything *except* the new entries.
+    let removed: Vec<String> = whole
+        .iter()
+        .filter(|name| name.starts_with("Pages."))
+        .take(3)
+        .cloned()
+        .collect();
+    assert!(
+        !removed.is_empty(),
+        "the permission tree has page entries to drift on",
+    );
+
+    sqlx::query(
+        "DELETE FROM role_permissions rp
+          USING roles r
+          WHERE r.id = rp.role_id
+            AND lower(r.name) = 'admin'
+            AND rp.name = ANY($1::text[])",
+    )
+    .bind(&removed)
+    .execute(&pool)
+    .await
+    .expect("age the role back to an earlier release");
+
+    let aged = admin_grants(&pool).await;
+    for name in &removed {
+        assert!(!aged.contains(name), "{name} was supposed to be removed");
+    }
+    pool.close().await;
+
+    // The boot sweep, on a workspace that predates the feature.
+    provision::migrate_tenant(&cfg, PERMISSIONS)
+        .await
+        .expect("second migration pass");
+
+    let pool = open(&cfg, PERMISSIONS);
+    assert_eq!(
+        admin_grants(&pool).await,
+        whole,
+        "a migration pass has to put back every permission this build defines",
+    );
+    pool.close().await;
+
+    provision::drop_tenant_database(&cfg, PERMISSIONS)
+        .await
+        .expect("clean up");
 }
 
 #[tokio::test]

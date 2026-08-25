@@ -15,6 +15,7 @@
 use app_books::invoice::{Invoice, InvoiceInput, InvoiceStatus, InvoiceSummary, PostOutcome};
 use chrono::NaiveDate;
 use leptos::prelude::*;
+use leptos::server_fn::codec::Json;
 use phonix_core::form::Submission;
 use phonix_tax::group::TaxTreatment;
 use serde::{Deserialize, Serialize};
@@ -34,7 +35,19 @@ pub struct InvoiceQuery {
 }
 
 /// Every invoice a list screen should show.
-#[server(name = ListInvoices, prefix = "/api", endpoint = "books/invoices")]
+///
+/// # Why this one is JSON and its neighbours are not
+///
+/// The default encoding is url-encoded, where a struct is spelt out field by
+/// field - `query[status]=draft`. Every field of [`InvoiceQuery`] is optional,
+/// so the default value spells out to *nothing at all*, and an empty body does
+/// not say "here is a query with nothing in it", it says the argument is
+/// missing: `missing field `query``. The list screen asks unfiltered, so that
+/// was every first load.
+///
+/// JSON has a way to write an empty object. Any argument that is a struct of
+/// nothing but options wants it.
+#[server(name = ListInvoices, prefix = "/api", endpoint = "books/invoices", input = Json)]
 pub async fn list_invoices(query: InvoiceQuery) -> Result<Vec<InvoiceSummary>, ServerFnError> {
     use phonix_db::books::invoice::InvoiceFilter;
 
