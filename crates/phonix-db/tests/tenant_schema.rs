@@ -20,8 +20,9 @@
 //! ```
 
 use phonix_config::DatabaseConfig;
+use phonix_db::authorization::role;
 use phonix_db::sqlx::{self, PgPool, Row};
-use phonix_db::tenancy::{apps, provision};
+use phonix_db::tenancy::{apps, installs, provision};
 
 /// Provisioned the way the runner does it today.
 const FRESH: &str = "phonix_test_schema_fresh";
@@ -29,6 +30,8 @@ const FRESH: &str = "phonix_test_schema_fresh";
 const LEGACY: &str = "phonix_test_schema_legacy";
 /// Aged back a release, to see whether the sweep catches the role up.
 const PERMISSIONS: &str = "phonix_test_schema_permissions";
+/// Switched on and off again, to see what that does to the grants.
+const ENABLEMENT: &str = "phonix_test_schema_enablement";
 
 /// Every table core's stream creates, all of which must live in `core`.
 const CORE_TABLES: &[&str] = &[
@@ -343,6 +346,128 @@ async fn admin_grants(pool: &PgPool) -> Vec<String> {
     .into_iter()
     .map(|row| row.get::<String, _>("name"))
     .collect()
+}
+
+#[tokio::test]
+#[ignore = "needs a live PostgreSQL server"]
+async fn switching_an_app_on_and_off_moves_its_permissions_with_it() {
+    // The whole mechanism, end to end against a real database: enablement is
+    // stored in one column, and the *only* thing it does is decide which
+    // permissions the static roles hold. Everything a workspace sees - the
+    // menu, the grids, every `Caller::require` - hangs off that, so if this
+    // moves correctly, all of it does.
+    //
+    // What must not move is the data. Switching an app off is a subscription
+    // change, not a delete, and a workspace that lost its invoices by
+    // unticking a box would be a workspace nobody unticks a box in again.
+    let cfg = database_config();
+    recreate(&cfg, ENABLEMENT).await;
+
+    provision::migrate_tenant(&cfg, ENABLEMENT)
+        .await
+        .expect("migration pass");
+
+    let pool = open(&cfg, ENABLEMENT);
+
+    // A migrated database has every app's schema and no optional app on.
+    let enabled = installs::enabled_ids(&pool).await.expect("enabled ids");
+    assert_eq!(
+        enabled,
+        vec![apps::CORE_APP_ID.to_owned()],
+        "only core is on before anybody installs anything",
+    );
+    assert!(
+        !admin_grants(&pool)
+            .await
+            .iter()
+            .any(|name| name.starts_with("Pages.Sales")),
+        "an app nobody installed must not be granted",
+    );
+
+    // An invoice, to prove the data outlives the subscription.
+    let party = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO core.currencies (code, is_enabled)
+         VALUES ('USD', true) ON CONFLICT (code) DO NOTHING",
+    )
+    .execute(&pool)
+    .await
+    .expect("a currency to price it in");
+
+    sqlx::query(
+        "INSERT INTO books.invoices
+             (party_id, party_code, party_name, issued_on, status, currency_code)
+         VALUES ($1, 'ACME', 'Acme', current_date, 'draft', 'USD')",
+    )
+    .bind(party)
+    .execute(&pool)
+    .await
+    .expect("write an invoice");
+
+    // Switch both on, the way the install use case does: enable, then sync
+    // once for the whole set.
+    for app in ["master", "books"] {
+        assert!(
+            installs::enable(&pool, app, "0.1.0", None)
+                .await
+                .expect("enable"),
+            "{app} was off, so enabling it is a change",
+        );
+    }
+    role::sync_static_roles(&pool).await.expect("sync");
+
+    let on = admin_grants(&pool).await;
+    assert!(
+        on.iter().any(|name| name == "Pages.Sales.Invoices.Post"),
+        "installing Books has to grant its permissions",
+    );
+    assert!(
+        on.iter().any(|name| name == "Pages.Master.Parties"),
+        "installing master data has to grant its permissions",
+    );
+
+    // Enabling something already on is not a change, and must not rewrite the
+    // date somebody subscribed.
+    assert!(
+        !installs::enable(&pool, "books", "0.1.0", None)
+            .await
+            .expect("enable again"),
+        "a second install is a no-op, not a second subscription",
+    );
+
+    // Off again.
+    assert!(
+        installs::disable(&pool, "books").await.expect("disable"),
+        "it was on",
+    );
+    role::sync_static_roles(&pool).await.expect("resync");
+    role::revoke_everywhere(&pool, "Pages.Sales")
+        .await
+        .expect("revoke");
+
+    let off = admin_grants(&pool).await;
+    assert!(
+        !off.iter().any(|name| name.starts_with("Pages.Sales")),
+        "switching Books off has to take its permissions with it",
+    );
+    assert!(
+        off.iter().any(|name| name == "Pages.Master.Parties"),
+        "and must not take the neighbour's - this is why an app owns a whole          permission subtree",
+    );
+
+    // The point of the whole design.
+    let invoices: i64 = sqlx::query("SELECT count(*) AS n FROM books.invoices")
+        .fetch_one(&pool)
+        .await
+        .expect("count invoices")
+        .get("n");
+    assert_eq!(invoices, 1, "switching an app off must not touch its data");
+
+    pool.close().await;
+
+    provision::drop_tenant_database(&cfg, ENABLEMENT)
+        .await
+        .expect("clean up");
 }
 
 #[tokio::test]

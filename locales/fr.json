@@ -72,6 +72,7 @@
   "apps.included": "Inclus",
   "apps.install": "Installer",
   "apps.installed": "Installees",
+  "apps.installed.also": "{apps} a ete activee en meme temps, car {app} en a besoin.",
   "apps.installed.detail": "Toute personne ayant le role Admin peut y acceder. Accordez la permission aux autres depuis Roles.",
   "apps.installed.open": "Ouvrir {app}",
   "apps.installed.stay": "Rester ici",

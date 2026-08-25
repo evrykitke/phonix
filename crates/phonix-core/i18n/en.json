@@ -72,6 +72,7 @@
   "apps.included": "Included",
   "apps.install": "Install",
   "apps.installed": "Installed",
+  "apps.installed.also": "{apps} came with it, because {app} needs it.",
   "apps.installed.detail": "Everyone with an Admin role can reach it now. Give anybody else the permission from Roles.",
   "apps.installed.open": "Open {app}",
   "apps.installed.stay": "Stay here",

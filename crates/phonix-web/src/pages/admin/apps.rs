@@ -347,12 +347,23 @@ fn install_dialog(
     let step = RwSignal::new(0_usize);
     let finished = RwSignal::new(false);
     let failed: RwSignal<Option<String>> = RwSignal::new(None);
+    // Anything that came along because this app needs it. Named on the way
+    // out: somebody who asked for Books and got a second entry in their menu
+    // should be told why rather than left to work it out.
+    let dependencies: RwSignal<Vec<String>> = RwSignal::new(Vec::new());
 
     // The request and the animation start together. Neither waits for the
     // other, and the dialog does not say "ready" until both are through.
     let request = Action::new(move |(): &()| async move {
         match install_app(app.id.to_owned()).await {
-            Ok(_) => {
+            Ok(installed) => {
+                dependencies.set(
+                    installed
+                        .switched_on
+                        .into_iter()
+                        .filter(|id| id != app.id)
+                        .collect(),
+                );
                 version.update(|value| *value += 1);
                 true
             }
@@ -391,6 +402,15 @@ fn install_dialog(
     });
 
     let close = move || installing.set(None);
+
+    // Not `installing.set(None)`. The sidebar, the launcher and every
+    // permission-gated control in the shell resolved their session once, when
+    // this document loaded, and the set they resolved against has just gained
+    // an app. Dismissing the dialog without a reload would leave somebody
+    // looking at a menu that does not have the thing they just installed.
+    let dismiss = move || {
+        let _ = window().location().reload();
+    };
 
     view! {
         <div
@@ -433,11 +453,31 @@ fn install_dialog(
                                     <p class="mt-1 text-sm text-content-muted">
                                         {l!("apps.installed.detail")}
                                     </p>
+                                    {(!dependencies.get().is_empty())
+                                        .then(|| {
+                                            let names = dependencies
+                                                .get()
+                                                .iter()
+                                                .filter_map(|id| apps::find(id))
+                                                .map(|other| t(&Message::new(other.name)))
+                                                .collect::<Vec<_>>()
+                                                .join(", ");
+
+                                            view! {
+                                                <p class="mt-2 text-sm text-content-muted">
+                                                    {t(
+                                                        &Message::new("apps.installed.also")
+                                                            .arg("apps", names)
+                                                            .arg("app", name.clone()),
+                                                    )}
+                                                </p>
+                                            }
+                                        })}
                                 </div>
                                 <div class="flex justify-center gap-2">
                                     <GhostButton
                                         label=t(&Message::new("apps.installed.stay"))
-                                        on_click=Callback::new(move |()| close())
+                                        on_click=Callback::new(move |()| dismiss())
                                     />
                                     // A full load rather than a router push:
                                     // the menu, the launcher and every gated
