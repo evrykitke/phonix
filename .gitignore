@@ -35,3 +35,8 @@ desktop.ini
 # the server is the source of truth, and this can hold host names and paths
 # that have no business in a public repository.
 /deploy
+
+# Python bytecode from the tools in tools/. Regenerated on every run, and
+# version-stamped by interpreter, so committing it is churn that conflicts.
+__pycache__/
+*.pyc
