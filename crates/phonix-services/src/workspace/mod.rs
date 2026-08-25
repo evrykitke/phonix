@@ -5,6 +5,7 @@
 //! password and MFA policy afterwards, and [`profile`] is who it says it is -
 //! the legal entity, its address, and the currency and time zone it works in.
 
+pub mod apps;
 pub mod onboarding;
 pub mod profile;
 pub mod settings;

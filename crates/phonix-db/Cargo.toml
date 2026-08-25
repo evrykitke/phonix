@@ -9,6 +9,7 @@ license.workspace = true
 phonix-core = { workspace = true }
 phonix-config = { workspace = true }
 phonix-master = { workspace = true }
+app-books = { workspace = true }
 phonix-tax = { workspace = true }
 
 sqlx = { workspace = true }

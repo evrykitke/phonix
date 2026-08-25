@@ -39,6 +39,26 @@ impl PermissionSet {
         )
     }
 
+    /// Drop everything belonging to an app this workspace has not switched on.
+    ///
+    /// This is what "installing an app" comes down to. Enablement is stored in
+    /// one column of one table, and it reaches the menu, the command palette,
+    /// every grid and every `Caller::require` by way of this method - because
+    /// all of them already answer to permissions, and a second parallel
+    /// mechanism would be a second place for the two to disagree.
+    ///
+    /// `enabled` is app ids, as `core.installed_apps` hands them back. The
+    /// always-on apps are kept whether they appear in it or not: a workspace
+    /// that had switched `core` off would be one nobody could sign in to.
+    #[must_use]
+    pub fn for_enabled_apps(mut self, enabled: &[String]) -> Self {
+        self.0.retain(|name| {
+            crate::apps::owner_of(name)
+                .is_some_and(|app| app.always_on || enabled.iter().any(|id| id == app.id))
+        });
+        self
+    }
+
     /// Exact-match check. This is the one every guard should call.
     pub fn is_granted(&self, name: &str) -> bool {
         self.0.contains(name)

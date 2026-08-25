@@ -104,6 +104,12 @@ pub async fn set_user_permissions(
         ));
     }
 
+    // The same door as `set_role_permissions`, for the same reason: a per-user
+    // override is a grant like any other, and an app that is switched off is
+    // switched off for everybody.
+    let enabled = crate::workspace::apps::enabled_ids(pool).await?;
+    let desired = &desired.clone().for_enabled_apps(&enabled);
+
     let overrides = UserPermissionView::overrides_for(&current.from_roles, desired);
 
     if overrides == current.overrides {
@@ -227,7 +233,19 @@ pub async fn set_role_permissions(
         ));
     }
 
-    let desired = phonix_core::authorization::grants::normalise(desired);
+    // An app this workspace has not subscribed to cannot be granted its way
+    // back in. Enablement is expressed as permissions - see
+    // `phonix_services::workspace::apps` - and this is the one door that would
+    // otherwise let somebody re-open it by hand: the static roles are rewritten
+    // on every boot, but a role the organization defined is not.
+    //
+    // Dropped silently rather than refused. The editor still draws the whole
+    // tree, so a tick beside a switched-off app is a control that should not
+    // have been offered rather than a mistake worth an error message - and see
+    // `[[grid-permission-gating-is-cosmetic]]` for why the refusal belongs
+    // here either way.
+    let enabled = crate::workspace::apps::enabled_ids(pool).await?;
+    let desired = phonix_core::authorization::grants::normalise(desired).for_enabled_apps(&enabled);
 
     if desired == current.permissions {
         return Ok(current);

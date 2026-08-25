@@ -57,7 +57,8 @@ pub async fn google_sign_in_url() -> Result<Option<String>, ServerFnError> {
         // simply does not appear, and whoever set it up needs to see why.
         tracing::warn!(
             redirect_uri = %config.redirect_uri,
-            "security.google.redirect_uri is not an absolute URL, so no sign-in              button can be built from it",
+            "security.google.redirect_uri is not an absolute URL, so no sign-in button can be \
+             built from it",
         );
         return Ok(None);
     };

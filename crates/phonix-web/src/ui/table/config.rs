@@ -36,6 +36,7 @@
 pub mod audit;
 pub mod changes;
 pub mod currencies;
+pub mod invoices;
 pub mod numbering;
 pub mod parties;
 pub mod roles;

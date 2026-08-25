@@ -34,6 +34,21 @@
 //! Without that, searching "Delete" would show two leaves with no indication of
 //! what they are the delete of.
 //!
+//! # An app the workspace has not switched on has no rows here
+//!
+//! Its permissions still exist - they are compiled in, and another workspace
+//! holds them - but this one cannot. Both grant-writing services prune through
+//! `for_enabled_apps` before they write, so a tick beside Books in a workspace
+//! without Books is a control that is silently ignored on save. Offering it and
+//! discarding it is worse than not offering it, so the tree narrows to what
+//! this workspace can actually hold: `phonix_core::apps::covers` decides, and
+//! [`crate::apps::InstalledApps`] supplies the list.
+//!
+//! The scope reaches further than the rows. A branch's `2/5` and its
+//! part-ticked state count only what is in scope, or `Pages` would sit
+//! permanently partial over children nobody can ever grant; and "select all"
+//! selects what can be saved, or it would tick rows that vanish on submit.
+//!
 //! # Annotations
 //!
 //! A caller may pass `annotate` to label individual rows - "from role",
@@ -48,8 +63,43 @@ use phonix_core::authorization::{
     DEFINITIONS, PermissionDefinition, PermissionSet, ancestors, children, is_descendant_of,
 };
 
+use crate::apps::InstalledApps;
 use crate::icons::{Icon, IconSize};
 use crate::l;
+
+/// Which permissions this workspace can hold at all.
+///
+/// `None` is *not resolved yet*, and it means show everything. The opposite
+/// default would draw a third of the tree and then grow it, which moves rows
+/// under somebody's pointer; narrowing a full tree a moment later never does.
+/// In practice it is resolved before the first paint - the shell fetches it
+/// with a blocking resource - and `None` is only reached by a component
+/// rendered outside a shell, including every test in this file.
+type Scope<'a> = Option<&'a [String]>;
+
+/// Whether this workspace could hold `name`.
+fn in_scope(scope: Scope<'_>, name: &str) -> bool {
+    scope.is_none_or(|enabled| phonix_core::apps::covers(enabled, name))
+}
+
+/// Every definition this workspace could hold, in tree order.
+fn definitions(scope: Scope<'_>) -> impl Iterator<Item = &'static PermissionDefinition> + use<'_> {
+    DEFINITIONS
+        .iter()
+        .filter(move |definition| in_scope(scope, definition.name))
+}
+
+/// The children of `parent` that this workspace could hold.
+///
+/// Used rather than [`children`] wherever the answer decides what a *row*
+/// says, because a chevron over an empty branch and a tally that counts
+/// ungrantable children are both the tree lying about itself.
+fn scoped_children<'a>(
+    scope: Scope<'a>,
+    parent: &'static str,
+) -> impl Iterator<Item = &'static PermissionDefinition> + use<'a> {
+    children(Some(parent)).filter(move |child| in_scope(scope, child.name))
+}
 
 /// A tri-state, because a parent with some of its children ticked is neither.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,18 +148,18 @@ fn visible(
     query: &str,
     only_selected: bool,
     collapsed: &BTreeSet<&'static str>,
+    scope: Scope<'_>,
 ) -> Vec<&'static PermissionDefinition> {
     let query = query.trim().to_lowercase();
     let filtering = !query.is_empty() || only_selected;
 
-    DEFINITIONS
-        .iter()
+    definitions(scope)
         .filter(|definition| {
             // Kept when it matches, or when something beneath it does. A match
             // three levels down shown without its branch is a permission with
             // no indication of what it is the delete of.
             let wanted = matches(definition, selected, &query, only_selected)
-                || DEFINITIONS.iter().any(|other| {
+                || definitions(scope).any(|other| {
                     is_descendant_of(other.name, definition.name)
                         && matches(other, selected, &query, only_selected)
                 });
@@ -133,9 +183,8 @@ fn visible(
 /// Rendered on a branch as `2/5`, which is the one thing a checkbox cannot say:
 /// a partial tick tells you *that* some of it is on, and this tells you how
 /// much, without opening it.
-fn tally(selected: &PermissionSet, name: &str) -> (usize, usize) {
-    DEFINITIONS
-        .iter()
+fn tally(selected: &PermissionSet, name: &str, scope: Scope<'_>) -> (usize, usize) {
+    definitions(scope)
         .filter(|definition| is_descendant_of(definition.name, name))
         .fold((0, 0), |(granted, total), definition| {
             (
@@ -146,10 +195,9 @@ fn tally(selected: &PermissionSet, name: &str) -> (usize, usize) {
 }
 
 /// Every branch in the tree - what "collapse all" shuts.
-fn branches() -> BTreeSet<&'static str> {
-    DEFINITIONS
-        .iter()
-        .filter(|definition| children(Some(definition.name)).next().is_some())
+fn branches(scope: Scope<'_>) -> BTreeSet<&'static str> {
+    definitions(scope)
+        .filter(|definition| scoped_children(scope, definition.name).next().is_some())
         .map(|definition| definition.name)
         .collect()
 }
@@ -170,6 +218,7 @@ pub fn permission_tree(
     #[prop(optional)]
     annotate: Option<Callback<&'static str, Option<String>>>,
 ) -> impl IntoView {
+    let scope = InstalledApps::get();
     let query = RwSignal::new(String::new());
     let only_selected = RwSignal::new(false);
     // Opens fully expanded. The tree is short enough to read whole, and a
@@ -177,6 +226,14 @@ pub fn permission_tree(
     let collapsed = RwSignal::new(BTreeSet::<&'static str>::new());
 
     let filtering = move || !query.get().trim().is_empty() || only_selected.get();
+
+    // The denominator on both counters below, and what "select all" selects.
+    // `DEFINITIONS.len()` would be counting permissions this workspace cannot
+    // hold, so "12 of 40" would never reach 40.
+    let in_reach = move || {
+        let enabled = scope.get();
+        definitions(enabled.as_deref()).count()
+    };
 
     let rows = move || {
         let query = query.get();
@@ -187,10 +244,14 @@ pub fn permission_tree(
         // Otherwise every tick rebuilds every row, and a list that redraws
         // under the pointer is a list that loses the row you were about to
         // click next.
+        let enabled = scope.get();
+        let enabled = enabled.as_deref();
+
         if only {
-            selection.with(|selected| visible(selected, &query, true, &collapsed))
+            selection.with(|selected| visible(selected, &query, true, &collapsed, enabled))
         } else {
-            selection.with_untracked(|selected| visible(selected, &query, false, &collapsed))
+            selection
+                .with_untracked(|selected| visible(selected, &query, false, &collapsed, enabled))
         }
     };
 
@@ -210,14 +271,26 @@ pub fn permission_tree(
                         />
                         <BulkButton
                             label=l!("permissions.collapse_all")
-                            on_click=Callback::new(move |()| collapsed.set(branches()))
+                            on_click=Callback::new(move |()| {
+                                let enabled = scope.get();
+                                collapsed.set(branches(enabled.as_deref()));
+                            })
                         />
                         <span class="mx-1 h-4 w-px bg-edge" aria-hidden="true"></span>
                     </Show>
                     <BulkButton
                         label=l!("permissions.select_all")
                         disabled=disabled
-                        on_click=Callback::new(move |()| selection.set(PermissionSet::all()))
+                        on_click=Callback::new(move |()| {
+                            // Scoped, or the tree would tick rows that the
+                            // service prunes on the way in and the screen
+                            // would report a selection nobody saved.
+                            let all = match scope.get() {
+                                Some(enabled) => PermissionSet::all().for_enabled_apps(&enabled),
+                                None => PermissionSet::all(),
+                            };
+                            selection.set(all);
+                        })
                     />
                     <BulkButton
                         label=l!("permissions.clear")
@@ -311,7 +384,7 @@ pub fn permission_tree(
                         l!(
                             "permissions.selected_of",
                             count = count.to_string(),
-                            total = DEFINITIONS.len().to_string(),
+                            total = in_reach().to_string(),
                         )
                     }}
                 </span>
@@ -322,7 +395,7 @@ pub fn permission_tree(
                             l!(
                                 "permissions.shown_of",
                                 shown = shown.to_string(),
-                                total = DEFINITIONS.len().to_string(),
+                                total = in_reach().to_string(),
                             )
                         }}
                     </span>
@@ -355,16 +428,28 @@ fn permission_row(
     // it straight through, which an optional prop would want unwrapped first.
     annotate: Option<Callback<&'static str, Option<String>>>,
 ) -> impl IntoView {
+    let scope = InstalledApps::get();
     let name = definition.name;
     let depth = definition.depth();
-    let has_children = children(Some(name)).next().is_some();
+    // Scoped: a branch whose only children belong to an app this workspace has
+    // not switched on is a leaf here, and drawing a chevron on it would open
+    // nothing.
+    let has_children = move || {
+        let enabled = scope.get();
+        scoped_children(enabled.as_deref(), name).next().is_some()
+    };
 
     let tick = move || {
+        let enabled = scope.get();
+        let enabled = enabled.as_deref();
+
         selection.with(|selected| {
             if !selected.is_granted(name) {
                 return Tick::Off;
             }
-            if has_children && !children(Some(name)).all(|child| selected.is_granted(child.name)) {
+            if has_children()
+                && !scoped_children(enabled, name).all(|child| selected.is_granted(child.name))
+            {
                 // Ticked itself, but not everything under it. Worth showing,
                 // because "Users" alone means read-only and "Users" with its
                 // children means read-write, and the checkbox cannot say that.
@@ -400,7 +485,7 @@ fn permission_row(
                 style=format!("padding-left:{}rem", depth as f32 * 1.25)
             >
                 {move || {
-                    if has_children && !filtering.get() {
+                    if has_children() && !filtering.get() {
                         view! {
                             <button
                                 type="button"
@@ -498,18 +583,23 @@ fn permission_row(
                     </span>
                 </button>
 
-                {has_children
-                    .then(|| {
-                        view! {
-                            <span class="mt-1 shrink-0 rounded-full bg-surface-sunken px-1.5 py-0.5 font-mono text-2xs text-content-subtle">
-                                {move || {
-                                    let (granted, total) = selection
-                                        .with(|selected| tally(selected, name));
-                                    format!("{granted}/{total}")
-                                }}
-                            </span>
-                        }
-                    })}
+                {move || {
+                    has_children()
+                        .then(|| {
+                            view! {
+                                <span class="mt-1 shrink-0 rounded-full bg-surface-sunken px-1.5 py-0.5 font-mono text-2xs text-content-subtle">
+                                    {move || {
+                                        let enabled = scope.get();
+                                        let (granted, total) = selection
+                                            .with(|selected| {
+                                                tally(selected, name, enabled.as_deref())
+                                            });
+                                        format!("{granted}/{total}")
+                                    }}
+                                </span>
+                            }
+                        })
+                }}
             </div>
         </li>
     }
@@ -570,6 +660,8 @@ mod tests {
 
     use super::*;
 
+    /// Unscoped: a workspace with every app, which is what these tests are
+    /// about. [`scoped_to`] is the one that narrows.
     fn shown(
         selected: &PermissionSet,
         query: &str,
@@ -578,10 +670,26 @@ mod tests {
     ) -> Vec<&'static str> {
         let collapsed: BTreeSet<&'static str> = collapsed.iter().copied().collect();
 
-        visible(selected, query, only_selected, &collapsed)
+        visible(selected, query, only_selected, &collapsed, None)
             .into_iter()
             .map(|definition| definition.name)
             .collect()
+    }
+
+    /// What the tree draws for a workspace holding exactly these apps.
+    fn scoped_to(enabled: &[&str]) -> Vec<&'static str> {
+        let enabled: Vec<String> = enabled.iter().map(|id| (*id).to_owned()).collect();
+
+        visible(
+            &PermissionSet::new(),
+            "",
+            false,
+            &BTreeSet::new(),
+            Some(&enabled),
+        )
+        .into_iter()
+        .map(|definition| definition.name)
+        .collect()
     }
 
     #[test]
@@ -694,7 +802,7 @@ mod tests {
         selected.grant(perms::USERS_CREATE);
         selected.grant(perms::USERS_EDIT);
 
-        let (granted, total) = tally(&selected, perms::USERS);
+        let (granted, total) = tally(&selected, perms::USERS, None);
 
         assert_eq!(granted, 2);
         assert_eq!(total, children(Some(perms::USERS)).count());
@@ -705,12 +813,15 @@ mod tests {
 
     #[test]
     fn a_leaf_has_nothing_to_count() {
-        assert_eq!(tally(&PermissionSet::all(), perms::USERS_DELETE), (0, 0));
+        assert_eq!(
+            tally(&PermissionSet::all(), perms::USERS_DELETE, None),
+            (0, 0)
+        );
     }
 
     #[test]
     fn collapse_all_shuts_every_branch_and_no_leaves() {
-        let branches = branches();
+        let branches = branches(None);
 
         assert!(branches.contains(perms::PAGES));
         assert!(branches.contains(perms::USERS));
@@ -724,9 +835,69 @@ mod tests {
             &PermissionSet::new(),
             "",
             false,
-            &branches().into_iter().collect::<Vec<_>>(),
+            &branches(None).into_iter().collect::<Vec<_>>(),
         );
 
         assert_eq!(rows, vec![perms::PAGES]);
+    }
+
+    #[test]
+    fn an_app_the_workspace_has_not_installed_has_no_rows() {
+        // A tick beside it would be ignored on save: both grant-writing
+        // services prune through `for_enabled_apps` before they write. Offering
+        // a control and then discarding what it says is worse than not
+        // offering it.
+        let rows = scoped_to(&["master"]);
+
+        assert!(!rows.iter().any(|name| name.starts_with("Pages.Sales")));
+        assert!(rows.contains(&perms::PARTIES));
+        // Core is on in every workspace, whatever the list says.
+        assert!(rows.contains(&perms::USERS));
+        assert!(rows.contains(&perms::PAGES));
+    }
+
+    #[test]
+    fn a_workspace_with_nothing_optional_still_has_the_whole_of_core() {
+        let rows = scoped_to(&[]);
+
+        assert!(rows.contains(&perms::AUDIT_LOGS));
+        assert!(rows.contains(&perms::APPS_INSTALL));
+        assert!(!rows.iter().any(|name| name.starts_with("Pages.Master")));
+    }
+
+    #[test]
+    fn a_branch_counts_only_the_children_this_workspace_could_hold() {
+        // `Pages` would otherwise sit permanently part-ticked over children
+        // nobody in this workspace can ever be granted.
+        let books_off: Vec<String> = vec!["master".to_owned()];
+
+        let (_, total) = tally(&PermissionSet::new(), perms::PAGES, Some(&books_off));
+        let (_, everything) = tally(&PermissionSet::new(), perms::PAGES, None);
+
+        assert!(
+            total < everything,
+            "the tally has to shrink when an app is off",
+        );
+        assert_eq!(
+            everything - total,
+            DEFINITIONS
+                .iter()
+                .filter(|d| d.name.starts_with("Pages.Sales"))
+                .count(),
+            "and shrink by exactly what Books owns",
+        );
+    }
+
+    #[test]
+    fn select_all_in_a_narrowed_tree_is_what_the_service_would_keep() {
+        // The screen and the server must not disagree about what a click meant
+        // - the same rule the grant and revoke helpers exist for.
+        let enabled = vec!["master".to_owned()];
+        let picked = PermissionSet::all().for_enabled_apps(&enabled);
+
+        assert!(picked.is_granted(perms::PARTIES));
+        assert!(picked.is_granted(perms::USERS));
+        assert!(!picked.is_granted(perms::INVOICES));
+        assert_eq!(picked.len(), scoped_to(&["master"]).len());
     }
 }

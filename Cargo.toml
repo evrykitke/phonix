@@ -15,6 +15,16 @@ repository = ""
 phonix-core = { path = "crates/phonix-core" }
 phonix-tax = { path = "crates/phonix-tax" }
 phonix-master = { path = "crates/phonix-master" }
+
+# --- apps ---
+# `app-*` rather than `phonix-*`: the prefix says which side of the core
+# boundary a crate sits on. `phonix-*` is infrastructure every app may depend
+# on; an `app-*` crate is a product, and a build can leave it out.
+#
+# `app` and not some other word because it is the one the rest of the codebase
+# already uses for this: `migrations/apps/`, `core.installed_apps`, `app_id`,
+# `AppMigrations`. Two words for one idea eventually disagree.
+app-books = { path = "crates/app-books" }
 phonix-config = { path = "crates/phonix-config" }
 phonix-telemetry = { path = "crates/phonix-telemetry" }
 phonix-db = { path = "crates/phonix-db" }

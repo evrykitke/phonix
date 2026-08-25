@@ -17,6 +17,9 @@ phonix-core = { workspace = true }
 # tax preview runs in the browser.
 phonix-master = { workspace = true }
 phonix-tax = { workspace = true }
+# The books app. Unconditional: its types cross the wire and its pricing runs
+# in the browser.
+app-books = { workspace = true }
 
 leptos = { workspace = true }
 leptos_meta = { workspace = true }

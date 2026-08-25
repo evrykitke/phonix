@@ -96,3 +96,6 @@ info
 loader-circle
 mail
 triangle-alert
+
+layout-grid
+blocks

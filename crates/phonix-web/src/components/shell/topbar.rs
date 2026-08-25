@@ -7,6 +7,7 @@
 use leptos::prelude::*;
 
 use super::Shell;
+use super::app_launcher::AppLauncher;
 use super::user_menu::UserMenu;
 use crate::components::tenant_badge::TenantBadge;
 use crate::i18n::t;
@@ -40,6 +41,12 @@ pub fn top_bar() -> impl IntoView {
                 <span class="hidden md:inline-flex">
                     <TenantBadge />
                 </span>
+
+                // Before the bell and the avatar: this is a "where am I"
+                // control, and those two are about what has happened and who
+                // you are. Grouping it with the search keeps the two questions
+                // about *place* next to each other.
+                <AppLauncher />
 
                 <button
                     type="button"

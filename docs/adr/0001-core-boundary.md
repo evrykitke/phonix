@@ -869,7 +869,10 @@ an app gain a migration and never reach the tenants that need it.
    **Done.** Two crates - `phonix-tax` for the arithmetic, `phonix-master` for
    the vocabulary - plus `migrations/apps/master/0001`-`0002`, the repositories,
    the services, and the screens under `/master`. See the revisions in section 4.
-6. The first real app.
+6. ~~The first real app.~~ **Done, on `app/books`.** Sales invoices:
+   `crates/app-books` for the vocabulary and the pricing,
+   `migrations/apps/books/0001`, `config/numbering/books.toml`, the
+   repository, the service, and the screens under `/sales`. See section 8.
 
 Steps 1 and 2 got more expensive with every tenant added, which is why they went
 first.
@@ -882,6 +885,7 @@ cargo test -p phonix-db --test tenant_schema -- --ignored --test-threads=1
 cargo test -p phonix-db --test currency      -- --ignored --test-threads=1
 cargo test -p phonix-db --test numbering     -- --ignored --test-threads=1
 cargo test -p phonix-db --test master        -- --ignored --test-threads=1
+cargo test -p phonix-db --test books         -- --ignored --test-threads=1
 ```
 
 `tenant_schema` covers both paths through step 1 — a database built today and one
@@ -901,3 +905,73 @@ it is not in any schema: the row lock, and that Postgres holds it until the
 transaction ends. Two tests carry the weight — one rolls a transaction back and
 finds the number still available, and one runs two allocations at once and
 watches the second wait for the first to commit.
+
+---
+
+## 8. The first app, and what it proved
+
+`books` is one schema, one migration, one crate and one config file. Nothing in
+the runner knows it exists beyond an entry in `APPS`, which is the result the
+first seven sections were for.
+
+### The prefix says which side of the boundary a crate is on
+
+```
+phonix-*   infrastructure. Every app may depend on it. Cannot be uninstalled.
+app-*      a product. Installs into a workspace; a build can leave it out.
+```
+
+`app` and not some other word because it is the one the rest of the codebase
+already uses for this - `migrations/apps/`, `core.installed_apps`, `app_id`,
+`AppMigrations`. Two words for one idea eventually disagree, which is the same
+argument section 2 makes about `app_id` being the schema name.
+
+### What `books` may and may not reference
+
+`core.currencies` and `core.users` are proper foreign keys. `master.parties`
+and `master.tax_codes` are referenced **by id, with none** - the rule from
+section 1, and the first time it has cost anything. The cost is that `books`
+cannot ask the database whether a party still exists, and the payment is that
+`DROP SCHEMA books CASCADE` remains a safe thing to do.
+
+That absence is also why the columns beside those ids are a *snapshot*. A
+document stores the party's registered name and address, and every line stores
+the code, name and rate of each tax that applied. None of it is re-resolved at
+print time, so a customer who moves and a rate that changes cannot rewrite an
+invoice that was already sent.
+
+### Posting is the act the whole numbering design was for
+
+A draft carries no number. Posting allocates one **in the same transaction as
+the write**, which is what makes a failed post *return* the number rather than
+burn it - proved by a live test that rolls one back and finds the same number
+still waiting. A voided invoice keeps its number, because a number that
+disappears is a gap and a gap is what an auditor asks about.
+
+The belt-and-braces index from section 5 is real now: `invoices_number_key`,
+partial on `number IS NOT NULL`, because every draft has a NULL and NULLs do
+not compare equal.
+
+### The browser prices the document
+
+`app_books::pricing` compiles to wasm. The editor re-prices the whole invoice
+locally on every keystroke - compound chains, inclusive pricing,
+document-level rounding - and the server runs *the same function* over the same
+treatments when it saves. There is no "calculate totals" endpoint, deliberately:
+that would be a second implementation of the arithmetic living in the network,
+and the first thing to disagree with the document.
+
+The one thing the browser cannot know is which taxes apply on the document's
+date, because that needs a rate table. It fetches those once, and re-fetches
+only when the date changes.
+
+### Two things the app decided that the boundary did not
+
+- **A `Quantity` lives in `app-books`, not in `core`.** Only one app needs it.
+  Section 1 says to wait for the third, and promoting it later is a re-export.
+- **Books claims the party as a customer through the repository**, not through
+  `master::party::claim_role`, which requires `Parties.Edit`. Being allowed to
+  raise an invoice against somebody *is* the authority to mark them a customer;
+  requiring the master-data permission as well would mean nobody in sales could
+  invoice anyone. It is also the only way `master` can learn the party is in
+  use, since it has no foreign key into `books`.

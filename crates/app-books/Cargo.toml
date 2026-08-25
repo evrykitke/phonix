@@ -1,0 +1,33 @@
+[package]
+name = "app-books"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# The `books` app: its shared vocabulary, and the pricing that turns lines
+# into totals.
+#
+# Named `app-*` rather than `phonix-*` on purpose, and `app` rather than any
+# other word because it is the one this codebase already uses for exactly this
+# thing: `migrations/apps/books`, `core.installed_apps`, `app_id`, `APPS`.
+# `phonix-*` is infrastructure every app may depend on; an `app-*` crate is a
+# product, and a build can leave it out. The id and the schema stay bare -
+# `books` - because that is what a tenant database sees. Compiled for BOTH the server and the wasm client - like phonix-core,
+# phonix-tax and phonix-master - so it must never depend on tokio, sqlx, redis
+# or lapin. The browser prices an invoice with this code and the server posts
+# it with the same code, which is the whole reason the crate exists.
+[dependencies]
+phonix-core = { workspace = true }
+phonix-master = { workspace = true }
+phonix-tax = { workspace = true }
+
+serde = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+# Proving that a quantity crosses the wire as its digits rather than as a
+# double, which is what keeps a line total the same on both sides.
+serde_json = { workspace = true }

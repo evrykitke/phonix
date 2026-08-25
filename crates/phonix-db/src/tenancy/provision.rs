@@ -231,6 +231,7 @@ async fn migrate_app(
             })?;
 
         install_number_sequences(&pool, database, app.app_id).await?;
+        sync_permission_tree(&pool, database, app.app_id).await?;
 
         apps::record_installed(&pool, app.app_id, &app.latest_version()).await
     }
@@ -314,6 +315,43 @@ async fn adopt_legacy_bookkeeping(
         database,
         "adopted the pre-0014 migration history into the core schema"
     );
+    Ok(())
+}
+
+/// Write the compiled permission tree into this tenant's static roles.
+///
+/// # Why a migration pass and not only signup
+///
+/// `sync_static_roles` was written as "run once per tenant, right after its
+/// migrations", and for a long time the only thing that ran it was onboarding.
+/// So a workspace got the permissions that existed on the day it was created
+/// and never another one. Every release that added a page left every existing
+/// administrator unable to reach it, with no error to go looking for - the
+/// navigation entry simply was not there, which reads as a feature that was
+/// never shipped rather than a grant that was never written.
+///
+/// That is what happened to Sales and Master: the pages existed, the routes
+/// answered, and `Pages.Sales.Invoices` was held by nobody.
+///
+/// Only the static roles are touched, and only `Admin` is replaced wholesale.
+/// A role an organization defined is theirs - see `sync_static_roles`.
+///
+/// Runs for `core` alone, because permissions are core's table. It is a
+/// separate step from the migration stream on purpose: the tree is compiled
+/// Rust, so restating it in SQL would be a second source of truth, and the
+/// database is not where this project puts logic.
+async fn sync_permission_tree(
+    pool: &sqlx::PgPool,
+    database: &str,
+    app_id: &str,
+) -> Result<(), DbError> {
+    if app_id != apps::CORE_APP_ID {
+        return Ok(());
+    }
+
+    crate::authorization::sync_static_roles(pool).await?;
+
+    tracing::debug!(database, "static role permissions synchronised");
     Ok(())
 }
 

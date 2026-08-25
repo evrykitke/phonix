@@ -61,6 +61,7 @@
 //! the sidebar for permission gating, the palette for the same, the avatar menu
 //! for a name. Those are small and independent; the page is neither.
 
+pub mod app_launcher;
 pub mod command_palette;
 pub mod sidebar;
 pub mod topbar;
@@ -73,6 +74,7 @@ use leptos_router::hooks::use_location;
 use phonix_core::identity::AuthUser;
 
 use crate::navigation::{MENU, Trail};
+use crate::server_fns::app_fns::enabled_apps;
 use crate::server_fns::auth_fns::current_user;
 use crate::theme::Theme;
 
@@ -86,6 +88,12 @@ pub struct Shell {
     /// Blocking, so the server holds the first chunk until the chrome can be
     /// rendered with the right menu rather than an empty one that fills in.
     session: OnceResource<Option<AuthUser>>,
+    /// Which apps this workspace has switched on.
+    ///
+    /// Blocking too, and for a sharper reason than the menu: the permission
+    /// editor draws a *different tree* depending on this, and one that arrived
+    /// a moment late would grow rows under the pointer. One indexed query.
+    apps: OnceResource<Vec<String>>,
     /// Groups the user has explicitly opened (`true`) or closed (`false`).
     /// Absent means "whatever the trail says".
     overrides: RwSignal<HashMap<&'static str, bool>>,
@@ -105,6 +113,9 @@ impl Shell {
 
         let shell = Self {
             session: OnceResource::new_blocking(async move { current_user().await.ok().flatten() }),
+            apps: OnceResource::new_blocking(
+                async move { enabled_apps().await.unwrap_or_default() },
+            ),
             overrides: RwSignal::new(HashMap::new()),
             palette_open: RwSignal::new(false),
             drawer_open: RwSignal::new(false),
@@ -118,6 +129,7 @@ impl Shell {
         // The kit is handed what it needs rather than reaching in for it, so
         // `ui` depends on `phonix_core` and not on this shell.
         crate::ui::viewer::Viewer::provide(shell.viewer());
+        crate::apps::InstalledApps::provide(shell.installed_apps());
 
         shell
     }
@@ -149,6 +161,15 @@ impl Shell {
         let session = self.session;
 
         Signal::derive(move || session.get().flatten())
+    }
+
+    /// The apps this workspace has, as a signal. `None` until it resolves -
+    /// see [`crate::apps::InstalledApps`] for why the two are worth telling
+    /// apart.
+    pub fn installed_apps(self) -> Signal<Option<Vec<String>>> {
+        let apps = self.apps;
+
+        Signal::derive(move || apps.get())
     }
 
     pub async fn user(self) -> Option<AuthUser> {

@@ -55,6 +55,12 @@ pub const CORE_APP_ID: &str = "core";
 /// `core` would notice.
 pub const MASTER_APP_ID: &str = "master";
 
+/// Sales: what the workspace invoices, and what it is owed for it.
+///
+/// The first app that issues a numbered document, which is what makes it the
+/// one that proves `core.number_sequences` works end to end.
+pub const BOOKS_APP_ID: &str = "books";
+
 /// One installable app's migration stream.
 #[derive(Debug)]
 pub struct AppMigrations {
@@ -108,6 +114,14 @@ pub static APPS: &[AppMigrations] = &[
     AppMigrations {
         app_id: MASTER_APP_ID,
         migrator: &crate::MASTER_MIGRATIONS,
+    },
+    // After master, because an invoice references a party and a tax group. The
+    // order here is install order, and nothing enforces the dependency beyond
+    // it: there is no foreign key from `books` into `master`, on purpose - an
+    // app with one could never be uninstalled.
+    AppMigrations {
+        app_id: BOOKS_APP_ID,
+        migrator: &crate::BOOKS_MIGRATIONS,
     },
 ];
 
@@ -189,6 +203,29 @@ mod tests {
                 app.app_id
             );
         }
+    }
+
+    #[test]
+    fn this_registry_and_the_catalog_name_the_same_apps() {
+        // Two lists of apps exist and cannot be merged: this one holds
+        // `sqlx::Migrator`, so it can never compile to wasm, and
+        // `phonix_core::apps::CATALOG` holds the names and icons that have to.
+        //
+        // The failure this catches is quiet and expensive. An app added here
+        // and not there gets a schema in every tenant database and appears in
+        // no store, so nobody can switch it on. Added there and not here, it is
+        // offered, installed, and its first query fails on a schema that does
+        // not exist.
+        let migrating: Vec<&str> = APPS.iter().map(|app| app.app_id).collect();
+        let described: Vec<&str> = phonix_core::apps::CATALOG
+            .iter()
+            .map(|app| app.id)
+            .collect();
+
+        assert_eq!(
+            migrating, described,
+            "the migration registry and the app catalog have drifted - order              matters too, because both are install order",
+        );
     }
 
     #[test]

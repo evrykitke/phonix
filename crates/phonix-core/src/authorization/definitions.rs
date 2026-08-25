@@ -10,6 +10,9 @@
 //!  +- Pages.Dashboard
 //!  +- Pages.Files
 //!  |   +- .Upload  .Delete
+//!  +- Pages.Sales
+//!  |   +- Pages.Sales.Invoices
+//!  |       +- .Create  .Edit  .Post  .Void
 //!  +- Pages.Master
 //!  |   +- Pages.Master.Parties
 //!  |   |   +- .Create  .Edit  .Delete
@@ -22,6 +25,8 @@
 //!      |   +- .Create  .Edit  .Delete  .ChangePermissions
 //!      +- Pages.Administration.Settings
 //!      +- Pages.Administration.AuditLogs
+//!      +- Pages.Administration.Apps
+//!          +- .Install
 //! ```
 
 use serde::{Deserialize, Serialize};
@@ -38,6 +43,14 @@ pub mod names {
     pub const FILES: &str = "Pages.Files";
     pub const FILES_UPLOAD: &str = "Pages.Files.Upload";
     pub const FILES_DELETE: &str = "Pages.Files.Delete";
+
+    pub const SALES: &str = "Pages.Sales";
+
+    pub const INVOICES: &str = "Pages.Sales.Invoices";
+    pub const INVOICES_CREATE: &str = "Pages.Sales.Invoices.Create";
+    pub const INVOICES_EDIT: &str = "Pages.Sales.Invoices.Edit";
+    pub const INVOICES_POST: &str = "Pages.Sales.Invoices.Post";
+    pub const INVOICES_VOID: &str = "Pages.Sales.Invoices.Void";
 
     pub const MASTER: &str = "Pages.Master";
 
@@ -66,6 +79,9 @@ pub mod names {
 
     pub const SETTINGS: &str = "Pages.Administration.Settings";
     pub const AUDIT_LOGS: &str = "Pages.Administration.AuditLogs";
+
+    pub const APPS: &str = "Pages.Administration.Apps";
+    pub const APPS_INSTALL: &str = "Pages.Administration.Apps.Install";
 }
 
 /// One node of the permission tree.
@@ -144,6 +160,59 @@ pub const DEFINITIONS: &[PermissionDefinition] = &[
         display_name: "Delete",
         description: Some("Remove a stored file."),
         parent: Some(names::FILES),
+        default_for_user: false,
+    },
+    // -- Sales ------------------------------------------------------------
+    //
+    // Four powers, because they are four different acts. Raising a draft is
+    // ordinary sales work. **Posting** takes a number nobody can hand back and
+    // turns a draft into a document somebody can be sued over. Voiding
+    // withdraws one that has already been sent. An organization that gives
+    // everybody the first two and nobody the third is expressing something
+    // real, and a single "Invoices.Edit" could not.
+    PermissionDefinition {
+        name: names::SALES,
+        display_name: "Sales",
+        description: Some("Reach the sales area."),
+        parent: Some(names::PAGES),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::INVOICES,
+        display_name: "Invoices",
+        description: Some("View the invoices this workspace has raised."),
+        parent: Some(names::SALES),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::INVOICES_CREATE,
+        display_name: "Create",
+        description: Some("Raise a draft invoice."),
+        parent: Some(names::INVOICES),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::INVOICES_EDIT,
+        display_name: "Edit",
+        description: Some("Change or delete a draft. A posted invoice cannot be edited."),
+        parent: Some(names::INVOICES),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::INVOICES_POST,
+        display_name: "Post",
+        description: Some(
+            "Number a draft and issue it. The number cannot be handed back, and the document \
+             cannot be edited afterwards.",
+        ),
+        parent: Some(names::INVOICES),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::INVOICES_VOID,
+        display_name: "Void",
+        description: Some("Withdraw a posted invoice. It keeps its number."),
+        parent: Some(names::INVOICES),
         default_for_user: false,
     },
     // -- Master data ------------------------------------------------------
@@ -305,6 +374,28 @@ pub const DEFINITIONS: &[PermissionDefinition] = &[
         display_name: "Audit logs",
         description: Some("Read the security and activity trail."),
         parent: Some(names::ADMINISTRATION),
+        default_for_user: false,
+    },
+    // -- Apps -------------------------------------------------------------
+    //
+    // Seeing the store and changing what the workspace subscribes to are two
+    // acts, and the second one is the one with an invoice attached. Somebody
+    // should be able to look at what is available and ask for it without being
+    // able to sign the organization up for it.
+    PermissionDefinition {
+        name: names::APPS,
+        display_name: "Apps",
+        description: Some("See which apps this workspace has, and what else there is."),
+        parent: Some(names::ADMINISTRATION),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::APPS_INSTALL,
+        display_name: "Install",
+        description: Some(
+            "Switch an app on for this workspace, or off again. An app that is off keeps              its data.",
+        ),
+        parent: Some(names::APPS),
         default_for_user: false,
     },
 ];
@@ -481,7 +572,8 @@ mod tests {
                 names::USERS,
                 names::ROLES,
                 names::SETTINGS,
-                names::AUDIT_LOGS
+                names::AUDIT_LOGS,
+                names::APPS
             ]
         );
 

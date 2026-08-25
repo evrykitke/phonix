@@ -39,6 +39,7 @@
 )]
 
 pub mod app;
+pub mod apps;
 pub mod components;
 pub mod i18n;
 pub mod icons;

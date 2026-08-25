@@ -297,7 +297,9 @@ fn check_storage(storage: &StorageConfig) -> Result<(), ConfigError> {
     let largest_bucket = phonix_core::files::largest_bucket_limit();
     if storage.max_upload_bytes < largest_bucket {
         return Err(ConfigError::invalid(format!(
-            "storage.max_upload_bytes is {}, which is below the largest bucket limit of {}              declared in phonix_core::files. Every upload above the smaller number would be              refused by the transport before the bucket's own limit could answer it",
+            "storage.max_upload_bytes is {}, which is below the largest bucket limit of {} \
+             declared in phonix_core::files. Every upload above the smaller number would be \
+             refused by the transport before the bucket's own limit could answer it",
             storage.max_upload_bytes, largest_bucket
         )));
     }
@@ -310,7 +312,8 @@ fn check_storage(storage: &StorageConfig) -> Result<(), ConfigError> {
 
     if storage.quarantine_ttl_mins == 0 {
         return Err(ConfigError::invalid(
-            "storage.quarantine_ttl_mins must be greater than zero, or bytes would be swept              away between arriving and being verified",
+            "storage.quarantine_ttl_mins must be greater than zero, or bytes would be swept \
+             away between arriving and being verified",
         ));
     }
 
@@ -348,7 +351,8 @@ fn check_upload_jobs(jobs: &UploadJobsConfig) -> Result<(), ConfigError> {
 
     if jobs.claim_timeout_secs <= jobs.poll_interval_secs {
         return Err(ConfigError::invalid(
-            "storage.jobs.claim_timeout_secs must be longer than poll_interval_secs, or a job              would be reclaimed by a second worker while the first was still running it",
+            "storage.jobs.claim_timeout_secs must be longer than poll_interval_secs, or a job \
+             would be reclaimed by a second worker while the first was still running it",
         ));
     }
 
@@ -373,7 +377,8 @@ fn check_file_log(file: &FileLogConfig) -> Result<(), ConfigError> {
 
     if matches!(file.rotation, Rotation::Never) && file.max_file_size_mb == 0 {
         return Err(ConfigError::invalid(
-            "telemetry.file has rotation = \"never\" and max_file_size_mb = 0, which is one              log file that grows until the disk is full. Set one of them",
+            "telemetry.file has rotation = \"never\" and max_file_size_mb = 0, which is one \
+             log file that grows until the disk is full. Set one of them",
         ));
     }
 
@@ -382,7 +387,7 @@ fn check_file_log(file: &FileLogConfig) -> Result<(), ConfigError> {
         // entitled to say so - but it is worth one line at startup, because the
         // symptom is a directory nobody looks at until it is full.
         tracing::warn!(
-            "telemetry.file keeps every log file for ever: retention_days and max_files are              both 0"
+            "telemetry.file keeps every log file for ever: retention_days and max_files are both 0"
         );
     }
 

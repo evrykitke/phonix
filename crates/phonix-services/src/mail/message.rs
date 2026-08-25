@@ -133,22 +133,25 @@ pub fn password_reset_code(
     let expiry = minutes(expires_in_mins);
 
     let text = format!(
-        "{greeting},
-
-         Someone asked to reset the password for your {workspace} account.
-
-         Your code is: {code}
-
-         Enter it on the page you started from. It expires in {expiry} and          works once.
-
-         If you did not ask for this, you can ignore this message - your          password has not changed, and the code is useless on its own.
-"
+        "{greeting},\n\n\
+         Someone asked to reset the password for your {workspace} account.\n\n\
+         Your code is: {code}\n\n\
+         Enter it on the page you started from. It expires in {expiry} and works \
+         once.\n\n\
+         If you did not ask for this, you can ignore this message - your password \
+         has not changed, and the code is useless on its own.\n"
     );
 
     let html = wrap(
         "Your password reset code",
         &format!(
-            "<p>{greeting},</p>             <p>Someone asked to reset the password for your               <strong>{workspace}</strong> account.</p>             {digits}             <p style=\"color:#64748b;font-size:13px\">Enter it on the page you started from.               It expires in {expiry} and works once.</p>             <p style=\"color:#64748b;font-size:13px\">If you did not ask for this, you can               ignore this message - your password has not changed, and the code is useless on               its own.</p>",
+            "<p>{greeting},</p> <p>Someone asked to reset the password for your \
+             <strong>{workspace}</strong> account.</p> {digits} <p \
+             style=\"color:#64748b;font-size:13px\">Enter it on the page you started from. It \
+             expires in {expiry} and works once.</p> <p \
+             style=\"color:#64748b;font-size:13px\">If you did not ask for this, you can \
+             ignore this message - your password has not changed, and the code is useless on \
+             its own.</p>",
             greeting = escape(greeting),
             workspace = escape(workspace),
             digits = digits(code),
@@ -215,7 +218,9 @@ fn minutes(minutes: i64) -> String {
 /// on.
 fn digits(code: &str) -> String {
     format!(
-        "<p style=\"margin:24px 0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,          monospace;font-size:30px;font-weight:700;letter-spacing:0.28em;color:#0f172a\">         {code}</p>",
+        "<p style=\"margin:24px 0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas, \
+         monospace;font-size:30px;font-weight:700;letter-spacing:0.28em;color:#0f172a\">\
+         {code}</p>",
         code = escape(code),
     )
 }

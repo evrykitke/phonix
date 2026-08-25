@@ -26,6 +26,8 @@ pub enum Icon {
     Ban,
     /// Lucide `bell`.
     Bell,
+    /// Lucide `blocks`.
+    Blocks,
     /// Lucide `boxes`.
     Boxes,
     /// Lucide `building-2`.
@@ -92,6 +94,8 @@ pub enum Icon {
     Languages,
     /// Lucide `layout-dashboard`.
     LayoutDashboard,
+    /// Lucide `layout-grid`.
+    LayoutGrid,
     /// Lucide `list-tree`.
     ListTree,
     /// Lucide `loader-circle`.
@@ -180,6 +184,7 @@ impl Icon {
             Self::ArrowRight => "arrow-right",
             Self::Ban => "ban",
             Self::Bell => "bell",
+            Self::Blocks => "blocks",
             Self::Boxes => "boxes",
             Self::Building2 => "building-2",
             Self::Calendar => "calendar",
@@ -213,6 +218,7 @@ impl Icon {
             Self::KeySquare => "key-square",
             Self::Languages => "languages",
             Self::LayoutDashboard => "layout-dashboard",
+            Self::LayoutGrid => "layout-grid",
             Self::ListTree => "list-tree",
             Self::LoaderCircle => "loader-circle",
             Self::Lock => "lock",
@@ -264,6 +270,9 @@ impl Icon {
             }
             Self::Bell => {
                 r#"<path d="M10.268 21a2 2 0 0 0 3.464 0" /> <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" />"#
+            }
+            Self::Blocks => {
+                r#"<path d="M10 22V7a1 1 0 0 0-1-1H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5a1 1 0 0 0-1-1H2" /> <rect x="14" y="2" width="8" height="8" rx="1" />"#
             }
             Self::Boxes => {
                 r#"<path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z" /> <path d="m7 16.5-4.74-2.85" /> <path d="m7 16.5 5-3" /> <path d="M7 16.5v5.17" /> <path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z" /> <path d="m17 16.5-5-3" /> <path d="m17 16.5 4.74-2.85" /> <path d="M17 16.5v5.17" /> <path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z" /> <path d="M12 8 7.26 5.15" /> <path d="m12 8 4.74-2.85" /> <path d="M12 13.5V8" />"#
@@ -347,6 +356,9 @@ impl Icon {
             }
             Self::LayoutDashboard => {
                 r#"<rect width="7" height="9" x="3" y="3" rx="1" /> <rect width="7" height="5" x="14" y="3" rx="1" /> <rect width="7" height="9" x="14" y="12" rx="1" /> <rect width="7" height="5" x="3" y="16" rx="1" />"#
+            }
+            Self::LayoutGrid => {
+                r#"<rect width="7" height="7" x="3" y="3" rx="1" /> <rect width="7" height="7" x="14" y="3" rx="1" /> <rect width="7" height="7" x="14" y="14" rx="1" /> <rect width="7" height="7" x="3" y="14" rx="1" />"#
             }
             Self::ListTree => {
                 r#"<path d="M8 5h13" /> <path d="M13 12h8" /> <path d="M13 19h8" /> <path d="M3 10a2 2 0 0 0 2 2h3" /> <path d="M3 5v12a2 2 0 0 0 2 2h3" />"#
@@ -459,6 +471,7 @@ impl Icon {
         Icon::ArrowRight,
         Icon::Ban,
         Icon::Bell,
+        Icon::Blocks,
         Icon::Boxes,
         Icon::Building2,
         Icon::Calendar,
@@ -492,6 +505,7 @@ impl Icon {
         Icon::KeySquare,
         Icon::Languages,
         Icon::LayoutDashboard,
+        Icon::LayoutGrid,
         Icon::ListTree,
         Icon::LoaderCircle,
         Icon::Lock,
@@ -546,6 +560,7 @@ impl core::str::FromStr for Icon {
             "arrow-right" => Ok(Self::ArrowRight),
             "ban" => Ok(Self::Ban),
             "bell" => Ok(Self::Bell),
+            "blocks" => Ok(Self::Blocks),
             "boxes" => Ok(Self::Boxes),
             "building-2" => Ok(Self::Building2),
             "calendar" => Ok(Self::Calendar),
@@ -579,6 +594,7 @@ impl core::str::FromStr for Icon {
             "key-square" => Ok(Self::KeySquare),
             "languages" => Ok(Self::Languages),
             "layout-dashboard" => Ok(Self::LayoutDashboard),
+            "layout-grid" => Ok(Self::LayoutGrid),
             "list-tree" => Ok(Self::ListTree),
             "loader-circle" => Ok(Self::LoaderCircle),
             "lock" => Ok(Self::Lock),
