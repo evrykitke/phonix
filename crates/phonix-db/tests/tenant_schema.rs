@@ -240,6 +240,59 @@ async fn assert_master_is_whole(pool: &PgPool, context: &str) {
     );
 }
 
+/// The tables the `books` app owns.
+const BOOKS_TABLES: &[&str] = &["invoices", "invoice_lines", "invoice_line_taxes"];
+
+/// The first app that issues a numbered document, and the proof that the
+/// numbering install path works from end to end.
+///
+/// `core.number_sequences` shipped empty and stayed empty through two apps.
+/// Books declares one in `config/numbering/books.toml`, so after installing it
+/// the table has exactly one row - which is the only assertion in this file
+/// that reaches across two schemas, and the point of the whole mechanism.
+async fn assert_books_is_whole(pool: &PgPool, context: &str) {
+    let books = tables_in(pool, "books").await;
+
+    for table in BOOKS_TABLES {
+        assert!(
+            books.iter().any(|found| found == table),
+            "{context}: books.{table} is missing; books holds {books:?}"
+        );
+    }
+
+    // The belt-and-braces index. The sequence in core is what makes numbering
+    // gap-free; this is what stops a duplicate reaching the ledger if somebody
+    // edits a series by hand, and it cannot live in core.
+    let number_guard: i64 = sqlx::query_scalar(
+        "SELECT count(*)
+           FROM pg_indexes
+          WHERE schemaname = 'books' AND indexname = 'invoices_number_key'",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("look for the number index");
+    assert_eq!(
+        number_guard, 1,
+        "{context}: books.invoices lost its unique number index"
+    );
+
+    // And the series the app declared is in core, installed by the runner.
+    let series: Vec<String> = sqlx::query_scalar(
+        "SELECT doc_type || ' ' || pattern
+           FROM core.number_sequences
+          WHERE app_id = 'books'
+          ORDER BY doc_type",
+    )
+    .fetch_all(pool)
+    .await
+    .expect("read the installed series");
+    assert_eq!(
+        series,
+        vec!["sales_invoice INV-{YYYY}-#####".to_owned()],
+        "{context}: books' number series was not installed from its config file"
+    );
+}
+
 /// One app is present, migrated, and recorded at the version this build embeds.
 async fn assert_app_is_recorded(pool: &PgPool, app_id: &str, context: &str) {
     let row =
@@ -286,6 +339,7 @@ async fn a_fresh_database_is_built_straight_into_core() {
     let pool = open(&cfg, FRESH);
     assert_core_is_whole(&pool, "fresh").await;
     assert_master_is_whole(&pool, "fresh").await;
+    assert_books_is_whole(&pool, "fresh").await;
     assert_core_is_recorded(&pool, "fresh").await;
     pool.close().await;
 
@@ -298,6 +352,7 @@ async fn a_fresh_database_is_built_straight_into_core() {
     let pool = open(&cfg, FRESH);
     assert_core_is_whole(&pool, "fresh, twice").await;
     assert_master_is_whole(&pool, "fresh, twice").await;
+    assert_books_is_whole(&pool, "fresh, twice").await;
     pool.close().await;
 
     provision::drop_tenant_database(&cfg, FRESH)
@@ -352,6 +407,7 @@ async fn a_database_left_in_public_is_relocated_under_the_migrator() {
     let pool = open(&cfg, LEGACY);
     assert_core_is_whole(&pool, "relocated, then swept").await;
     assert_master_is_whole(&pool, "relocated, then swept").await;
+    assert_books_is_whole(&pool, "relocated, then swept").await;
     assert_core_is_recorded(&pool, "relocated, then swept").await;
     pool.close().await;
 
@@ -437,11 +493,16 @@ async fn a_database_that_stopped_at_0013_is_adopted_rather_than_rebuilt() {
     let pool = open(&cfg, STOPPED);
     assert_core_is_whole(&pool, "stopped at 0013").await;
     assert_master_is_whole(&pool, "stopped at 0013").await;
+    assert_books_is_whole(&pool, "stopped at 0013").await;
     assert_core_is_recorded(&pool, "stopped at 0013").await;
 
     // Core's history moved into core, and nothing was left behind in public to
-    // be re-adopted on the next boot. `master` has one of its own, which is the
-    // point of per-app streams and not a second copy of core's.
+    // be re-adopted on the next boot.
+    //
+    // Asked as two questions rather than as a list of schemas: every app has a
+    // history of its own - that is the point of per-app streams - so an
+    // enumeration here would fail every time an app is added, which is not what
+    // this test is about.
     let where_history_lives: Vec<String> = sqlx::query_scalar(
         "SELECT schemaname FROM pg_tables
           WHERE tablename = '_sqlx_migrations'
@@ -450,10 +511,19 @@ async fn a_database_that_stopped_at_0013_is_adopted_rather_than_rebuilt() {
     .fetch_all(&pool)
     .await
     .expect("find the bookkeeping");
+
+    assert!(
+        where_history_lives.iter().any(|schema| schema == "core"),
+        "core has no migration history at all: {where_history_lives:?}"
+    );
+    assert!(
+        !where_history_lives.iter().any(|schema| schema == "public"),
+        "core's history was rebuilt rather than adopted, leaving one in public:          {where_history_lives:?}"
+    );
     assert_eq!(
-        where_history_lives,
-        vec!["core".to_owned(), "master".to_owned()],
-        "core's history was rebuilt rather than adopted"
+        where_history_lives.len(),
+        apps::APPS.len(),
+        "one history per app, and no more: {where_history_lives:?}"
     );
 
     // The row came with its table.

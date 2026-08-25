@@ -60,6 +60,7 @@
 
 pub mod audit;
 pub mod authorization;
+pub mod books;
 pub mod caller;
 pub mod crypto;
 pub mod currency;

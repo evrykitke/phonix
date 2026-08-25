@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::amount::{Money, MoneyError, Rounding, decimal_string, pow10, round_div};
 use crate::locale::Currency;
+use crate::{Message, msg};
 
 /// Decimal places a rate is held at, matching `NUMERIC(20, 10)`.
 ///
@@ -282,6 +283,32 @@ pub enum RateError {
     WrongPair { expected: Currency, found: Currency },
     #[error(transparent)]
     Amount(#[from] MoneyError),
+}
+
+impl RateError {
+    /// What to say to whoever typed it, or to whoever is looking at the
+    /// document that could not be converted.
+    ///
+    /// Here for the reason [`MoneyError::message`] is: these reach a rates
+    /// screen and an invoice, and a form cannot render a `Display` string it
+    /// has no catalog for. `WrongPair` in particular is worth naming - an
+    /// inverted rate produces a *plausible* figure, which is the kind nobody
+    /// catches.
+    pub fn message(self) -> Message {
+        match self {
+            Self::NotPositive => msg!("money.error.rate_not_positive"),
+            Self::OutOfRange => msg!("money.error.rate_out_of_range"),
+            Self::NotANumber => msg!("money.error.rate_not_a_number"),
+            Self::SamePair => msg!("money.error.rate_same_pair"),
+            Self::SourceShape => msg!("money.error.rate_source"),
+            Self::WrongPair { expected, found } => msg!(
+                "money.error.rate_wrong_pair",
+                expected = expected.code(),
+                found = found.code(),
+            ),
+            Self::Amount(inner) => inner.message(),
+        }
+    }
 }
 
 #[cfg(test)]

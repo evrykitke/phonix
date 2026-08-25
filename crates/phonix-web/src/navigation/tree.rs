@@ -63,6 +63,22 @@ pub static MENU: &[NavNode] = &[
     )
     .require(names::DASHBOARD)
     .keywords(&["home", "overview", "start"]),
+    // Sales before master data: raising an invoice is the daily work, and
+    // keeping the customer list tidy is what somebody does on the way to it.
+    NavNode::group(
+        "sales",
+        "nav.sales",
+        Icon::ShoppingCart,
+        &[NavNode::leaf(
+            "invoices",
+            "nav.invoices",
+            Icon::FileText,
+            "/sales/invoices",
+        )
+        .require(names::INVOICES)
+        .keywords(&["bill", "billing", "receivable", "sales", "customer"])],
+    )
+    .require(names::SALES),
     NavNode::group(
         "master",
         "nav.master",

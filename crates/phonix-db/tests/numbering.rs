@@ -25,7 +25,17 @@ use phonix_db::sqlx::{self, PgPool};
 use phonix_db::tenancy::provision;
 
 const DATABASE: &str = "phonix_test_numbering";
-const APP: &str = "books";
+/// A made-up app, and it has to stay made up.
+///
+/// This was `"books"` until `books` became a real app with a real series in
+/// `config/numbering/books.toml` - at which point the runner installed that
+/// series into every scratch database and this file's "how many sequences does
+/// this app own" assertion started counting three where it expected two.
+///
+/// `app_id` is deliberately not a foreign key to `installed_apps` (see
+/// migration 0016), so a fictional one works perfectly here. It just must not
+/// collide with an app that exists.
+const APP: &str = "fixtures";
 const DOC: &str = "invoice";
 
 fn database_config() -> DatabaseConfig {
@@ -515,8 +525,10 @@ async fn scoped_sequences_count_independently() {
     assert_eq!(branch("MBA").await, "MBA-0001");
     assert_eq!(branch("NBO").await, "NBO-0003");
 
+    // Two rows, one per branch - and asked for this app alone, because a
+    // scratch database also carries whatever series the real apps installed.
     let all = numbering::list(&pool, Some(APP)).await.expect("list");
-    assert_eq!(all.len(), 2);
+    assert_eq!(all.len(), 2, "expected one sequence per branch, got {all:?}");
 
     clean_up(&cfg, pool).await;
 }

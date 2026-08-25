@@ -5,3 +5,4 @@ pub mod dashboard;
 pub mod home;
 pub mod master;
 pub mod not_found;
+pub mod sales;

@@ -504,6 +504,38 @@ pub async fn treatment_on(
     .map_err(|err| ServiceError::rejected("group", err.message()))
 }
 
+/// Every active group, resolved against a date.
+///
+/// What a document screen fetches **once**, so the browser can price every line
+/// with no further round trips: `app_books::pricing` takes these and computes
+/// the totals locally with the same code the server posts with.
+///
+/// One query for the groups and one for the rates, rather than two per group.
+///
+/// A group whose member has no rate on that date is **left out** rather than
+/// failing the call. The screen should offer what it can price; a single
+/// unpriced tax must not stop somebody raising an invoice that does not use it.
+/// [`treatment_on`] is the one that refuses, and it runs when a line actually
+/// references the group.
+pub async fn treatments_on(pool: &PgPool, on: NaiveDate) -> ServiceResult<Vec<TaxTreatment>> {
+    let groups = store::list_groups(pool).await?;
+    let rates = store::rates_on(pool, on).await?;
+
+    Ok(groups
+        .iter()
+        .filter(|group| group.is_active)
+        .filter_map(|group| {
+            TaxTreatment::resolve(group, on, &|code_id| {
+                rates
+                    .iter()
+                    .find(|(id, _)| *id == code_id)
+                    .map(|(_, period)| *period)
+            })
+            .ok()
+        })
+        .collect())
+}
+
 /// The rate windows, in the shape the audit diff should record them.
 ///
 /// The stored row's id is dropped: a rate window's identity is its dates, and

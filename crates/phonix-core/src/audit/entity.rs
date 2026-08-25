@@ -203,6 +203,19 @@ pub mod kinds {
         singleton: true,
     };
 
+    /// An invoice: raised, posted, voided.
+    ///
+    /// The one kind here whose *status* changes are the interesting entries.
+    /// "Who posted this, and when" is the question a document provokes, and
+    /// posting is the act that cannot be undone.
+    pub const SALES_INVOICE: EntityKind = EntityKind {
+        name: "sales_invoice",
+        singular_key: "entity.sales_invoice.singular",
+        plural_key: "entity.sales_invoice.plural",
+        href: Some("/sales/invoices/{id}"),
+        singleton: false,
+    };
+
     /// A document number series: its format, its reset period, where it starts.
     ///
     /// The one settings change that can make two documents share a number, so
@@ -228,6 +241,7 @@ pub const ENTITY_KINDS: &[EntityKind] = &[
     kinds::PARTY,
     kinds::TAX_CODE,
     kinds::TAX_GROUP,
+    kinds::SALES_INVOICE,
 ];
 
 /// The kind with this stored name, if this build knows it.

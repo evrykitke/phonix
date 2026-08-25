@@ -55,6 +55,12 @@ pub const CORE_APP_ID: &str = "core";
 /// `core` would notice.
 pub const MASTER_APP_ID: &str = "master";
 
+/// Sales: what the workspace invoices, and what it is owed for it.
+///
+/// The first app that issues a numbered document, which is what makes it the
+/// one that proves `core.number_sequences` works end to end.
+pub const BOOKS_APP_ID: &str = "books";
+
 /// One installable app's migration stream.
 #[derive(Debug)]
 pub struct AppMigrations {
@@ -108,6 +114,14 @@ pub static APPS: &[AppMigrations] = &[
     AppMigrations {
         app_id: MASTER_APP_ID,
         migrator: &crate::MASTER_MIGRATIONS,
+    },
+    // After master, because an invoice references a party and a tax group. The
+    // order here is install order, and nothing enforces the dependency beyond
+    // it: there is no foreign key from `books` into `master`, on purpose - an
+    // app with one could never be uninstalled.
+    AppMigrations {
+        app_id: BOOKS_APP_ID,
+        migrator: &crate::BOOKS_MIGRATIONS,
     },
 ];
 

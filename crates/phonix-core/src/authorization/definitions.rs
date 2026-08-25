@@ -10,6 +10,9 @@
 //!  +- Pages.Dashboard
 //!  +- Pages.Files
 //!  |   +- .Upload  .Delete
+//!  +- Pages.Sales
+//!  |   +- Pages.Sales.Invoices
+//!  |       +- .Create  .Edit  .Post  .Void
 //!  +- Pages.Master
 //!  |   +- Pages.Master.Parties
 //!  |   |   +- .Create  .Edit  .Delete
@@ -38,6 +41,14 @@ pub mod names {
     pub const FILES: &str = "Pages.Files";
     pub const FILES_UPLOAD: &str = "Pages.Files.Upload";
     pub const FILES_DELETE: &str = "Pages.Files.Delete";
+
+    pub const SALES: &str = "Pages.Sales";
+
+    pub const INVOICES: &str = "Pages.Sales.Invoices";
+    pub const INVOICES_CREATE: &str = "Pages.Sales.Invoices.Create";
+    pub const INVOICES_EDIT: &str = "Pages.Sales.Invoices.Edit";
+    pub const INVOICES_POST: &str = "Pages.Sales.Invoices.Post";
+    pub const INVOICES_VOID: &str = "Pages.Sales.Invoices.Void";
 
     pub const MASTER: &str = "Pages.Master";
 
@@ -144,6 +155,58 @@ pub const DEFINITIONS: &[PermissionDefinition] = &[
         display_name: "Delete",
         description: Some("Remove a stored file."),
         parent: Some(names::FILES),
+        default_for_user: false,
+    },
+    // -- Sales ------------------------------------------------------------
+    //
+    // Four powers, because they are four different acts. Raising a draft is
+    // ordinary sales work. **Posting** takes a number nobody can hand back and
+    // turns a draft into a document somebody can be sued over. Voiding
+    // withdraws one that has already been sent. An organization that gives
+    // everybody the first two and nobody the third is expressing something
+    // real, and a single "Invoices.Edit" could not.
+    PermissionDefinition {
+        name: names::SALES,
+        display_name: "Sales",
+        description: Some("Reach the sales area."),
+        parent: Some(names::PAGES),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::INVOICES,
+        display_name: "Invoices",
+        description: Some("View the invoices this workspace has raised."),
+        parent: Some(names::SALES),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::INVOICES_CREATE,
+        display_name: "Create",
+        description: Some("Raise a draft invoice."),
+        parent: Some(names::INVOICES),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::INVOICES_EDIT,
+        display_name: "Edit",
+        description: Some("Change or delete a draft. A posted invoice cannot be edited."),
+        parent: Some(names::INVOICES),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::INVOICES_POST,
+        display_name: "Post",
+        description: Some(
+            "Number a draft and issue it. The number cannot be handed back, and the              document cannot be edited afterwards.",
+        ),
+        parent: Some(names::INVOICES),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::INVOICES_VOID,
+        display_name: "Void",
+        description: Some("Withdraw a posted invoice. It keeps its number."),
+        parent: Some(names::INVOICES),
         default_for_user: false,
     },
     // -- Master data ------------------------------------------------------

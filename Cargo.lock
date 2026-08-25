@@ -137,6 +137,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "app-books"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "phonix-core",
+ "phonix-master",
+ "phonix-tax",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "uuid",
+]
+
+[[package]]
 name = "arc-swap"
 version = "1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2780,6 +2794,7 @@ dependencies = [
 name = "phonix-db"
 version = "0.1.0"
 dependencies = [
+ "app-books",
  "chrono",
  "moka",
  "phonix-config",
@@ -2867,6 +2882,7 @@ dependencies = [
 name = "phonix-services"
 version = "0.1.0"
 dependencies = [
+ "app-books",
  "argon2",
  "base32",
  "base64 0.23.1",
@@ -2937,6 +2953,7 @@ dependencies = [
 name = "phonix-web"
 version = "0.1.0"
 dependencies = [
+ "app-books",
  "axum",
  "chrono",
  "console_error_panic_hook",

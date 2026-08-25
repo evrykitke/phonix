@@ -81,7 +81,12 @@ Declaring the same `doc_type` twice under different scopes is how an app ships
 per-location numbering. Declaring it twice under the *same* scope is refused,
 because the second would be silently dropped on install.
 
-## What is not here
+## What is here, and what is not
 
-`core` itself issues no numbered documents, so there is no `core.toml`. The
-first file in this directory will arrive with the first app.
+`books.toml` is the first, and it declares one series: the sales invoice. Its
+mask is `INV-{YYYY}-#####`, it resets with the financial year, and installing
+the app is what puts it in `core.number_sequences` - nothing seeded it by hand.
+
+`core` itself issues no numbered documents, so there is no `core.toml`, and
+`master` holds master data rather than documents, so there is no `master.toml`
+either. An app with nothing to number needs no file.

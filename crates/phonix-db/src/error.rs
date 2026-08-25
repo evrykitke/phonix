@@ -119,6 +119,16 @@ pub enum DbError {
     #[error("a {entity} with the code '{code}' already exists")]
     CodeExists { entity: &'static str, code: String },
 
+    // --- books ----------------------------------------------------------
+    /// A write that would have changed a document which is no longer a draft.
+    ///
+    /// The statement carries `WHERE status = 'draft'` and reports this when it
+    /// matches nothing, so the rule is true of the database rather than only of
+    /// the service above it. An invoice that can be edited after it has been
+    /// sent is not evidence of anything.
+    #[error("a posted invoice cannot be edited")]
+    InvoiceNotEditable,
+
     // --- outbox ---------------------------------------------------------
     /// An event payload that would not serialise.
     ///
@@ -155,6 +165,11 @@ impl From<DbError> for CoreError {
                 CoreError::Validation(format!("unknown permission '{name}'"))
             }
             DbError::InvalidPolicy(detail) => CoreError::Validation(detail),
+            // A refusal the caller could have avoided, and one worth naming:
+            // "that invoice has been posted" is an answer, "forbidden" is not.
+            DbError::InvoiceNotEditable => {
+                CoreError::Conflict("a posted invoice cannot be edited".to_owned())
+            }
             DbError::TaxRateOverlap => CoreError::Conflict(
                 "a rate for that tax already covers part of that period".to_owned(),
             ),

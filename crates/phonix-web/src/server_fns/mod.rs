@@ -15,6 +15,7 @@
 //! | [`master_fns`]   | The parties it trades with, and the taxes it applies |
 //! | [`currency_fns`] | What it deals in, and what a rate was on a day      |
 //! | [`numbering_fns`] | What a document number looks like, and where it is |
+//! | [`books_fns`]    | What it has invoiced, and what it is owed           |
 //! | [`file_fns`]     | Where an upload got to, and what to do with it     |
 //! | [`public_fns`]   | What a signed-out screen shows in its chrome        |
 //! | [`reset_fns`]    | A forgotten password: ask for a code, spend it      |
@@ -33,6 +34,7 @@
 pub mod account_fns;
 pub mod admin_fns;
 pub mod auth_fns;
+pub mod books_fns;
 pub mod currency_fns;
 pub mod file_fns;
 pub mod master_fns;

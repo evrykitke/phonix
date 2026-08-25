@@ -1,0 +1,25 @@
+# Document number series the `books` app declares.
+#
+# These are DEFAULTS. Installing the app inserts them into
+# `core.number_sequences` with `ON CONFLICT DO NOTHING`; from that moment the
+# tenant owns them, and a redeploy never puts back a format they changed.
+#
+# Everything here is validated when the file is read, at start-up - the mask
+# parses, the label is a key the catalog actually holds, `start_at` is at least
+# one. A format typo should stop a deployment, where somebody is watching, not
+# the first invoice, in front of a customer.
+
+[[series]]
+doc_type = "sales_invoice"
+label    = "books.doc_type.sales_invoice"
+
+# `INV-{YYYY}-#####` renders `INV-2026-00042`.
+#
+# The year is in the number and the counter resets with the financial year, so
+# an invoice number says which year it belongs to without anybody looking it
+# up - and January's first invoice is number one without anything running at
+# midnight. Five digits is a hundred thousand invoices in a year before the
+# number widens, and widening is what it does rather than truncating.
+mask     = "INV-{YYYY}-#####"
+reset    = "fiscal_year"
+start_at = 1

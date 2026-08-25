@@ -26,6 +26,8 @@ use crate::pages::master::party::PartyPage;
 use crate::pages::master::tax::TaxPage;
 use crate::pages::master::tax_group::{TaxGroupNewPage, TaxGroupPage};
 use crate::pages::master::taxes::{TaxNewPage, TaxesPage};
+use crate::pages::sales::invoice::{InvoiceNewPage, InvoicePage};
+use crate::pages::sales::invoices::InvoicesPage;
 use crate::pages::{dashboard::DashboardPage, not_found::NotFoundPage};
 use crate::theme::{Theme, ThemePreference};
 use crate::ui::alert::{AlertLayer, Alerts};
@@ -156,6 +158,18 @@ pub fn app() -> impl IntoView {
 
                     <Route path=path!("/dashboard") view=DashboardPage />
                     <Route path=path!("/account") view=AccountPage />
+
+                    // Sales. The first app, and the first routes that are a
+                    // product rather than infrastructure.
+                    <Route path=path!("/sales/invoices") view=InvoicesPage />
+                    // Before the parameter, so "new" is a screen rather than an
+                    // invoice id that fails to parse.
+                    <Route path=path!("/sales/invoices/new") view=InvoiceNewPage />
+                    // One address for both the editor and the document: posting
+                    // does not move an invoice, it changes what may be done to
+                    // it, and a link somebody sent last week should still open
+                    // the thing they meant.
+                    <Route path=path!("/sales/invoices/:id") view=InvoicePage />
 
                     // Master data. Not under /admin, for the reason the
                     // permission tree is not: keeping a customer list up to

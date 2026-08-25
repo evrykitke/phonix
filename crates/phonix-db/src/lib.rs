@@ -82,6 +82,7 @@
 
 pub mod audit;
 pub mod authorization;
+pub mod books;
 pub mod connect;
 pub mod currency;
 pub mod error;
@@ -123,3 +124,12 @@ pub static CORE_MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("../../migr
 /// other app uses, the mechanism is not finished.
 pub static MASTER_MIGRATIONS: sqlx::migrate::Migrator =
     sqlx::migrate!("../../migrations/apps/master");
+
+/// Migrations for the `books` schema: what the workspace sells, and what it is
+/// owed for it.
+///
+/// The first stream that holds *documents* rather than settings or master data,
+/// and the first that declares a number series - see
+/// `config/numbering/books.toml`.
+pub static BOOKS_MIGRATIONS: sqlx::migrate::Migrator =
+    sqlx::migrate!("../../migrations/apps/books");

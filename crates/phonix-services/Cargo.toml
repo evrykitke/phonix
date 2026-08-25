@@ -14,6 +14,7 @@ license.workspace = true
 [dependencies]
 phonix-core = { workspace = true }
 phonix-master = { workspace = true }
+app-books = { workspace = true }
 phonix-tax = { workspace = true }
 phonix-config = { workspace = true }
 phonix-db = { workspace = true }
