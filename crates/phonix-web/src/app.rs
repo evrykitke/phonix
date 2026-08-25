@@ -21,6 +21,11 @@ use crate::pages::admin::users::UsersPage;
 use crate::pages::auth::{
     AcceptInvitationPage, ChallengePage, ForgotPasswordPage, SignInPage, SignUpPage,
 };
+use crate::pages::master::parties::{PartiesPage, PartyNewPage};
+use crate::pages::master::party::PartyPage;
+use crate::pages::master::tax::TaxPage;
+use crate::pages::master::tax_group::{TaxGroupNewPage, TaxGroupPage};
+use crate::pages::master::taxes::{TaxNewPage, TaxesPage};
 use crate::pages::{dashboard::DashboardPage, not_found::NotFoundPage};
 use crate::theme::{Theme, ThemePreference};
 use crate::ui::alert::{AlertLayer, Alerts};
@@ -151,6 +156,20 @@ pub fn app() -> impl IntoView {
 
                     <Route path=path!("/dashboard") view=DashboardPage />
                     <Route path=path!("/account") view=AccountPage />
+
+                    // Master data. Not under /admin, for the reason the
+                    // permission tree is not: keeping a customer list up to
+                    // date is ordinary commercial work.
+                    <Route path=path!("/master/parties") view=PartiesPage />
+                    // Before the parameter, so "new" is a screen rather than a
+                    // party id that fails to parse.
+                    <Route path=path!("/master/parties/new") view=PartyNewPage />
+                    <Route path=path!("/master/parties/:id") view=PartyPage />
+                    <Route path=path!("/master/taxes") view=TaxesPage />
+                    <Route path=path!("/master/taxes/new") view=TaxNewPage />
+                    <Route path=path!("/master/taxes/:id") view=TaxPage />
+                    <Route path=path!("/master/tax-groups/new") view=TaxGroupNewPage />
+                    <Route path=path!("/master/tax-groups/:id") view=TaxGroupPage />
 
                     // Administration. Each of these is named by a node in
                     // `navigation::tree` and gated on the matching permission

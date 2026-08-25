@@ -227,7 +227,8 @@ where
             SET name = CASE WHEN is_static THEN name ELSE $2 END,
                 display_name = $3,
                 description = $4,
-                is_default = $5
+                is_default = $5,
+                updated_at = now()
           WHERE id = $1",
     )
     .bind(id)

@@ -14,6 +14,8 @@
 //! | [`error`]       | What crosses back to the browser on failure? |
 //! | [`query`]       | Which slice of a list is being asked for? |
 //! | [`locale`]      | Which currency, country and time zone does it work in? |
+//! | [`money`]       | How much, in what, and how was it converted? |
+//! | [`numbering`]   | What number does this document get, and in what format? |
 //! | [`i18n`]        | What does it say, and in which language?    |
 //! | [`organization`] | Who is the legal entity behind this workspace? |
 //!
@@ -55,6 +57,8 @@ pub mod i18n;
 pub mod identity;
 pub mod locale;
 pub mod mail;
+pub mod money;
+pub mod numbering;
 pub mod organization;
 pub mod query;
 pub mod tenant;
@@ -78,6 +82,8 @@ pub use identity::{
 };
 pub use locale::{Country, Currency, Timezone};
 pub use mail::{MailEncryption, MailSettings, MailSettingsInput, RelayInUse};
+pub use money::{Conversion, ExchangeRate, Money, MoneyError, Rate, RateError, Rounding};
+pub use numbering::{NumberContext, Pattern, PatternError, ResetPeriod};
 pub use organization::OrganizationProfile;
 pub use query::{Page, PageRequest, Sort, SortDirection};
 pub use tenant::{TenantId, TenantSlug, TenantStatus, TenantSummary, WorkspaceSecuritySettings};

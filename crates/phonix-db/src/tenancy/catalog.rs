@@ -232,7 +232,9 @@ impl Catalog {
     /// Stamp the moment self-service onboarding finished.
     pub async fn mark_onboarded(&self, slug: &TenantSlug) -> Result<(), DbError> {
         sqlx::query(
-            "UPDATE tenants SET onboarded_at = now() WHERE slug = $1 AND onboarded_at IS NULL",
+            "UPDATE tenants
+                SET onboarded_at = now(), updated_at = now()
+              WHERE slug = $1 AND onboarded_at IS NULL",
         )
         .bind(slug.as_str())
         .execute(&self.pool)
@@ -249,7 +251,8 @@ impl Catalog {
     ) -> Result<(), DbError> {
         sqlx::query(
             "UPDATE tenants
-                SET status = 'active', schema_version = $2, migrated_at = now()
+                SET status = 'active', schema_version = $2, migrated_at = now(),
+                    updated_at = now()
               WHERE slug = $1",
         )
         .bind(slug.as_str())
@@ -262,7 +265,7 @@ impl Catalog {
     }
 
     pub async fn set_status(&self, slug: &TenantSlug, status: TenantStatus) -> Result<(), DbError> {
-        sqlx::query("UPDATE tenants SET status = $2 WHERE slug = $1")
+        sqlx::query("UPDATE tenants SET status = $2, updated_at = now() WHERE slug = $1")
             .bind(slug.as_str())
             .bind(status.as_str())
             .execute(&self.pool)

@@ -10,6 +10,11 @@
 //!  +- Pages.Dashboard
 //!  +- Pages.Files
 //!  |   +- .Upload  .Delete
+//!  +- Pages.Master
+//!  |   +- Pages.Master.Parties
+//!  |   |   +- .Create  .Edit  .Delete
+//!  |   +- Pages.Master.Taxes
+//!  |       +- .Edit
 //!  +- Pages.Administration
 //!      +- Pages.Administration.Users
 //!      |   +- .Create  .Edit  .Delete  .ChangePermissions  .Impersonate
@@ -33,6 +38,16 @@ pub mod names {
     pub const FILES: &str = "Pages.Files";
     pub const FILES_UPLOAD: &str = "Pages.Files.Upload";
     pub const FILES_DELETE: &str = "Pages.Files.Delete";
+
+    pub const MASTER: &str = "Pages.Master";
+
+    pub const PARTIES: &str = "Pages.Master.Parties";
+    pub const PARTIES_CREATE: &str = "Pages.Master.Parties.Create";
+    pub const PARTIES_EDIT: &str = "Pages.Master.Parties.Edit";
+    pub const PARTIES_DELETE: &str = "Pages.Master.Parties.Delete";
+
+    pub const TAXES: &str = "Pages.Master.Taxes";
+    pub const TAXES_EDIT: &str = "Pages.Master.Taxes.Edit";
 
     pub const ADMINISTRATION: &str = "Pages.Administration";
 
@@ -129,6 +144,66 @@ pub const DEFINITIONS: &[PermissionDefinition] = &[
         display_name: "Delete",
         description: Some("Remove a stored file."),
         parent: Some(names::FILES),
+        default_for_user: false,
+    },
+    // -- Master data ------------------------------------------------------
+    //
+    // Not under Administration, for the reason Files is not: keeping a customer
+    // list up to date is ordinary commercial work, and putting it there would
+    // mean granting the administration area to everybody in sales. Taxes are
+    // the exception within the exception - reading them is ordinary, changing
+    // one changes what every future document comes to.
+    PermissionDefinition {
+        name: names::MASTER,
+        display_name: "Master data",
+        description: Some("Reach the master data area."),
+        parent: Some(names::PAGES),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::PARTIES,
+        display_name: "Parties",
+        description: Some("View the organizations and people this workspace trades with."),
+        parent: Some(names::MASTER),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::PARTIES_CREATE,
+        display_name: "Create",
+        description: Some("Add a party."),
+        parent: Some(names::PARTIES),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::PARTIES_EDIT,
+        display_name: "Edit",
+        description: Some("Change a party's details, addresses and contacts."),
+        parent: Some(names::PARTIES),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::PARTIES_DELETE,
+        display_name: "Delete",
+        description: Some("Remove a party that no document refers to."),
+        parent: Some(names::PARTIES),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::TAXES,
+        display_name: "Taxes",
+        description: Some("View the tax codes, rates and groups this workspace uses."),
+        parent: Some(names::MASTER),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::TAXES_EDIT,
+        display_name: "Edit",
+        // One gate over codes, rates and groups rather than three. They are one
+        // act: adding a tax means giving it a rate and putting it in a group,
+        // and a grant that allowed two of the three would leave a code nothing
+        // can reach.
+        description: Some("Change a tax code, its rates, or the groups it belongs to."),
+        parent: Some(names::TAXES),
         default_for_user: false,
     },
     PermissionDefinition {

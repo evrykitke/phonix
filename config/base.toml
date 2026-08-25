@@ -71,7 +71,7 @@ username = "smartenduser"
 password = ""
 # Shared registry of tenants. Migrated from ./migrations/catalog
 catalog_database = "phonix_catalog"
-# Each tenant gets "<prefix><slug>", migrated from ./migrations/tenant
+# Each tenant gets "<prefix><slug>", migrated from ./migrations/apps/<app>
 tenant_database_prefix = "phonix_tenant_"
 # Used only to CREATE/DROP tenant databases (cannot be done from inside them).
 maintenance_database = "postgres"

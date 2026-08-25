@@ -256,7 +256,8 @@ pub async fn claim_batch(
          UPDATE file_uploads AS f
             SET status     = 'verifying',
                 claimed_at = now(),
-                attempts   = f.attempts + 1
+                attempts   = f.attempts + 1,
+                updated_at = now()
            FROM claimed
           WHERE f.id = claimed.id
       RETURNING {}",
@@ -293,7 +294,8 @@ pub async fn claim_one(
          UPDATE file_uploads AS f
             SET status     = 'verifying',
                 claimed_at = now(),
-                attempts   = f.attempts + 1
+                attempts   = f.attempts + 1,
+                updated_at = now()
            FROM claimed
           WHERE f.id = claimed.id
       RETURNING {}",
@@ -365,7 +367,8 @@ where
                 rejection_detail = NULL,
                 last_error       = NULL,
                 claimed_at       = NULL,
-                verified_at      = now()
+                verified_at      = now(),
+                updated_at       = now()
           WHERE id = $1",
     )
     .bind(id)
@@ -407,7 +410,8 @@ where
                 content_type     = COALESCE($4, content_type),
                 quarantine_key   = NULL,
                 claimed_at       = NULL,
-                verified_at      = now()
+                verified_at      = now(),
+                updated_at       = now()
           WHERE id = $1",
     )
     .bind(id)
@@ -435,7 +439,8 @@ where
         "UPDATE file_uploads
             SET status     = 'received',
                 claimed_at = NULL,
-                last_error = $2
+                last_error = $2,
+                updated_at = now()
           WHERE id = $1",
     )
     .bind(id)
@@ -460,7 +465,8 @@ where
         "UPDATE file_uploads
             SET status     = 'failed',
                 claimed_at = NULL,
-                last_error = $2
+                last_error = $2,
+                updated_at = now()
           WHERE id = $1",
     )
     .bind(id)

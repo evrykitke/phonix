@@ -4,6 +4,7 @@ use phonix_config::DatabaseConfig;
 use phonix_core::TenantSlug;
 use sqlx::Connection;
 
+use super::apps::{self, AppMigrations};
 use super::catalog::{Catalog, NewTenant, TenantOrigin, TenantRecord};
 use crate::error::DbError;
 
@@ -62,7 +63,7 @@ pub async fn provision_tenant(
     migrate_tenant(cfg, &record.database_name).await?;
 
     catalog
-        .mark_active(slug, &latest_tenant_schema_version())
+        .mark_active(slug, &apps::schema_fingerprint())
         .await?;
 
     catalog
@@ -91,7 +92,7 @@ pub async fn migrate_outdated_tenants(
     catalog: &Catalog,
     cfg: &DatabaseConfig,
 ) -> Result<MigrationSweep, DbError> {
-    let latest = latest_tenant_schema_version();
+    let latest = apps::schema_fingerprint();
     let mut sweep = MigrationSweep::default();
 
     for tenant in catalog.list().await? {
@@ -130,20 +131,6 @@ pub struct MigrationSweep {
     pub migrated: usize,
     /// Slugs whose migration failed. Logged individually as they happen.
     pub failed: Vec<String>,
-}
-
-/// The highest version in `migrations/tenant/`, zero-padded.
-///
-/// Read from the embedded migrator rather than written down, so adding a
-/// migration cannot leave the catalog claiming an older schema than the tenant
-/// databases actually have.
-pub fn latest_tenant_schema_version() -> String {
-    let version = crate::TENANT_MIGRATIONS
-        .iter()
-        .map(|migration| migration.version)
-        .max()
-        .unwrap_or(0);
-    format!("{version:04}")
 }
 
 /// `CREATE DATABASE`, skipped when it already exists.
@@ -188,25 +175,131 @@ async fn create_database_if_absent(cfg: &DatabaseConfig, database: &str) -> Resu
     Ok(())
 }
 
-/// Apply the tenant migrations to one tenant database.
+/// Bring one tenant database up to date, app by app.
+///
+/// Each app owns a schema and a migration stream, applied on a search path
+/// rooted at that schema - so sqlx's own `_sqlx_migrations` bookkeeping lands
+/// inside the app's schema and the streams stay independent without sqlx
+/// needing to know that apps exist.
+///
+/// Sequential, and in registry order: core first, because `core.installed_apps`
+/// is what the others record themselves in.
+///
+/// A failing app aborts the pass. Stopping is right here even though the boot
+/// sweep goes on to the next *tenant*: apps installed after a failed one may
+/// depend on it, and half-migrating a database is a worse place to be than not
+/// starting.
 pub async fn migrate_tenant(cfg: &DatabaseConfig, database: &str) -> Result<(), DbError> {
     assert_safe_identifier(database)?;
 
-    let pool = crate::connect::tenant_pool(cfg, database);
+    for app in apps::APPS {
+        migrate_app(cfg, database, app).await?;
+    }
 
-    let result = crate::TENANT_MIGRATIONS
-        .run(&pool)
-        .await
-        .map_err(|source| DbError::Migrate {
-            target: database.to_owned(),
-            source,
-        });
+    tracing::info!(
+        database,
+        apps = apps::APPS.len(),
+        "tenant migrations applied"
+    );
+    Ok(())
+}
+
+/// Create one app's schema if absent, run its stream, record the result.
+async fn migrate_app(
+    cfg: &DatabaseConfig,
+    database: &str,
+    app: &AppMigrations,
+) -> Result<(), DbError> {
+    // The app id reaches DDL as a schema name. A test in `apps` enforces the
+    // same rule at build time; this is the check that runs against the value
+    // actually used.
+    assert_safe_identifier(app.app_id)?;
+
+    let pool = crate::connect::schema_migration_pool(cfg, database, &app.search_path());
+
+    // One future so the pool is closed on every path, including an early error.
+    let result = async {
+        create_schema_if_absent(&pool, app.app_id).await?;
+
+        app.migrator
+            .run(&pool)
+            .await
+            .map_err(|source| DbError::Migrate {
+                target: format!("{database}.{}", app.app_id),
+                source,
+            })?;
+
+        install_number_sequences(&pool, database, app.app_id).await?;
+
+        apps::record_installed(&pool, app.app_id, &app.latest_version()).await
+    }
+    .await;
 
     // The pool exists only for this migration; hold no connections afterwards.
     pool.close().await;
     result?;
 
-    tracing::info!(database, "tenant migrations applied");
+    tracing::debug!(database, app = app.app_id, "app migrations applied");
+    Ok(())
+}
+
+/// Create the number sequences this app's configuration file declares.
+///
+/// Part of installing an app, and it runs on every migration pass rather than
+/// only the first: an upgrade that adds a document type has to reach the
+/// workspaces that already have the app, and `install_from_config` is
+/// `ON CONFLICT DO NOTHING`, so re-running it cannot put back a format the
+/// tenant changed or reset a counter that has already issued numbers.
+///
+/// A missing file is not an error - most apps issue no numbered documents, and
+/// `core` is one of them. A *malformed* one is: `series_for` validates the mask,
+/// the label key and the document type when it reads the file, so a format typo
+/// stops a deployment where somebody is watching rather than surfacing on the
+/// first invoice, in front of a customer.
+async fn install_number_sequences(
+    pool: &sqlx::PgPool,
+    database: &str,
+    app_id: &str,
+) -> Result<(), DbError> {
+    let series =
+        phonix_config::numbering::series_for(app_id).map_err(|err| DbError::CorruptCatalogRow {
+            slug: app_id.to_owned(),
+            reason: format!("number series configuration is unusable: {err}"),
+        })?;
+
+    if series.is_empty() {
+        return Ok(());
+    }
+
+    let created = crate::numbering::install_from_config(pool, app_id, &series).await?;
+
+    tracing::info!(
+        database,
+        app = app_id,
+        declared = series.len(),
+        created,
+        "number sequences installed"
+    );
+    Ok(())
+}
+
+/// `CREATE SCHEMA IF NOT EXISTS`, for an app about to be migrated.
+///
+/// Running this before core's own stream is what makes the `core` schema exist
+/// in time for migration 0001 on a fresh database, so a database provisioned
+/// today builds straight into `core` and 0014 finds nothing to relocate.
+///
+/// See the note in `create_database_if_absent` for why the identifier is
+/// interpolated and why that is safe.
+async fn create_schema_if_absent(pool: &sqlx::PgPool, schema: &str) -> Result<(), DbError> {
+    assert_safe_identifier(schema)?;
+
+    let sql = format!(r#"CREATE SCHEMA IF NOT EXISTS "{schema}""#);
+    sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+        .execute(pool)
+        .await
+        .map_err(DbError::Query)?;
+
     Ok(())
 }
 

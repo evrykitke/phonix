@@ -67,6 +67,6 @@ pub mod datetime;
 pub mod language;
 pub mod message;
 
-pub use catalog::{Catalog, builtin_keys};
+pub use catalog::{Catalog, builtin_contains, builtin_keys};
 pub use language::{Direction, Language};
 pub use message::{Arg, Message};

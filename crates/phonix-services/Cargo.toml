@@ -13,6 +13,8 @@ license.workspace = true
 # *does*, not things a repository stores.
 [dependencies]
 phonix-core = { workspace = true }
+phonix-master = { workspace = true }
+phonix-tax = { workspace = true }
 phonix-config = { workspace = true }
 phonix-db = { workspace = true }
 # Where uploaded bytes go. Behind a trait, so this layer names `FileStorage`

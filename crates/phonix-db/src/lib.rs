@@ -21,6 +21,8 @@
 //! | [`tenancy`]       | The catalog, the pool registry, provisioning         |
 //! | [`identity`]      | `users`, `sessions`, `user_tokens`, MFA factors, audit |
 //! | [`audit`]         | `entity_events` - one row per change to one record   |
+//! | [`currency`]      | `currencies`, `exchange_rates`                       |
+//! | [`numbering`]     | `number_sequences` - the next document number        |
 //! | [`authorization`] | `roles`, `role_permissions`, `user_permissions`      |
 //! | [`settings`]      | `workspace_settings`                                 |
 //! | [`files`]         | `file_uploads` - and the queue the upload jobs run on |
@@ -54,14 +56,40 @@
 //!         v
 //!   PostgreSQL        one catalog database, one database per tenant
 //! ```
+//!
+//! # The database refuses; it does not act
+//!
+//! No triggers, no stored procedures, no rules. What PostgreSQL enforces is
+//! what the data *may be* - `NOT NULL`, `CHECK`, `REFERENCES`, `UNIQUE`, and a
+//! `DEFAULT` on insert. Those refuse a bad write; they never perform one of
+//! their own. Everything that decides is Rust, in this crate or above it.
+//!
+//! The line matters because a trigger is behaviour that is invisible where it
+//! happens. Five `updated_at` triggers used to live in `core`, and by the time
+//! they were removed (migration 0017) both had gone wrong in the same quiet
+//! way: `users.updated_at` moved on every page view, because `last_seen_at` is
+//! a write; and `number_sequences.updated_at` moved on every document issued,
+//! leaving it disagreeing with the `updated_by` beside it.
+//!
+//! So `updated_at` is set at the call site, and the rule is:
+//!
+//! > **`updated_at` follows an edit to the row's own data.** It does not follow
+//! > the login trail - `last_seen_at`, `last_login_at`, `failed_login_count`,
+//! > `locked_until` - and it does not follow allocating a document number.
+//!
+//! A migration that adds a trigger or a function fails the `tenant_schema`
+//! test, which asserts the absence rather than counting what is there.
 
 pub mod audit;
 pub mod authorization;
 pub mod connect;
+pub mod currency;
 pub mod error;
 pub mod files;
 pub mod identity;
 pub mod mail;
+pub mod master;
+pub mod numbering;
 pub mod organization;
 pub mod outbox;
 pub mod settings;
@@ -81,5 +109,17 @@ pub use sqlx;
 /// Migrations for the shared catalog database.
 pub static CATALOG_MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations/catalog");
 
-/// Migrations applied to every tenant database.
-pub static TENANT_MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations/tenant");
+/// Migrations for the `core` schema of every tenant database.
+///
+/// One stream per app, each in its own directory under `migrations/apps/` and
+/// registered in [`tenancy::apps::APPS`]. Core is the app that owns the
+/// infrastructure the others are allowed to depend on.
+pub static CORE_MIGRATIONS: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations/apps/core");
+
+/// Migrations for the `master` schema: commercial master data.
+///
+/// An ordinary app - it owns a schema, a stream and nothing else - which is
+/// the point: if `master` cannot be built out of the same mechanism every
+/// other app uses, the mechanism is not finished.
+pub static MASTER_MIGRATIONS: sqlx::migrate::Migrator =
+    sqlx::migrate!("../../migrations/apps/master");

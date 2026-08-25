@@ -2784,6 +2784,8 @@ dependencies = [
  "moka",
  "phonix-config",
  "phonix-core",
+ "phonix-master",
+ "phonix-tax",
  "secrecy",
  "serde",
  "serde_json",
@@ -2791,6 +2793,18 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "phonix-master"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "phonix-core",
+ "phonix-tax",
+ "serde",
+ "thiserror 2.0.20",
  "uuid",
 ]
 
@@ -2864,7 +2878,9 @@ dependencies = [
  "phonix-config",
  "phonix-core",
  "phonix-db",
+ "phonix-master",
  "phonix-storage",
+ "phonix-tax",
  "reqwest",
  "secrecy",
  "serde",
@@ -2890,6 +2906,18 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "phonix-tax"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "phonix-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
  "uuid",
 ]
 
@@ -2923,9 +2951,11 @@ dependencies = [
  "phonix-config",
  "phonix-core",
  "phonix-db",
+ "phonix-master",
  "phonix-messaging",
  "phonix-services",
  "phonix-storage",
+ "phonix-tax",
  "qrcode",
  "secrecy",
  "serde",

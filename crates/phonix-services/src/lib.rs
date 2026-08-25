@@ -28,6 +28,7 @@
 //! | [`authorization`] | Read and edit what a user or a role may do          |
 //! | [`workspace`] | Create a workspace, change its policy                   |
 //! | [`mail`]      | Which relay sends, and sending through it               |
+//! | [`numbering`] | Issue a document number, and configure the format       |
 //! | [`caller`]    | Who is asking, and whether they may                     |
 //! | [`crypto`]    | Not a use case - the primitives the others need         |
 //!
@@ -61,10 +62,13 @@ pub mod audit;
 pub mod authorization;
 pub mod caller;
 pub mod crypto;
+pub mod currency;
 pub mod error;
 pub mod files;
 pub mod identity;
 pub mod mail;
+pub mod master;
+pub mod numbering;
 pub mod oauth;
 pub mod workspace;
 

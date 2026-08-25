@@ -15,6 +15,7 @@
 //! startup.
 
 pub mod model;
+pub mod numbering;
 pub mod validate;
 
 use std::path::{Path, PathBuf};

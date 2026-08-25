@@ -1,0 +1,22 @@
+[package]
+name = "phonix-tax"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Tax arithmetic, with no I/O of any kind. Compiled for BOTH the server and the
+# wasm client, so - like phonix-core - it must never depend on tokio, sqlx,
+# redis or lapin. The browser previewing an invoice and the server posting it
+# run this same code.
+[dependencies]
+phonix-core = { workspace = true }
+
+serde = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+# Proving that a rate crosses the wire as its digits rather than as a double.
+serde_json = { workspace = true }

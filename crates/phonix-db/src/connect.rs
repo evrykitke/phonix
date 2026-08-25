@@ -14,7 +14,28 @@ use sqlx::{Connection, PgConnection};
 
 use crate::error::DbError;
 
+/// The search path every connection to a tenant database is opened with.
+///
+/// `core` first, because the infrastructure tables are referenced unqualified
+/// throughout this crate and there are some hundred and thirty of those.
+/// `public` behind it, permanently rather than transitionally: pgcrypto is
+/// installed there, so this is what keeps `gen_random_uuid()` resolving.
+///
+/// **App schemas are deliberately absent**, and that absence is the point. An
+/// app's tables are always written `books.invoices`; a schema that is not on
+/// the path cannot be reached by a query that forgot to say which app it meant,
+/// so the mistake surfaces as a loud error rather than a silent read of the
+/// wrong table. See `docs/adr/0001-core-boundary.md`.
+///
+/// No spaces: the value travels to the server inside a space-separated `-c`
+/// options string, and `core, public` would arrive as two of them.
+pub const TENANT_SEARCH_PATH: &str = "core,public";
+
 /// Connect options for a named database on the configured server.
+///
+/// No `search_path`: this serves the catalog and maintenance databases, whose
+/// tables live in `public` where Postgres already looks. Tenant connections go
+/// through [`tenant_connect_options`] instead.
 pub fn connect_options(cfg: &DatabaseConfig, database: &str) -> PgConnectOptions {
     let mut options = PgConnectOptions::new()
         .host(&cfg.host)
@@ -80,6 +101,18 @@ pub async fn catalog_pool(cfg: &DatabaseConfig) -> Result<PgPool, DbError> {
         .map_err(|source| DbError::Connect { target, source })
 }
 
+/// Connect options for a tenant database, opened on a given search path.
+///
+/// `options` appends rather than replaces, so the statement timeout set by
+/// [`connect_options`] survives.
+pub fn tenant_connect_options(
+    cfg: &DatabaseConfig,
+    database: &str,
+    search_path: &str,
+) -> PgConnectOptions {
+    connect_options(cfg, database).options([("search_path", search_path)])
+}
+
 /// Open a pool for one tenant database.
 ///
 /// Uses `connect_lazy_with`: the pool is handed back immediately and the first
@@ -87,7 +120,24 @@ pub async fn catalog_pool(cfg: &DatabaseConfig) -> Result<PgPool, DbError> {
 /// handling, so paying a TCP+TLS handshake before returning would add latency
 /// to a request that may not even touch the database.
 pub fn tenant_pool(cfg: &DatabaseConfig, database: &str) -> PgPool {
-    pool_options(&cfg.tenant_pool).connect_lazy_with(connect_options(cfg, database))
+    pool_options(&cfg.tenant_pool).connect_lazy_with(tenant_connect_options(
+        cfg,
+        database,
+        TENANT_SEARCH_PATH,
+    ))
+}
+
+/// A one-connection pool for running one app's migration stream.
+///
+/// Single connection because migrations are applied in order behind an advisory
+/// lock, so a second one would only ever sit and wait for the first. The pool is
+/// built per app rather than reused, because each app's migrations run on their
+/// own search path - which is what puts `books._sqlx_migrations` inside the
+/// `books` schema and keeps the streams independent.
+pub fn schema_migration_pool(cfg: &DatabaseConfig, database: &str, search_path: &str) -> PgPool {
+    PgPoolOptions::new()
+        .max_connections(1)
+        .connect_lazy_with(tenant_connect_options(cfg, database, search_path))
 }
 
 /// A single connection to the maintenance database (`postgres`).

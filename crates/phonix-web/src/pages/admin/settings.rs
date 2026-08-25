@@ -45,7 +45,9 @@ use crate::components::page::{
 };
 use crate::icons::{Icon, IconSize};
 use crate::l;
+use crate::pages::admin::currencies::CurrenciesTab;
 use crate::pages::admin::mail_settings::MailSettingsTab;
+use crate::pages::admin::numbering::NumberingTab;
 use crate::pages::admin::organization::OrganizationTab;
 use crate::server_fns::settings_fns::{SettingsSaved, save_workspace_settings, workspace_settings};
 use crate::ui::tabs::{Tab, TabbedPanel};
@@ -463,6 +465,22 @@ fn settings_form(initial: WorkspaceSecuritySettings) -> impl IntoView {
                             || view! { <MailSettingsTab /> }.into_any(),
                         )
                         .icon(Icon::Mail),
+                    // Last two, because they are the ones a workspace touches
+                    // once and then leaves: the currency list starts correct
+                    // from the organization profile, and a number series
+                    // arrives already configured from the app that issues it.
+                    Tab::new(
+                            "currencies",
+                            l!("settings.tab.currencies"),
+                            || view! { <CurrenciesTab /> }.into_any(),
+                        )
+                        .icon(Icon::Boxes),
+                    Tab::new(
+                            "numbering",
+                            l!("settings.tab.numbering"),
+                            || view! { <NumberingTab /> }.into_any(),
+                        )
+                        .icon(Icon::FileText),
                 ]
             />
         </div>

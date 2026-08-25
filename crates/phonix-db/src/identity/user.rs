@@ -430,7 +430,8 @@ where
             SET password_hash        = $2,
                 password_algorithm   = 'argon2id',
                 password_updated_at  = now(),
-                must_change_password = FALSE
+                must_change_password = FALSE,
+                updated_at           = now()
           WHERE id = $1",
     )
     .bind(id)
@@ -470,7 +471,7 @@ pub async fn set_must_change_password<'e, E>(
 where
     E: PgExecutor<'e>,
 {
-    sqlx::query("UPDATE users SET must_change_password = $2 WHERE id = $1")
+    sqlx::query("UPDATE users SET must_change_password = $2, updated_at = now() WHERE id = $1")
         .bind(id)
         .bind(must_change)
         .execute(executor)
@@ -487,7 +488,8 @@ where
     sqlx::query(
         "UPDATE users
             SET email_verified_at = coalesce(email_verified_at, now()),
-                status = CASE WHEN status = 'pending' THEN 'active' ELSE status END
+                status = CASE WHEN status = 'pending' THEN 'active' ELSE status END,
+                updated_at = now()
           WHERE id = $1",
     )
     .bind(id)
@@ -514,7 +516,7 @@ where
 {
     sqlx::query(
         "UPDATE users
-            SET first_name = $2, last_name = $3, display_name = $4
+            SET first_name = $2, last_name = $3, display_name = $4, updated_at = now()
           WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(id)
@@ -537,12 +539,14 @@ pub async fn set_status<'e, E>(executor: E, id: UserId, status: UserStatus) -> R
 where
     E: PgExecutor<'e>,
 {
-    let result = sqlx::query("UPDATE users SET status = $2 WHERE id = $1 AND NOT is_owner")
-        .bind(id)
-        .bind(status.as_str())
-        .execute(executor)
-        .await
-        .map_err(DbError::Query)?;
+    let result = sqlx::query(
+        "UPDATE users SET status = $2, updated_at = now() WHERE id = $1 AND NOT is_owner",
+    )
+    .bind(id)
+    .bind(status.as_str())
+    .execute(executor)
+    .await
+    .map_err(DbError::Query)?;
 
     if result.rows_affected() == 0 {
         return Err(DbError::OwnerProtected);
@@ -558,7 +562,7 @@ where
 {
     let result = sqlx::query(
         "UPDATE users
-            SET deleted_at = now(), status = 'deactivated'
+            SET deleted_at = now(), status = 'deactivated', updated_at = now()
           WHERE id = $1 AND deleted_at IS NULL AND NOT is_owner",
     )
     .bind(id)
@@ -705,7 +709,7 @@ where
              SELECT avatar_file_id FROM users WHERE id = $1
          )
          UPDATE users
-            SET avatar_file_id = $2
+            SET avatar_file_id = $2, updated_at = now()
            FROM previous
           WHERE users.id = $1
       RETURNING previous.avatar_file_id",
@@ -729,7 +733,7 @@ where
              SELECT avatar_file_id FROM users WHERE id = $1
          )
          UPDATE users
-            SET avatar_file_id = NULL
+            SET avatar_file_id = NULL, updated_at = now()
            FROM previous
           WHERE users.id = $1
       RETURNING previous.avatar_file_id",

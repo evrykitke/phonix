@@ -12,6 +12,11 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 phonix-core = { workspace = true }
+# The master app's vocabulary and the tax arithmetic. Unconditional, not
+# `ssr`-only: these types cross the wire in server-function payloads and the
+# tax preview runs in the browser.
+phonix-master = { workspace = true }
+phonix-tax = { workspace = true }
 
 leptos = { workspace = true }
 leptos_meta = { workspace = true }

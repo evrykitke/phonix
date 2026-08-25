@@ -35,7 +35,11 @@
 
 pub mod audit;
 pub mod changes;
+pub mod currencies;
+pub mod numbering;
+pub mod parties;
 pub mod roles;
+pub mod taxes;
 pub mod users;
 
 use phonix_core::query::{PageRequest, Sort};

@@ -86,6 +86,39 @@ pub enum DbError {
     #[error("'{0}' is not a permission this build defines")]
     UnknownPermission(String),
 
+    // --- numbering ------------------------------------------------------
+    /// A document asked for a number from a sequence that is missing or
+    /// switched off.
+    ///
+    /// A refusal rather than a number invented on the spot. A document that
+    /// numbers itself outside the sequence is exactly the gap the sequence
+    /// exists to prevent, and one that cannot be explained afterwards.
+    #[error("no active number sequence for {app_id}.{doc_type} (scope '{scope_key}')")]
+    UnusableSequence {
+        app_id: String,
+        doc_type: String,
+        scope_key: String,
+    },
+
+    // --- master ---------------------------------------------------------
+    /// Two rates for one tax code would have been live at the same time.
+    ///
+    /// Raised by the exclusion constraint in `master.tax_rates`, mapped here
+    /// rather than checked for first: a check-then-insert is a race, and the
+    /// race is two administrators filing the same rate change on the same
+    /// afternoon. An expected path through a form, so it is a named variant a
+    /// screen can render rather than a Postgres string.
+    #[error("a rate for that tax already covers part of that period")]
+    TaxRateOverlap,
+
+    /// A name a workspace's own code or key already uses.
+    ///
+    /// The unique indexes on `lower(code)` refused the write. Separate from a
+    /// bare `Query` for the reason [`Self::UserExists`] is: it is the one write
+    /// failure that is the person's to fix, on the field they typed it in.
+    #[error("a {entity} with the code '{code}' already exists")]
+    CodeExists { entity: &'static str, code: String },
+
     // --- outbox ---------------------------------------------------------
     /// An event payload that would not serialise.
     ///
@@ -122,6 +155,12 @@ impl From<DbError> for CoreError {
                 CoreError::Validation(format!("unknown permission '{name}'"))
             }
             DbError::InvalidPolicy(detail) => CoreError::Validation(detail),
+            DbError::TaxRateOverlap => CoreError::Conflict(
+                "a rate for that tax already covers part of that period".to_owned(),
+            ),
+            DbError::CodeExists { entity, code } => {
+                CoreError::Conflict(format!("a {entity} with the code '{code}' already exists"))
+            }
             other => {
                 // The detail is logged here and dropped from the returned value.
                 tracing::error!(error = %other, "database error");

@@ -13,6 +13,8 @@ repository = ""
 [workspace.dependencies]
 # --- internal ---
 phonix-core = { path = "crates/phonix-core" }
+phonix-tax = { path = "crates/phonix-tax" }
+phonix-master = { path = "crates/phonix-master" }
 phonix-config = { path = "crates/phonix-config" }
 phonix-telemetry = { path = "crates/phonix-telemetry" }
 phonix-db = { path = "crates/phonix-db" }

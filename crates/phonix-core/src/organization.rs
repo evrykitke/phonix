@@ -340,8 +340,7 @@ fn is_addressish(value: &str) -> bool {
 fn is_phonish(value: &str) -> bool {
     let digits = value.chars().filter(char::is_ascii_digit).count();
 
-    digits >= 5
-        && digits <= 20
+    (5..=20).contains(&digits)
         && value
             .chars()
             .all(|c| c.is_ascii_digit() || matches!(c, '+' | '-' | '(' | ')' | ' ' | '.'))

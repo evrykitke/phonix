@@ -44,7 +44,9 @@
 pub mod invitations;
 pub mod mail;
 pub mod organization;
+pub mod parties;
 pub mod roles;
+pub mod taxes;
 pub mod users;
 
 use std::future::Future;

@@ -1,0 +1,18 @@
+[package]
+name = "phonix-master"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# The `master` app's shared vocabulary: parties, and the tax entities it owns.
+# Compiled for BOTH the server and the wasm client, so - like phonix-core - it
+# must never depend on tokio, sqlx, redis or lapin.
+[dependencies]
+phonix-core = { workspace = true }
+phonix-tax = { workspace = true }
+
+serde = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }

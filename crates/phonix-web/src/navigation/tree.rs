@@ -64,6 +64,20 @@ pub static MENU: &[NavNode] = &[
     .require(names::DASHBOARD)
     .keywords(&["home", "overview", "start"]),
     NavNode::group(
+        "master",
+        "nav.master",
+        Icon::Boxes,
+        &[
+            NavNode::leaf("parties", "nav.parties", Icon::Users, "/master/parties")
+                .require(names::PARTIES)
+                .keywords(&["customers", "suppliers", "clients", "vendors", "contacts"]),
+            NavNode::leaf("taxes", "nav.taxes", Icon::Receipt, "/master/taxes")
+                .require(names::TAXES)
+                .keywords(&["vat", "gst", "sales tax", "rates", "groups"]),
+        ],
+    )
+    .require(names::MASTER),
+    NavNode::group(
         "administration",
         "nav.administration",
         Icon::SlidersHorizontal,

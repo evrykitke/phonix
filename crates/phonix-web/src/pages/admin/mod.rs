@@ -6,8 +6,10 @@
 
 pub mod audit_event;
 pub mod audit_logs;
+pub mod currencies;
 pub mod entity_change;
 pub mod mail_settings;
+pub mod numbering;
 pub mod organization;
 pub mod roles;
 pub mod settings;

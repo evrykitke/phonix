@@ -169,7 +169,8 @@ pub async fn confirm_factor(
     sqlx::query(
         "UPDATE users
             SET mfa_enabled = TRUE,
-                mfa_enrolled_at = coalesce(mfa_enrolled_at, now())
+                mfa_enrolled_at = coalesce(mfa_enrolled_at, now()),
+                updated_at = now()
           WHERE id = $1",
     )
     .bind(user_id)
@@ -406,7 +407,7 @@ async fn clear_enrolment(
         .await
         .map_err(DbError::Query)?;
 
-    sqlx::query("UPDATE users SET mfa_enabled = FALSE, mfa_enrolled_at = NULL WHERE id = $1")
+    sqlx::query("UPDATE users SET mfa_enabled = FALSE, mfa_enrolled_at = NULL, updated_at = now() WHERE id = $1")
         .bind(user_id)
         .execute(&mut **tx)
         .await

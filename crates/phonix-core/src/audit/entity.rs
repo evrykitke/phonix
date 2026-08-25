@@ -152,6 +152,68 @@ pub mod kinds {
         href: Some("/admin/settings?tab=communication"),
         singleton: true,
     };
+
+    /// An organization or person the workspace trades with.
+    ///
+    /// Their name and address reach every document raised against them, and a
+    /// bank detail or a tax registration changed quietly is the kind of edit a
+    /// trail exists for.
+    pub const PARTY: EntityKind = EntityKind {
+        name: "party",
+        singular_key: "entity.party.singular",
+        plural_key: "entity.party.plural",
+        href: Some("/master/parties/{id}"),
+        singleton: false,
+    };
+
+    /// A tax, and what it is charged at.
+    ///
+    /// The rate windows are audited as part of the code rather than as their
+    /// own kind: "VAT went from 17.5% to 20% on that date, and this is who
+    /// entered it" is one story, and splitting it across two trails is how the
+    /// second half stops being read.
+    pub const TAX_CODE: EntityKind = EntityKind {
+        name: "tax_code",
+        singular_key: "entity.tax_code.singular",
+        plural_key: "entity.tax_code.plural",
+        href: Some("/master/taxes/{id}"),
+        singleton: false,
+    };
+
+    /// What a document line actually references. Changing its membership
+    /// changes what every future document using it comes to.
+    pub const TAX_GROUP: EntityKind = EntityKind {
+        name: "tax_group",
+        singular_key: "entity.tax_group.singular",
+        plural_key: "entity.tax_group.plural",
+        href: Some("/master/tax-groups/{id}"),
+        singleton: false,
+    };
+
+    /// Which currencies the workspace deals in, and what a rate was on a day.
+    ///
+    /// A singleton, because the interesting change is to the *list* rather than
+    /// to one row: "who switched EUR off" and "who loaded Tuesday's rates" are
+    /// the same question about the same screen.
+    pub const CURRENCIES: EntityKind = EntityKind {
+        name: "currencies",
+        singular_key: "entity.currencies.singular",
+        plural_key: "entity.currencies.plural",
+        href: Some("/admin/settings?tab=currencies"),
+        singleton: true,
+    };
+
+    /// A document number series: its format, its reset period, where it starts.
+    ///
+    /// The one settings change that can make two documents share a number, so
+    /// it is recorded per sequence rather than as one settings blob.
+    pub const NUMBER_SEQUENCE: EntityKind = EntityKind {
+        name: "number_sequence",
+        singular_key: "entity.number_sequence.singular",
+        plural_key: "entity.number_sequence.plural",
+        href: Some("/admin/settings?tab=numbering"),
+        singleton: false,
+    };
 }
 
 /// The declared set, in the order a filter should offer them.
@@ -161,6 +223,11 @@ pub const ENTITY_KINDS: &[EntityKind] = &[
     kinds::ROLE,
     kinds::SECURITY_POLICY,
     kinds::MAIL_SETTINGS,
+    kinds::CURRENCIES,
+    kinds::NUMBER_SEQUENCE,
+    kinds::PARTY,
+    kinds::TAX_CODE,
+    kinds::TAX_GROUP,
 ];
 
 /// The kind with this stored name, if this build knows it.
