@@ -82,7 +82,12 @@ pub fn sidebar() -> impl IntoView {
                 // session has resolved. No fallback: a skeleton of menu entries
                 // that then change shape is worse than a panel that arrives
                 // complete a few milliseconds later.
-                <Suspense fallback=|| ()>
+                // `Transition`, not `Suspense`: `Shell::refresh` re-fetches
+                // the session when an app is installed, and a `Suspense` would
+                // drop to its fallback while that is in flight - the menu
+                // vanishing and coming back with one more entry. A transition
+                // keeps the old menu on screen until the new one is ready.
+                <Transition fallback=|| ()>
                     {move || Suspend::new(async move {
                         // Stored rather than borrowed: `nav_node` hands it to a
                         // `Show` closure that outlives this scope, and a group
@@ -92,7 +97,7 @@ pub fn sidebar() -> impl IntoView {
                             <ul class="space-y-0.5">{nav_nodes(shell, user, MENU, 0)}</ul>
                         }
                     })}
-                </Suspense>
+                </Transition>
             </nav>
 
             <Workspace />

@@ -87,13 +87,19 @@ use topbar::TopBar;
 pub struct Shell {
     /// Blocking, so the server holds the first chunk until the chrome can be
     /// rendered with the right menu rather than an empty one that fills in.
-    session: OnceResource<Option<AuthUser>>,
+    session: Resource<Option<AuthUser>>,
     /// Which apps this workspace has switched on.
     ///
     /// Blocking too, and for a sharper reason than the menu: the permission
     /// editor draws a *different tree* depending on this, and one that arrived
     /// a moment late would grow rows under the pointer. One indexed query.
-    apps: OnceResource<Vec<String>>,
+    apps: Resource<Vec<String>>,
+    /// Bumped by [`Self::refresh`] to re-fetch the two above.
+    ///
+    /// They were `OnceResource`s, which is right for a fact that cannot change
+    /// while a document is open - and installing an app made that untrue. See
+    /// [`Self::refresh`].
+    generation: RwSignal<u32>,
     /// Groups the user has explicitly opened (`true`) or closed (`false`).
     /// Absent means "whatever the trail says".
     overrides: RwSignal<HashMap<&'static str, bool>>,
@@ -111,11 +117,18 @@ impl Shell {
     fn provide() -> Self {
         let location = use_location();
 
+        let generation = RwSignal::new(0_u32);
+
         let shell = Self {
-            session: OnceResource::new_blocking(async move { current_user().await.ok().flatten() }),
-            apps: OnceResource::new_blocking(
-                async move { enabled_apps().await.unwrap_or_default() },
+            session: Resource::new_blocking(
+                move || generation.get(),
+                |_| async move { current_user().await.ok().flatten() },
             ),
+            apps: Resource::new_blocking(
+                move || generation.get(),
+                |_| async move { enabled_apps().await.unwrap_or_default() },
+            ),
+            generation,
             overrides: RwSignal::new(HashMap::new()),
             palette_open: RwSignal::new(false),
             drawer_open: RwSignal::new(false),
@@ -170,6 +183,27 @@ impl Shell {
         let apps = self.apps;
 
         Signal::derive(move || apps.get())
+    }
+
+    /// Ask the chrome to find out again who is signed in and what this
+    /// workspace has.
+    ///
+    /// # Why anything needs this
+    ///
+    /// Both are resolved once when the document loads, which was correct while
+    /// neither could change underneath it. Installing an app changes both: the
+    /// workspace gains an app, and the signed-in account gains the permissions
+    /// beneath its root - so the sidebar, the launcher, the command palette
+    /// and every gated control on screen are drawing from a set that is now
+    /// one release out of date.
+    ///
+    /// The blunt alternative is `location.reload()`, and it was what this did
+    /// first. It works and it is jarring: the person has just watched a
+    /// progress dialog for eight seconds, and throwing the page away
+    /// afterwards reads as the application restarting rather than a menu
+    /// gaining an entry.
+    pub fn refresh(self) {
+        self.generation.update(|generation| *generation += 1);
     }
 
     pub async fn user(self) -> Option<AuthUser> {

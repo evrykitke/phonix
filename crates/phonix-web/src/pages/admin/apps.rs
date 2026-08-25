@@ -29,12 +29,14 @@
 use std::time::Duration;
 
 use leptos::prelude::*;
+use leptos_router::components::A;
 use phonix_core::apps::{self, AppDescriptor, AppState, UninstallOutcome};
 use phonix_core::i18n::Message;
 use phonix_core::permissions;
 
 use crate::apps::icon_of;
 use crate::components::page::{Badge, GhostButton, PageHeader, PrimaryButton, Tone};
+use crate::components::shell::Shell;
 use crate::i18n::t;
 use crate::icons::{Icon, IconSize};
 use crate::l;
@@ -211,6 +213,10 @@ fn app_card(
             match uninstall_app(app_id).await {
                 Ok(UninstallOutcome::SwitchedOff) => {
                     version.update(|value| *value += 1);
+                    // The menu has just *lost* entries, which matters more than
+                    // gaining them: a link left in the sidebar now leads to a
+                    // page that refuses.
+                    Shell::get().refresh();
                     alerts
                         .post(Alert::success(t(&Message::new("apps.uninstall.done")
                             .arg("app", t(&Message::new(app.name))))));
@@ -409,13 +415,20 @@ fn install_dialog(
 
     let close = move || installing.set(None);
 
-    // Not `installing.set(None)`. The sidebar, the launcher and every
-    // permission-gated control in the shell resolved their session once, when
+    // Closing the dialog is not the whole of it. The sidebar, the launcher and
+    // every permission-gated control in the shell resolved their session when
     // this document loaded, and the set they resolved against has just gained
-    // an app. Dismissing the dialog without a reload would leave somebody
-    // looking at a menu that does not have the thing they just installed.
+    // an app - so the menu on screen does not have the thing that was just
+    // installed in it.
+    //
+    // This reloaded the page at first, which worked and read badly: after
+    // eight seconds of progress dialog, throwing the document away looks like
+    // the application restarting rather than a menu gaining an entry.
+    // `Shell::refresh` re-fetches the two facts that changed, and the sidebar
+    // is a `Transition` so the old menu stays up until the new one is ready.
     let dismiss = move || {
-        let _ = window().location().reload();
+        Shell::get().refresh();
+        installing.set(None);
     };
 
     view! {
@@ -485,19 +498,20 @@ fn install_dialog(
                                         label=t(&Message::new("apps.installed.stay"))
                                         on_click=Callback::new(move |()| dismiss())
                                     />
-                                    // A full load rather than a router push:
-                                    // the menu, the launcher and every gated
-                                    // control were rendered against a
-                                    // permission set that has just changed.
-                                    <a
+                                    // Refreshes the chrome on the way, for the
+                                    // reason `dismiss` does: the destination
+                                    // is a page this account could not reach a
+                                    // moment ago.
+                                    <A
                                         href=app.home.unwrap_or("/")
-                                        class="inline-flex h-8 items-center gap-1.5 rounded-control bg-brand px-3 text-sm font-medium text-on-brand hover:bg-brand-hover"
+                                        attr:class="inline-flex h-8 items-center gap-1.5 rounded-control bg-brand px-3 text-sm font-medium text-on-brand hover:bg-brand-hover"
+                                        on:click=move |_| dismiss()
                                     >
                                         {t(
                                             &Message::new("apps.installed.open")
                                                 .arg("app", name.clone()),
                                         )}
-                                    </a>
+                                    </A>
                                 </div>
                             </div>
                         }
