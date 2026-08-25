@@ -25,6 +25,8 @@
 //!      |   +- .Create  .Edit  .Delete  .ChangePermissions
 //!      +- Pages.Administration.Settings
 //!      +- Pages.Administration.AuditLogs
+//!      +- Pages.Administration.Apps
+//!          +- .Install
 //! ```
 
 use serde::{Deserialize, Serialize};
@@ -77,6 +79,9 @@ pub mod names {
 
     pub const SETTINGS: &str = "Pages.Administration.Settings";
     pub const AUDIT_LOGS: &str = "Pages.Administration.AuditLogs";
+
+    pub const APPS: &str = "Pages.Administration.Apps";
+    pub const APPS_INSTALL: &str = "Pages.Administration.Apps.Install";
 }
 
 /// One node of the permission tree.
@@ -197,7 +202,8 @@ pub const DEFINITIONS: &[PermissionDefinition] = &[
         name: names::INVOICES_POST,
         display_name: "Post",
         description: Some(
-            "Number a draft and issue it. The number cannot be handed back, and the              document cannot be edited afterwards.",
+            "Number a draft and issue it. The number cannot be handed back, and the document \
+             cannot be edited afterwards.",
         ),
         parent: Some(names::INVOICES),
         default_for_user: false,
@@ -368,6 +374,28 @@ pub const DEFINITIONS: &[PermissionDefinition] = &[
         display_name: "Audit logs",
         description: Some("Read the security and activity trail."),
         parent: Some(names::ADMINISTRATION),
+        default_for_user: false,
+    },
+    // -- Apps -------------------------------------------------------------
+    //
+    // Seeing the store and changing what the workspace subscribes to are two
+    // acts, and the second one is the one with an invoice attached. Somebody
+    // should be able to look at what is available and ask for it without being
+    // able to sign the organization up for it.
+    PermissionDefinition {
+        name: names::APPS,
+        display_name: "Apps",
+        description: Some("See which apps this workspace has, and what else there is."),
+        parent: Some(names::ADMINISTRATION),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::APPS_INSTALL,
+        display_name: "Install",
+        description: Some(
+            "Switch an app on for this workspace, or off again. An app that is off keeps              its data.",
+        ),
+        parent: Some(names::APPS),
         default_for_user: false,
     },
 ];
@@ -544,7 +572,8 @@ mod tests {
                 names::USERS,
                 names::ROLES,
                 names::SETTINGS,
-                names::AUDIT_LOGS
+                names::AUDIT_LOGS,
+                names::APPS
             ]
         );
 

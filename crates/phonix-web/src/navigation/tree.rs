@@ -112,6 +112,9 @@ pub static MENU: &[NavNode] = &[
             )
             .require(names::SETTINGS)
             .keywords(&["workspace", "configuration", "preferences", "tenant"]),
+            NavNode::leaf("apps", "nav.apps", Icon::Blocks, "/admin/apps")
+                .require(names::APPS)
+                .keywords(&["install", "modules", "subscription", "books", "store"]),
             NavNode::leaf(
                 "audit-logs",
                 "nav.audit_logs",

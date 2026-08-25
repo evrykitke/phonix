@@ -4,6 +4,7 @@
 //! permission the server function behind it states. The menu entry is the
 //! courtesy; the check in `phonix_services` is the control.
 
+pub mod apps;
 pub mod audit_event;
 pub mod audit_logs;
 pub mod currencies;

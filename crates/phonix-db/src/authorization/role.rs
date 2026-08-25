@@ -41,22 +41,46 @@ impl<'r> FromRow<'r, sqlx::postgres::PgRow> for RoleRecord {
     }
 }
 
-/// Bring the two static roles' grants in line with the compiled definitions.
+/// Bring the two static roles' grants in line with the compiled definitions
+/// **and** with the apps this workspace has switched on.
 ///
-/// Run once per tenant database, right after its migrations. Idempotent, so it
-/// is also the upgrade path: a release that adds a permission gets it into
-/// every `Admin` role by running this again.
+/// Run after every migration pass and after every install or uninstall.
+/// Idempotent, so it is also the upgrade path: a release that adds a
+/// permission gets it into every `Admin` role by running this again.
+///
+/// # Why installing an app runs this
+///
+/// A permission is the only gate the rest of the software consults. The menu
+/// draws what the user may reach, the grids hide the buttons they may not
+/// press, and `Caller::require` refuses everything else - so an app the
+/// workspace has not subscribed to is switched off, exactly and completely, by
+/// not granting the permissions beneath its root. There is no second mechanism
+/// to keep in step with this one, which is the point.
+///
+/// # Why it revokes as well as grants
+///
+/// `Admin` is replaced wholesale, so an app switched off loses its grants on
+/// the next run whether that run is an uninstall or a boot. Anything less and
+/// "uninstall" would mean "hidden until the next deploy puts it back".
 ///
 /// Only the *static* roles are touched. A role an organization defined is
 /// their business, and silently adding a new permission to it would hand out
-/// access nobody asked for.
+/// access nobody asked for - see [`revoke_everywhere`] for what an uninstall
+/// does about a custom role that had been given the app.
 pub async fn sync_static_roles(pool: &PgPool) -> Result<(), DbError> {
+    let enabled = crate::tenancy::installs::enabled_ids(pool).await?;
     let mut tx = pool.begin().await.map_err(DbError::Query)?;
 
-    // Admin holds the whole tree, by definition. Anything less and a release
-    // that adds a permission leaves every workspace's administrator unable to
-    // use the feature until someone edits the role by hand.
-    replace_permissions_by_name(&mut tx, static_roles::ADMIN, &PermissionSet::all()).await?;
+    // Admin holds the whole tree of every app that is on, by definition.
+    // Anything less and a release that adds a permission leaves every
+    // workspace's administrator unable to use the feature until someone edits
+    // the role by hand.
+    replace_permissions_by_name(
+        &mut tx,
+        static_roles::ADMIN,
+        &PermissionSet::all().for_enabled_apps(&enabled),
+    )
+    .await?;
 
     // User gets only what is marked `default_for_user`. Grants an
     // administrator added on top are preserved: a workspace that gave every
@@ -64,14 +88,53 @@ pub async fn sync_static_roles(pool: &PgPool) -> Result<(), DbError> {
     add_permissions_by_name(
         &mut tx,
         static_roles::USER,
-        &PermissionSet::defaults_for_user(),
+        &PermissionSet::defaults_for_user().for_enabled_apps(&enabled),
     )
     .await?;
 
     tx.commit().await.map_err(DbError::Query)?;
 
-    tracing::debug!("static role permissions synchronised");
+    tracing::debug!(apps = enabled.len(), "static role permissions synchronised");
     Ok(())
+}
+
+/// Take an app's permissions away from every role and every user override.
+///
+/// The other half of an uninstall. [`sync_static_roles`] handles `Admin` and
+/// `User`, but a workspace that gave its "Billing clerk" role the invoice
+/// pages would keep them, and a role is not a subscription: switching Books off
+/// has to mean nobody in this workspace can reach it.
+///
+/// A prefix match on a dotted boundary, which is why an app must own a whole
+/// permission subtree - see `phonix_core::apps::AppDescriptor::permission`.
+///
+/// Grants are not remembered for a later reinstall. Restoring a role's exact
+/// shape months later would be restoring access somebody may have meant to
+/// remove in between, and the reinstall path already gives `Admin` everything
+/// back.
+pub async fn revoke_everywhere(pool: &PgPool, permission_root: &str) -> Result<u64, DbError> {
+    let under = format!("{permission_root}.");
+    let mut tx = pool.begin().await.map_err(DbError::Query)?;
+
+    let roles = sqlx::query("DELETE FROM role_permissions WHERE name = $1 OR name LIKE $2 || '%'")
+        .bind(permission_root)
+        .bind(&under)
+        .execute(&mut *tx)
+        .await
+        .map_err(DbError::Query)?
+        .rows_affected();
+
+    let users = sqlx::query("DELETE FROM user_permissions WHERE name = $1 OR name LIKE $2 || '%'")
+        .bind(permission_root)
+        .bind(&under)
+        .execute(&mut *tx)
+        .await
+        .map_err(DbError::Query)?
+        .rows_affected();
+
+    tx.commit().await.map_err(DbError::Query)?;
+
+    Ok(roles + users)
 }
 
 /// Every role in this workspace, with counts, for the roles screen.

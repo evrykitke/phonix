@@ -48,6 +48,7 @@
     )
 )]
 
+pub mod apps;
 pub mod audit;
 pub mod authorization;
 pub mod error;

@@ -61,6 +61,7 @@
 //! the sidebar for permission gating, the palette for the same, the avatar menu
 //! for a name. Those are small and independent; the page is neither.
 
+pub mod app_launcher;
 pub mod command_palette;
 pub mod sidebar;
 pub mod topbar;

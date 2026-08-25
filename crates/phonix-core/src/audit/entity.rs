@@ -227,6 +227,20 @@ pub mod kinds {
         href: Some("/admin/settings?tab=numbering"),
         singleton: false,
     };
+
+    /// An app the workspace switched on or off.
+    ///
+    /// Not a singleton: which app is the whole question, and a subscription
+    /// record that could not say *what* was subscribed to would be no record.
+    /// The id is the app id, which is why the store page can be reached
+    /// straight from a trail row.
+    pub const APP: EntityKind = EntityKind {
+        name: "app",
+        singular_key: "entity.app.singular",
+        plural_key: "entity.app.plural",
+        href: Some("/admin/apps"),
+        singleton: false,
+    };
 }
 
 /// The declared set, in the order a filter should offer them.
@@ -238,6 +252,7 @@ pub const ENTITY_KINDS: &[EntityKind] = &[
     kinds::MAIL_SETTINGS,
     kinds::CURRENCIES,
     kinds::NUMBER_SEQUENCE,
+    kinds::APP,
     kinds::PARTY,
     kinds::TAX_CODE,
     kinds::TAX_GROUP,

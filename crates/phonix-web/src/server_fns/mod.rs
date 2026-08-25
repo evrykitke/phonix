@@ -33,6 +33,7 @@
 
 pub mod account_fns;
 pub mod admin_fns;
+pub mod app_fns;
 pub mod auth_fns;
 pub mod books_fns;
 pub mod currency_fns;

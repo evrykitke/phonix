@@ -206,6 +206,29 @@ mod tests {
     }
 
     #[test]
+    fn this_registry_and_the_catalog_name_the_same_apps() {
+        // Two lists of apps exist and cannot be merged: this one holds
+        // `sqlx::Migrator`, so it can never compile to wasm, and
+        // `phonix_core::apps::CATALOG` holds the names and icons that have to.
+        //
+        // The failure this catches is quiet and expensive. An app added here
+        // and not there gets a schema in every tenant database and appears in
+        // no store, so nobody can switch it on. Added there and not here, it is
+        // offered, installed, and its first query fails on a schema that does
+        // not exist.
+        let migrating: Vec<&str> = APPS.iter().map(|app| app.app_id).collect();
+        let described: Vec<&str> = phonix_core::apps::CATALOG
+            .iter()
+            .map(|app| app.id)
+            .collect();
+
+        assert_eq!(
+            migrating, described,
+            "the migration registry and the app catalog have drifted - order              matters too, because both are install order",
+        );
+    }
+
+    #[test]
     fn core_migrations_search_path_matches_the_one_requests_run_on() {
         let core = APPS.first().expect("core is registered");
         assert_eq!(core.search_path(), crate::connect::TENANT_SEARCH_PATH);
