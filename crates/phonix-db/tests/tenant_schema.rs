@@ -359,3 +359,112 @@ async fn a_database_left_in_public_is_relocated_under_the_migrator() {
         .await
         .expect("clean up");
 }
+
+/// A database that stopped at 0013, which is how every tenant provisioned
+/// before the schema move actually looks.
+const STOPPED: &str = "phonix_test_schema_stopped";
+
+#[tokio::test]
+#[ignore = "needs a live PostgreSQL server"]
+async fn a_database_that_stopped_at_0013_is_adopted_rather_than_rebuilt() {
+    // The regression this file exists for now.
+    //
+    // sqlx names its bookkeeping table unqualified, so the moment the runner
+    // creates `core` the table sqlx creates lands *there* - and a database
+    // whose history is in `public` looks, to sqlx, like a database with no
+    // history at all. It then re-ran 0001 onwards into `core`, built a second
+    // empty copy of every table, and failed on 0014 with `relation "users"
+    // already exists in schema "core"` on every boot afterwards.
+    //
+    // The other legacy test does not reach this, because it runs the *whole*
+    // stream against a database with no `core` schema - so 0014 relocates the
+    // bookkeeping itself and the next pass finds it where it belongs. Stopping
+    // at 0013 is what reproduces a real tenant.
+    let cfg = database_config();
+    recreate(&cfg, STOPPED).await;
+
+    // Migrations 0001-0013 only, on the search path a tenant connection uses.
+    // With `core` absent, Postgres skips it and everything lands in `public`.
+    let legacy = phonix_db::connect::schema_migration_pool(
+        &cfg,
+        STOPPED,
+        phonix_db::connect::TENANT_SEARCH_PATH,
+    );
+    let stream = sqlx::migrate::Migrator {
+        migrations: std::borrow::Cow::Owned(
+            phonix_db::CORE_MIGRATIONS
+                .iter()
+                .filter(|migration| migration.version <= 13)
+                .cloned()
+                .collect(),
+        ),
+        ..sqlx::migrate::Migrator::DEFAULT
+    };
+    stream.run(&legacy).await.expect("migrating up to 0013");
+
+    // A row of real data, so the relocation is proved to have *moved* the
+    // table rather than left the old one behind full and the new one empty.
+    sqlx::query(
+        "INSERT INTO public.users
+             (email, display_name, first_name, last_name, password_hash, status)
+         VALUES ('ada@example.test', 'Ada Lovelace', 'Ada', 'Lovelace', 'x', 'active')",
+    )
+    .execute(&legacy)
+    .await
+    .expect("a user to carry across");
+    legacy.close().await;
+
+    // This is what a pre-0014 tenant looks like, and the assertion is the
+    // premise of the test rather than its conclusion.
+    let pool = open(&cfg, STOPPED);
+    let where_history_lives: Vec<String> =
+        sqlx::query_scalar("SELECT schemaname FROM pg_tables WHERE tablename = '_sqlx_migrations'")
+            .fetch_all(&pool)
+            .await
+            .expect("find the bookkeeping");
+    assert_eq!(
+        where_history_lives,
+        vec!["public".to_owned()],
+        "the premise: a stopped database keeps its history in public"
+    );
+    pool.close().await;
+
+    // And the runner takes it from there.
+    provision::migrate_tenant(&cfg, STOPPED)
+        .await
+        .expect("a database that stopped at 0013 migrates");
+
+    let pool = open(&cfg, STOPPED);
+    assert_core_is_whole(&pool, "stopped at 0013").await;
+    assert_master_is_whole(&pool, "stopped at 0013").await;
+    assert_core_is_recorded(&pool, "stopped at 0013").await;
+
+    // Core's history moved into core, and nothing was left behind in public to
+    // be re-adopted on the next boot. `master` has one of its own, which is the
+    // point of per-app streams and not a second copy of core's.
+    let where_history_lives: Vec<String> = sqlx::query_scalar(
+        "SELECT schemaname FROM pg_tables
+          WHERE tablename = '_sqlx_migrations'
+          ORDER BY schemaname",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("find the bookkeeping");
+    assert_eq!(
+        where_history_lives,
+        vec!["core".to_owned(), "master".to_owned()],
+        "core's history was rebuilt rather than adopted"
+    );
+
+    // The row came with its table.
+    let carried: i64 = sqlx::query_scalar("SELECT count(*) FROM core.users")
+        .fetch_one(&pool)
+        .await
+        .expect("count the users");
+    assert_eq!(carried, 1, "the relocation lost the row it was moving");
+
+    pool.close().await;
+    provision::drop_tenant_database(&cfg, STOPPED)
+        .await
+        .expect("clean up");
+}

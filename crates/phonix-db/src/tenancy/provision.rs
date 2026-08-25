@@ -220,6 +220,7 @@ async fn migrate_app(
     // One future so the pool is closed on every path, including an early error.
     let result = async {
         create_schema_if_absent(&pool, app.app_id).await?;
+        adopt_legacy_bookkeeping(&pool, app.app_id, database).await?;
 
         app.migrator
             .run(&pool)
@@ -240,6 +241,79 @@ async fn migrate_app(
     result?;
 
     tracing::debug!(database, app = app.app_id, "app migrations applied");
+    Ok(())
+}
+
+/// Move `public._sqlx_migrations` into `core`, on a database that predates the
+/// schema move.
+///
+/// # The bug this exists to stop
+///
+/// sqlx names its bookkeeping table **unqualified**, and this stream runs on a
+/// search path rooted at the app's own schema. So the moment
+/// [`create_schema_if_absent`] creates `core`, sqlx's
+/// `CREATE TABLE IF NOT EXISTS _sqlx_migrations` lands *there* - `IF NOT
+/// EXISTS` looks only at the target schema, and `public._sqlx_migrations`
+/// might as well not exist.
+///
+/// On a database provisioned before migration 0014, that meant sqlx opened a
+/// fresh, empty history, concluded that nothing had ever been applied, and
+/// re-ran 0001 onwards into `core`. Those migrations are written to be safe
+/// against re-running, so they succeeded - building a second, empty copy of
+/// every table next to the real one - and then 0014 failed on
+/// `relation "users" already exists in schema "core"`, every boot, forever.
+///
+/// Nothing was lost: the real rows stayed in `public` and the duplicates were
+/// empty. But the tenant could not be migrated, and the failure looked like a
+/// broken migration rather than a runner that had hidden the history from
+/// itself.
+///
+/// # Why the fix is a move and not a read
+///
+/// 0014 relocates `_sqlx_migrations` along with everything else, which is
+/// right - it is core's table and belongs in core's schema. The only problem
+/// is *when*: it has to happen before sqlx looks, not while sqlx is looking.
+/// So the runner does it first, and 0014 then finds it already moved.
+///
+/// Only core is ever adopted. No other app has a history that predates its own
+/// schema, and one that appeared to would be a `public` table belonging to
+/// somebody else.
+async fn adopt_legacy_bookkeeping(
+    pool: &sqlx::PgPool,
+    app_id: &str,
+    database: &str,
+) -> Result<(), DbError> {
+    if app_id != apps::CORE_APP_ID {
+        return Ok(());
+    }
+
+    // `to_regclass` answers with NULL rather than raising, which is what makes
+    // this a question rather than a `DO` block. The database refuses; it does
+    // not act - see `phonix_db`'s own documentation.
+    let (in_core, in_public): (bool, bool) = sqlx::query_as(
+        "SELECT to_regclass('core._sqlx_migrations') IS NOT NULL,
+                to_regclass('public._sqlx_migrations') IS NOT NULL",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(DbError::Query)?;
+
+    // Already moved, or never there. Both are the ordinary case: a database
+    // built today has its history in `core` from the first migration, and one
+    // built yesterday has had it moved by this function or by 0014.
+    if in_core || !in_public {
+        return Ok(());
+    }
+
+    sqlx::query("ALTER TABLE public._sqlx_migrations SET SCHEMA core")
+        .execute(pool)
+        .await
+        .map_err(DbError::Query)?;
+
+    tracing::info!(
+        database,
+        "adopted the pre-0014 migration history into the core schema"
+    );
     Ok(())
 }
 
