@@ -196,11 +196,13 @@ fn settings_form(initial: WorkspaceSecuritySettings) -> impl IntoView {
             Ok(SettingsSaved::Saved(_)) => {
                 errors.set(Vec::new());
                 failed.set(None);
-                notice.set(Some("Saved.".to_owned()));
+                notice.set(Some(l!("settings.saved")));
             }
             Ok(SettingsSaved::Rejected(rejected)) => {
                 notice.set(None);
-                failed.set(Some("Some settings were not accepted.".to_owned()));
+                // The sentence names the counts rather than the fields: the
+                // cards do that, and they are the thing to look at next.
+                failed.set(Some(l!("settings.rejected")));
                 errors.set(rejected);
             }
             Err(err) => {
