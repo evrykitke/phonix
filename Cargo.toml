@@ -225,6 +225,11 @@ web-sys = { version = "0.3", features = [
     "WheelEvent",
     "Event",
     "BlobPropertyBag",
+    # The rich text editor's loader, which appends a `<script src>` to the head
+    # the first time an editor mounts rather than paying 130 KiB on every page
+    # that has none. See `phonix_web::ui::editor::bridge`.
+    "HtmlScriptElement",
+    "HtmlHeadElement",
 ] }
 # Only for the `Array` a Blob's parts have to arrive in.
 js-sys = "0.3"

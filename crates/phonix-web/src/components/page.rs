@@ -261,12 +261,24 @@ pub fn ghost_button(
     #[prop(into)] label: String,
     #[prop(optional)] icon: Option<Icon>,
     #[prop(optional, into)] disabled: Signal<bool>,
+    /// [`Tone::Danger`] for the one that removes something. Only that tone
+    /// changes anything: a ghost button is quiet by definition, and a green or
+    /// amber one would be a badge with a click handler.
+    #[prop(optional)]
+    tone: Tone,
     on_click: Callback<()>,
 ) -> impl IntoView {
+    let colours = match tone {
+        Tone::Danger => "border-danger/40 text-danger hover:bg-danger-subtle",
+        _ => "border-edge text-content-muted hover:bg-surface-hover hover:text-content",
+    };
+
     view! {
         <button
             type="button"
-            class="inline-flex h-8 items-center gap-1.5 rounded-control border border-edge px-3 text-sm text-content-muted hover:bg-surface-hover hover:text-content disabled:cursor-not-allowed disabled:opacity-60"
+            class=format!(
+                "inline-flex h-8 items-center gap-1.5 rounded-control border px-3 text-sm                  disabled:cursor-not-allowed disabled:opacity-60 {colours}",
+            )
             disabled=move || disabled.get()
             on:click=move |_| on_click.run(())
         >

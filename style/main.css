@@ -752,6 +752,156 @@
         color: var(--content);
     }
 
+    /* Rich text, wherever it is written or read.
+       ------------------------------------------------------------------
+       `.rich-text` styles the *content* - the paragraphs, lists, headings and
+       tables a person made - and `.editor-surface` styles the writing area
+       ProseMirror puts inside it. Splitting them that way is what makes the two
+       halves impossible to drift apart: the editor's mount point carries
+       `.rich-text`, and so does every place a stored document is rendered back,
+       so what you typed is what you see afterwards.
+
+       On the element rather than in the markup for the same reason as every
+       other control here: the nodes are created by ProseMirror, and there is
+       nowhere to put a utility class on a paragraph the person just made by
+       pressing Enter. */
+    .editor-surface {
+        min-height: 12rem;
+        padding: 0.75rem;
+        /* The container has the border and the focus is inside it; a second
+           ring drawn around the writing area would sit inside the first. */
+        outline: none;
+    }
+
+    .rich-text :is(p, ul, ol, blockquote, h2, h3, hr, table, pre) {
+        margin-block: 0.5rem;
+    }
+
+    .rich-text :is(p, ul, ol, blockquote, h2, h3, table, pre):first-child {
+        margin-block-start: 0;
+    }
+
+    .rich-text h2 {
+        font-size: var(--text-base);
+        line-height: var(--text-base--line-height);
+        font-weight: 600;
+        color: var(--content);
+    }
+
+    .rich-text h3 {
+        font-size: var(--text-sm);
+        line-height: var(--text-sm--line-height);
+        font-weight: 600;
+        color: var(--content);
+    }
+
+    /* `list-style` is set back on: the reset above takes it off `summary`, and
+       Tailwind's preflight takes it off every list. Inside rich text a bullet
+       is content, not decoration - it is the difference between a list and
+       three sentences. */
+    .rich-text ul,
+    .rich-text ol {
+        padding-inline-start: 1.5rem;
+    }
+
+    .rich-text ul {
+        list-style: disc;
+    }
+
+    .rich-text ol {
+        list-style: decimal;
+    }
+
+    .rich-text li {
+        margin-block: 0.125rem;
+    }
+
+    .rich-text blockquote {
+        border-inline-start: 2px solid var(--edge-strong);
+        padding-inline-start: 0.75rem;
+        color: var(--content-muted);
+    }
+
+    .rich-text hr {
+        border: 0;
+        border-block-start: 1px solid var(--edge);
+    }
+
+    .rich-text a {
+        color: var(--brand);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+
+    .rich-text code {
+        font-family: var(--font-mono);
+        font-size: 0.9em;
+        background-color: var(--surface-sunken);
+        border-radius: var(--radius-control);
+        padding: 0.05rem 0.25rem;
+    }
+
+    /* Tables inside rich text are laid out by ProseMirror's column resizer,
+       which writes inline widths into a `<colgroup>`. `table-layout: fixed` is
+       what makes those widths mean anything; without it the browser sizes the
+       columns by content and dragging a handle does nothing visible. */
+    .rich-text table {
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: collapse;
+        overflow: hidden;
+    }
+
+    .rich-text :is(th, td) {
+        border: 1px solid var(--edge-strong);
+        padding: 0.25rem 0.5rem;
+        vertical-align: top;
+        /* A cell is a box a person types into; without this a long word in a
+           narrow column pushes the whole table wider than the panel, and on a
+           phone that widens the layout viewport itself. */
+        overflow-wrap: break-word;
+    }
+
+    .rich-text th {
+        background-color: var(--surface-sunken);
+        font-weight: 600;
+        text-align: start;
+    }
+
+    /* ProseMirror's own furniture: the wash over selected cells, and the grip
+       between two columns. Both are drawn with class names the library
+       chooses, so these are the names and not a decision. */
+    .rich-text .selectedCell::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-color: var(--surface-active);
+        pointer-events: none;
+    }
+
+    .rich-text .selectedCell {
+        position: relative;
+    }
+
+    .rich-text .column-resize-handle {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        right: -1px;
+        width: 2px;
+        background-color: var(--brand);
+        pointer-events: none;
+    }
+
+    .rich-text .ProseMirror-gapcursor::after {
+        border-block-start-color: var(--content);
+    }
+
+    /* The caret's own placeholder while a block is being dragged in. */
+    .rich-text .ProseMirror-selectednode {
+        outline: 2px solid var(--ring);
+    }
+
     /* Dense panels scroll often; the platform default bar is too heavy for a
        224px sidebar. Firefox takes the standard properties, Chromium the
        -webkit ones, and either way it inherits the theme. */

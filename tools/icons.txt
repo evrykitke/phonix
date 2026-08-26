@@ -97,5 +97,28 @@ loader-circle
 mail
 triangle-alert
 
-layout-grid
+# -- apps and the kit -------------------------------------------------------
 blocks
+layout-grid
+
+# -- rich text toolbar ------------------------------------------------------
+#
+# One per button in `ui::editor`. Larger than any other group here and
+# deliberately so: a formatting toolbar is the one place where a glyph is
+# faster to read than a word, and every one of these is a glyph people have
+# met in every word processor they have used.
+bold
+heading-2
+heading-3
+italic
+link
+link-2-off
+list
+list-ordered
+redo-2
+remove-formatting
+strikethrough
+table
+text-quote
+underline
+undo-2

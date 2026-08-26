@@ -33,6 +33,7 @@
 pub mod alert;
 pub mod calendar;
 pub mod card;
+pub mod editor;
 pub mod form;
 pub mod table;
 pub mod tabs;
