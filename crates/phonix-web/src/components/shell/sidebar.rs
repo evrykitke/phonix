@@ -101,12 +101,22 @@ pub fn sidebar() -> impl IntoView {
             </nav>
 
             <Workspace />
-            <Footer />
         </aside>
     }
 }
 
 /// The workspace mark, and the control that collapses the panel.
+///
+/// The collapse button is here rather than at the foot of the panel because it
+/// is a control over the panel, not an entry in it: it belongs beside the thing
+/// it resizes, at the height of the top bar, where the eye already looks for
+/// the chrome. At the bottom it sat past the end of the menu, which on a long
+/// menu meant scrolling to find the control that makes the menu shorter.
+///
+/// On the rail there is no room for both. Forty-eight pixels holds one 24px
+/// tile, and the one worth having is the way out of the rail - the dashboard
+/// is the first entry in the menu below it either way. So the mark stands down
+/// and the button takes the row.
 #[component]
 fn brand() -> impl IntoView {
     let shell = Shell::get();
@@ -115,7 +125,12 @@ fn brand() -> impl IntoView {
         <div class="flex h-topbar shrink-0 items-center gap-2 border-b border-edge px-2">
             <A
                 href="/dashboard"
-                attr:class="flex min-w-0 items-center gap-2 rounded-control px-1 py-1 hover:bg-surface-hover"
+                attr:class=move || {
+                    format!(
+                        "flex min-w-0 flex-1 items-center gap-2 rounded-control px-1 py-1 hover:bg-surface-hover {}",
+                        rail_hidden(shell),
+                    )
+                }
             >
                 <span
                     class="grid size-6 shrink-0 place-items-center rounded-control bg-brand text-2xs font-bold text-on-brand"
@@ -130,7 +145,53 @@ fn brand() -> impl IntoView {
                     "Phonix"
                 </span>
             </A>
+
+            <CollapseToggle />
         </div>
+    }
+}
+
+/// Narrow the panel to its rail, or open it back up.
+///
+/// `hidden md:grid` because below `md` the panel is a drawer, not a column:
+/// there is no rail to narrow to, and the control that puts the drawer away is
+/// the backdrop.
+#[component]
+fn collapse_toggle() -> impl IntoView {
+    let shell = Shell::get();
+
+    let label = move || {
+        if shell.collapsed() {
+            l!("nav.expand")
+        } else {
+            l!("nav.collapse")
+        }
+    };
+
+    view! {
+        <button
+            type="button"
+            class=move || {
+                // Centred in the row when it is the only thing in it.
+                let place = if shell.collapsed() { "mx-auto" } else { "" };
+                format!(
+                    "hidden size-7 shrink-0 place-items-center rounded-control text-content-muted \
+                     hover:bg-surface-hover hover:text-content md:grid {place}",
+                )
+            }
+            on:click=move |_| shell.theme.toggle_sidebar()
+            aria-label=label
+            title=label
+        >
+            {move || {
+                let icon = if shell.collapsed() {
+                    Icon::PanelLeftOpen
+                } else {
+                    Icon::PanelLeftClose
+                };
+                view! { <Icon icon=icon size=IconSize::Sm /> }
+            }}
+        </button>
     }
 }
 
@@ -146,40 +207,6 @@ fn workspace() -> impl IntoView {
     view! {
         <div class="shrink-0 border-t border-edge p-2 md:hidden">
             <TenantBadge />
-        </div>
-    }
-}
-
-/// Sits at the bottom of the panel, out of the way of the menu.
-#[component]
-fn footer() -> impl IntoView {
-    let shell = Shell::get();
-
-    view! {
-        <div class="hidden shrink-0 border-t border-edge p-2 md:block">
-            <button
-                type="button"
-                class="flex h-row w-full items-center gap-2 rounded-control px-2 text-content-muted hover:bg-surface-hover hover:text-content"
-                on:click=move |_| shell.theme.toggle_sidebar()
-                aria-label=move || {
-                    if shell.collapsed() { l!("nav.expand") } else { l!("nav.collapse") }
-                }
-                title=move || {
-                    if shell.collapsed() { l!("nav.expand") } else { l!("nav.collapse") }
-                }
-            >
-                {move || {
-                    let icon = if shell.collapsed() {
-                        Icon::PanelLeftOpen
-                    } else {
-                        Icon::PanelLeftClose
-                    };
-                    view! { <Icon icon=icon size=IconSize::Sm class="shrink-0" /> }
-                }}
-                <span class="truncate-fade text-xs" class:hidden=move || shell.collapsed()>
-                    {l!("nav.collapse_short")}
-                </span>
-            </button>
         </div>
     }
 }
