@@ -48,12 +48,13 @@ use crate::ui::form::field::Choice;
 /// three-item dropdown in the app to help the one with a hundred and sixty.
 const SEARCH_ABOVE: usize = 8;
 
-/// The narrowest a panel opens, whatever the trigger's width.
-///
-/// A select in a toolbar is as wide as the word inside it, and a panel that
-/// copied that width would truncate every option to fit a trigger that says
-/// "All".
-const MIN_PANEL: f64 = 176.0;
+// The panel asks for no width of its own: `place::fit` never draws one
+// narrower than its field, so asking for nothing is asking for exactly the
+// trigger's width. That is the instruction - a dropdown is the same size as
+// the control it belongs to - and it costs something worth naming: a select
+// in a toolbar is as wide as the word inside it, so a long option truncates
+// there. Every option carries its full text as a `title` for that reason.
+const SAME_AS_FIELD: f64 = 0.0;
 
 /// A dropdown over values.
 ///
@@ -162,7 +163,7 @@ pub fn select_field(
             return;
         }
 
-        let _ = at.try_set(place::of(anchor, MIN_PANEL));
+        let _ = at.try_set(place::of(anchor, SAME_AS_FIELD));
         let _ = query.try_set(String::new());
         let _ = open.try_set(true);
 
@@ -355,7 +356,13 @@ pub fn select_field(
                         }
                     })}
 
-                <div role="listbox" class="min-h-0 flex-1 overflow-auto py-1">
+                // `overscroll-contain`: reaching the end of the list does not
+                // hand the wheel on to the page, which would scroll the field
+                // away and close the panel through the dismissal listener.
+                <div
+                    role="listbox"
+                    class="min-h-0 flex-1 overflow-auto overscroll-contain py-1"
+                >
                     {move || {
                         let rows = matching.get();
 
@@ -372,6 +379,10 @@ pub fn select_field(
                             .enumerate()
                             .map(|(index, choice)| {
                                 let picked = choice.clone();
+                                // The panel is the trigger's width, so an
+                                // option longer than a narrow select truncates.
+                                // This is where the rest of it is.
+                                let full = choice.label.clone();
                                 // Derived rather than a closure, so both the
                                 // tick and the attribute that announces it can
                                 // read the same answer.
@@ -405,6 +416,7 @@ pub fn select_field(
                                         on:pointerenter=move |_| {
                                             let _ = active.try_set(index);
                                         }
+                                        title=full
                                     >
                                         <span class="flex min-w-0 items-center gap-1.5">
                                             <span

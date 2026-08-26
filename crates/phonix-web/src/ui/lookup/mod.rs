@@ -68,9 +68,9 @@ mod select;
 use std::sync::Arc;
 
 use leptos::prelude::*;
-use leptos::wasm_bindgen::JsCast;
 use leptos_router::components::A;
 
+use self::panel::dismiss_when_moved;
 use self::place::At;
 pub use self::select::SelectField;
 use crate::icons::{Icon, IconSize};
@@ -338,53 +338,12 @@ pub fn lookup_field(
         }
     };
 
-    Effect::new(move |_| {
-        if !open.get() {
-            return;
-        }
-
-        let outside = window_event_listener(leptos::ev::pointerdown, move |event| {
-            let Some(target) = event.target() else {
-                return;
-            };
-            let node = target.dyn_ref::<leptos::web_sys::Node>();
-
-            let within = panel
-                .try_get_untracked()
-                .flatten()
-                .is_some_and(|panel| panel.contains(node))
-                || anchor
-                    .try_get_untracked()
-                    .flatten()
-                    .is_some_and(|anchor| anchor.contains(node));
-
-            if !within {
-                let _ = open.try_set(false);
-            }
-        });
-
-        let escape = window_event_listener(leptos::ev::keydown, move |event| {
-            if event.key() == "Escape" {
-                let _ = open.try_set(false);
-            }
-        });
-
-        // A fixed panel does not travel with the page, so anything that moves
-        // the field under it puts it away rather than leaving it stranded.
-        let scrolled = window_event_listener(leptos::ev::wheel, move |_| {
-            let _ = open.try_set(false);
-        });
-        let resized = window_event_listener(leptos::ev::resize, move |_| {
-            let _ = open.try_set(false);
-        });
-
-        on_cleanup(move || {
-            outside.remove();
-            escape.remove();
-            scrolled.remove();
-            resized.remove();
-        });
-    });
+    // A fixed panel does not travel with the page, so anything that moves the
+    // field under it puts it away rather than leaving it stranded. This was a
+    // second copy of the four listeners until the select was built; it is the
+    // shared one now, which is what stopped a wheel inside the panel closing a
+    // lookup that was only being scrolled.
+    dismiss_when_moved(open, panel, anchor);
 
     // --- the keyboard ------------------------------------------------------
 
@@ -607,7 +566,7 @@ pub fn lookup_field(
                 aria-hidden=move || if open.get() { "false" } else { "true" }
                 style=move || at.get().style()
             >
-                <div class="min-h-0 flex-1 overflow-auto">
+                <div class="min-h-0 flex-1 overflow-auto overscroll-contain">
                     {move || {
                         choices
                             .with_value(|choices| match choices {

@@ -10,6 +10,16 @@
 //! size. They are gathered here because a dropdown that dismisses on three of
 //! the four is worse than one that dismisses on none - it teaches a rule and
 //! then breaks it.
+//!
+//! # The wheel is about the page, not about scrolling
+//!
+//! The panel closes on the wheel because the *page* moving leaves it stranded
+//! beside a field that is no longer there. A wheel inside the panel moves no
+//! page - it scrolls the list, which is the one thing a long dropdown exists
+//! to allow - so that one is not a dismissal, and treating it as one made
+//! every list of more than a windowful impossible to reach the bottom of.
+//! The list also sets `overscroll-behavior: contain`, so reaching its end does
+//! not hand the wheel on to the page and close the panel that way instead.
 
 use leptos::prelude::*;
 use leptos::wasm_bindgen::JsCast;
@@ -34,22 +44,22 @@ pub(super) fn dismiss_when_moved(
             return;
         }
 
+        // Whether an event landed inside one of this control's own two nodes.
+        let inside = move |node: Option<&leptos::web_sys::Node>,
+                           within: NodeRef<leptos::html::Div>| {
+            within
+                .try_get_untracked()
+                .flatten()
+                .is_some_and(|element| element.contains(node))
+        };
+
         let outside = window_event_listener(leptos::ev::pointerdown, move |event| {
             let Some(target) = event.target() else {
                 return;
             };
             let node = target.dyn_ref::<leptos::web_sys::Node>();
 
-            let within = panel
-                .try_get_untracked()
-                .flatten()
-                .is_some_and(|panel| panel.contains(node))
-                || anchor
-                    .try_get_untracked()
-                    .flatten()
-                    .is_some_and(|anchor| anchor.contains(node));
-
-            if !within {
+            if !inside(node, panel) && !inside(node, anchor) {
                 let _ = open.try_set(false);
             }
         });
@@ -60,8 +70,18 @@ pub(super) fn dismiss_when_moved(
             }
         });
 
-        let scrolled = window_event_listener(leptos::ev::wheel, move |_| {
-            let _ = open.try_set(false);
+        let scrolled = window_event_listener(leptos::ev::wheel, move |event| {
+            let node = event
+                .target()
+                .and_then(|target| target.dyn_into::<leptos::web_sys::Node>().ok());
+
+            // Inside the panel this is somebody reading the list. Anywhere
+            // else it is the page about to move out from under it. The anchor
+            // is deliberately not exempt: it does not scroll, so a wheel over
+            // the field itself is the page moving.
+            if !inside(node.as_ref(), panel) {
+                let _ = open.try_set(false);
+            }
         });
         let resized = window_event_listener(leptos::ev::resize, move |_| {
             let _ = open.try_set(false);
