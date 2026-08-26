@@ -21,10 +21,11 @@
 use leptos::prelude::*;
 use uuid::Uuid;
 
-use crate::components::page::{Notice, Panel, Tone};
+use crate::components::page::{Notice, Tone};
 use crate::icons::{Icon, IconSize};
 use crate::l;
 use crate::server_fns::file_fns::{content_url, remove_organization_logo};
+use crate::ui::card::CollapsibleCard;
 
 /// The bucket logos are uploaded to.
 ///
@@ -59,7 +60,11 @@ pub fn organization_logo(current: RwSignal<Option<Uuid>>) -> impl IntoView {
     let pending = move || busy.get() || remove.pending().get();
 
     view! {
-        <Panel title=l!("logo.title") description=l!("logo.description")>
+        <CollapsibleCard
+            title=l!("logo.title")
+            detail=l!("logo.description")
+            icon=Icon::Image
+        >
             <div class="space-y-3">
                 <div class="flex flex-wrap items-center gap-4">
                     <Preview current=current />
@@ -142,7 +147,7 @@ pub fn organization_logo(current: RwSignal<Option<Uuid>>) -> impl IntoView {
                         })
                 }}
             </div>
-        </Panel>
+        </CollapsibleCard>
     }
 }
 

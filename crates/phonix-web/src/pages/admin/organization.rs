@@ -22,9 +22,11 @@ use phonix_core::organization::OrganizationProfile;
 
 use crate::components::history::RecordHistory;
 use crate::components::logo::OrganizationLogo;
-use crate::components::page::{Notice, Panel, Tone};
+use crate::components::page::{Notice, Tone};
+use crate::icons::Icon;
 use crate::l;
 use crate::server_fns::admin_fns::organization_profile;
+use crate::ui::card::CollapsibleCard;
 use crate::ui::form::EntityForm;
 use crate::ui::form::config::organization::organization_form;
 
@@ -78,12 +80,18 @@ fn editor(profile: OrganizationProfile) -> impl IntoView {
                     }
                 })}
 
-            <Panel
+            // Open, because this card is the tab: a settings screen that
+            // arrives with nothing on it but a heading has hidden the one thing
+            // somebody came for. See `CollapsibleCard`, which says the default
+            // is closed and why this is the exception.
+            <CollapsibleCard
                 title=l!("organization.title")
-                description=l!("organization.description")
+                detail=l!("organization.description")
+                icon=Icon::Building2
+                open=true
             >
                 <EntityForm config=organization_form() value=profile />
-            </Panel>
+            </CollapsibleCard>
 
             <OrganizationLogo current=logo />
 

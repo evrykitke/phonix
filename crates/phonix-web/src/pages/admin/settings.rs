@@ -313,20 +313,23 @@ fn settings_form(initial: WorkspaceSecuritySettings) -> impl IntoView {
                             move || {
                                 view! {
                                 <form class="space-y-4" on:submit=submit>
-                                // Stacked, not side by side. The two policies
-                                // shared a row while they were open panels,
-                                // because two full-height forms down a wide
-                                // screen was a scroll spent on space that was
-                                // already there. Collapsing answers that far
-                                // better, and a column pairs badly with it: one
-                                // card open beside one card shut is a page of
-                                // whitespace with a heading floating in it.
+                                // Two to a row where there is room for two.
+                                // Closed, these are three headings, and three
+                                // headings down the middle of a wide screen is
+                                // a column of text with a monitor's width of
+                                // nothing beside it.
                                 //
-                                // Width costs nothing here because it is not
-                                // spent - every input in the base layer carries
-                                // its own ceiling, so a full-width card holds
-                                // the same 26rem field it held at half the
-                                // width. See `--container-measure`.
+                                // `items-start` is what makes the pairing work:
+                                // grid items stretch by default, so an open
+                                // card would drag the shut one beside it to its
+                                // own height and leave a card-shaped hole under
+                                // the heading. Started at the top, each card is
+                                // as tall as what is in it.
+                                //
+                                // `xl:` and not `lg:`: the sidebar is 232px of
+                                // the same viewport, and these hold 26rem
+                                // fields.
+                                <div class="grid items-start gap-4 xl:grid-cols-2">
                                 <CollapsibleCard
                                     title=l!("settings.password.title")
                                     detail=l!("settings.password.description")
@@ -491,6 +494,7 @@ fn settings_form(initial: WorkspaceSecuritySettings) -> impl IntoView {
                                         error=error_for("audit_retention_days")
                                     />
                                 </CollapsibleCard>
+                                </div>
 
                                 {actions()}
                                 </form>

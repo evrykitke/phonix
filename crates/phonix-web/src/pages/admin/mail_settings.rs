@@ -23,10 +23,11 @@ use phonix_core::audit::kinds;
 use phonix_core::mail::MailSettings;
 
 use crate::components::history::RecordHistory;
-use crate::components::page::{Notice, Panel, Tone};
+use crate::components::page::{Notice, Tone};
 use crate::icons::{Icon, IconSize};
 use crate::l;
 use crate::server_fns::admin_fns::{mail_relay_in_use, mail_settings, send_test_email};
+use crate::ui::card::CollapsibleCard;
 use crate::ui::form::EntityForm;
 use crate::ui::form::config::mail::{draft_from, mail_form};
 
@@ -76,9 +77,16 @@ fn editor(settings: MailSettings, description: String) -> impl IntoView {
                 <span>{description}</span>
             </div>
 
-            <Panel title=l!("mail.title") description=l!("mail.description")>
+            // Open, because this card is the tab - see the same note on the
+            // organization profile.
+            <CollapsibleCard
+                title=l!("mail.title")
+                detail=l!("mail.description")
+                icon=Icon::Mail
+                open=true
+            >
                 <EntityForm config=mail_form(has_password) value=draft />
-            </Panel>
+            </CollapsibleCard>
 
             <TestMessage />
 
@@ -110,7 +118,11 @@ fn test_message() -> impl IntoView {
     };
 
     view! {
-        <Panel title=l!("mail.test.title") description=l!("mail.test.description")>
+        <CollapsibleCard
+            title=l!("mail.test.title")
+            detail=l!("mail.test.description")
+            icon=Icon::CircleCheck
+        >
             <div class="space-y-3">
                 <button
                     type="button"
@@ -150,6 +162,6 @@ fn test_message() -> impl IntoView {
                         })
                 }}
             </div>
-        </Panel>
+        </CollapsibleCard>
     }
 }

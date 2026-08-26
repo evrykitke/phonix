@@ -30,11 +30,13 @@ use phonix_core::audit::{EntityAction, EntityChange, EntityKind};
 use phonix_core::i18n::datetime;
 use phonix_core::permissions;
 
-use crate::components::page::{Badge, Panel, Tone};
+use crate::components::page::{Badge, Tone};
 use crate::components::user_link::UserLink;
 use crate::i18n::{Locale, t};
+use crate::icons::Icon;
 use crate::l;
 use crate::server_fns::admin_fns::entity_history;
+use crate::ui::card::CollapsibleCard;
 use crate::ui::viewer::Viewer;
 
 /// Everything that has happened to one record.
@@ -87,10 +89,22 @@ pub fn record_history(
 
                 (!entries.is_empty())
                     .then(|| {
+                        // Counted before the list is moved into the card.
+                        let count = entries.len().to_string();
+
                         view! {
-                            <Panel
+                            // Closed. A history is the answer to a question
+                            // somebody occasionally asks, and it grows without
+                            // limit - twenty lines of "who changed what" under
+                            // every form is a page of scroll bought for a
+                            // question nobody had. The count in the header is
+                            // what makes shutting it honest: the card says how
+                            // much is inside without being opened.
+                            <CollapsibleCard
                                 title=l!("history.title")
-                                description=l!("history.description")
+                                detail=l!("history.description")
+                                icon=Icon::Clock
+                                meta=count
                             >
                                 <ol class="divide-y divide-edge">
                                     {entries
@@ -98,7 +112,7 @@ pub fn record_history(
                                         .map(|entry| view! { <Entry entry=entry /> })
                                         .collect::<Vec<_>>()}
                                 </ol>
-                            </Panel>
+                            </CollapsibleCard>
                         }
                     })
             })}
