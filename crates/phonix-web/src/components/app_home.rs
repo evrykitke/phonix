@@ -120,7 +120,7 @@ pub fn app_home(
     view! {
         <div class="space-y-6">
             <header class="flex flex-wrap items-start gap-3">
-                <span class="grid size-11 shrink-0 place-items-center rounded-panel bg-brand-subtle text-brand">
+                <span class="grid size-11 shrink-0 place-items-center rounded-card bg-brand-subtle text-brand">
                     <Icon icon=icon_of(app) size=IconSize::Lg />
                 </span>
                 <div class="min-w-0 flex-1">
@@ -145,7 +145,7 @@ pub fn app_home(
                                     .into_iter()
                                     .map(|stat| {
                                         view! {
-                                            <div class="rounded-panel border border-edge bg-surface-raised px-4 py-3">
+                                            <div class="rounded-card border border-edge bg-surface-raised px-4 py-3">
                                                 <dt class="text-xs text-content-subtle">
                                                     {stat.label}
                                                 </dt>
@@ -197,9 +197,9 @@ pub fn app_home(
 #[component]
 fn shortcut_tile(shortcut: Shortcut) -> impl IntoView {
     let class = if shortcut.primary {
-        "group flex items-start gap-3 rounded-panel border border-brand bg-brand-subtle p-4 hover:bg-brand-subtle-hover"
+        "group flex items-start gap-3 rounded-card border border-brand bg-brand-subtle p-4 hover:bg-brand-subtle-hover"
     } else {
-        "group flex items-start gap-3 rounded-panel border border-edge bg-surface-raised p-4 hover:bg-surface-hover"
+        "group flex items-start gap-3 rounded-card border border-edge bg-surface-raised p-4 hover:bg-surface-hover"
     };
     let icon_class = if shortcut.primary {
         "grid size-9 shrink-0 place-items-center rounded-control bg-brand text-on-brand"

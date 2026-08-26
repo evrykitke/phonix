@@ -79,6 +79,7 @@ pub mod names {
 
     pub const SETTINGS: &str = "Pages.Administration.Settings";
     pub const AUDIT_LOGS: &str = "Pages.Administration.AuditLogs";
+    pub const UI_LIBRARY: &str = "Pages.Administration.UiLibrary";
 
     pub const APPS: &str = "Pages.Administration.Apps";
     pub const APPS_INSTALL: &str = "Pages.Administration.Apps.Install";
@@ -376,6 +377,19 @@ pub const DEFINITIONS: &[PermissionDefinition] = &[
         parent: Some(names::ADMINISTRATION),
         default_for_user: false,
     },
+    // A developer reference rather than a workspace feature, and a permission
+    // rather than a build flag: it is a real route in the shipped binary, so
+    // the honest way to keep it off somebody's sidebar is the same mechanism
+    // that keeps every other route off it.
+    PermissionDefinition {
+        name: names::UI_LIBRARY,
+        display_name: "UI library",
+        description: Some(
+            "Browse the interface kit: every shared component, with the states it can be in.",
+        ),
+        parent: Some(names::ADMINISTRATION),
+        default_for_user: false,
+    },
     // -- Apps -------------------------------------------------------------
     //
     // Seeing the store and changing what the workspace subscribes to are two
@@ -393,7 +407,7 @@ pub const DEFINITIONS: &[PermissionDefinition] = &[
         name: names::APPS_INSTALL,
         display_name: "Install",
         description: Some(
-            "Switch an app on for this workspace, or off again. An app that is off keeps              its data.",
+            "Switch an app on for this workspace, or off again. An app that is off keeps \n             its data.",
         ),
         parent: Some(names::APPS),
         default_for_user: false,
@@ -573,6 +587,7 @@ mod tests {
                 names::ROLES,
                 names::SETTINGS,
                 names::AUDIT_LOGS,
+                names::UI_LIBRARY,
                 names::APPS
             ]
         );

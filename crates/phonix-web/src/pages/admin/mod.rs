@@ -14,6 +14,7 @@ pub mod numbering;
 pub mod organization;
 pub mod roles;
 pub mod settings;
+pub mod ui_library;
 pub mod user_edit;
 pub mod user_invite;
 pub mod user_permissions;

@@ -15,6 +15,7 @@ use crate::pages::admin::audit_logs::AuditLogsPage;
 use crate::pages::admin::entity_change::EntityChangePage;
 use crate::pages::admin::roles::{RoleNewPage, RolePage, RolesPage};
 use crate::pages::admin::settings::SettingsPage;
+use crate::pages::admin::ui_library::UiLibraryPage;
 use crate::pages::admin::user_edit::UserEditPage;
 use crate::pages::admin::user_invite::UserInvitePage;
 use crate::pages::admin::user_permissions::UserPermissionsPage;
@@ -209,6 +210,7 @@ pub fn app() -> impl IntoView {
                     <Route path=path!("/admin/audit-logs/:id") view=AuditEventPage />
                     <Route path=path!("/admin/changes/:id") view=EntityChangePage />
                     <Route path=path!("/admin/apps") view=AppsPage />
+                    <Route path=path!("/admin/ui") view=UiLibraryPage />
                 </ParentRoute>
             </Routes>
         </Router>

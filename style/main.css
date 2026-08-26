@@ -208,6 +208,18 @@
     /* Focus ring - one value so every interactive element matches. */
     --ring: var(--phonix-brand-500);
 
+    /* Text controls, which are the one thing on the page that is not a surface
+       but a *hole* in one. Given their own roles rather than borrowing
+       `--surface-raised` and `--edge`, because the two themes want opposite
+       answers: on white paper a field is the paper with an edge drawn round
+       it, and on a dark panel the same recipe produces an invisible box - the
+       same fill as its container, outlined by a border three percent lighter
+       than both. Dark recesses instead. See section 3b. */
+    --control-surface: var(--phonix-neutral-0);
+    --control-edge: var(--phonix-neutral-300);
+    --control-edge-hover: var(--phonix-neutral-400);
+    --control-surface-disabled: var(--phonix-neutral-100);
+
     /* Elevation. Light mode leans on shadow, dark mode on lighter surfaces. */
     --elevation-panel: 0 1px 2px oklch(0.205 0.011 286 / 0.06);
     --elevation-pop:
@@ -259,6 +271,14 @@
 
         --ring: var(--phonix-brand-400);
 
+        /* Recessed, not raised: darker than the panel it sits on, with an edge
+           light enough to be seen against both. A field has to read as
+           somewhere to type before anybody types in it. */
+        --control-surface: var(--phonix-neutral-1000);
+        --control-edge: var(--phonix-neutral-700);
+        --control-edge-hover: var(--phonix-neutral-600);
+        --control-surface-disabled: var(--phonix-neutral-950);
+
         --elevation-panel: 0 1px 2px oklch(0 0 0 / 0.4);
         --elevation-pop:
             0 12px 32px -12px oklch(0 0 0 / 0.7), 0 2px 8px -2px oklch(0 0 0 / 0.4);
@@ -298,6 +318,13 @@
     --warning: var(--phonix-warning-400);
 
     --ring: var(--phonix-brand-400);
+
+    /* Kept in step with the media query above by hand, like every other role
+       in this block. */
+    --control-surface: var(--phonix-neutral-1000);
+    --control-edge: var(--phonix-neutral-700);
+    --control-edge-hover: var(--phonix-neutral-600);
+    --control-surface-disabled: var(--phonix-neutral-950);
 
     --elevation-panel: 0 1px 2px oklch(0 0 0 / 0.4);
     --elevation-pop:
@@ -490,13 +517,86 @@
         max-width: var(--container-measure);
         appearance: none;
         border-radius: var(--radius-control);
-        border: 1px solid var(--edge);
-        background-color: var(--surface-raised);
+        border: 1px solid var(--control-edge);
+        background-color: var(--control-surface);
         color: var(--content);
         padding: 0.375rem 0.5rem;
         font-family: inherit;
         font-size: var(--text-sm);
         line-height: var(--text-sm--line-height);
+        /* Only the border, and only 120ms: a field that fades its background
+           on hover reads as a button. */
+        transition: border-color 120ms ease;
+    }
+
+    /* The states every text control shares.
+       ------------------------------------------------------------------
+       Written as their own block rather than folded into the rule above so the
+       exclusion list is stated once where it is load-bearing - the geometry -
+       and loosely here, where a checkbox picking up a hover border would be
+       the only cost of being wrong.
+
+       Focus colours the border as well as drawing the ring. The ring is an
+       `outline` two pixels clear of the box, and inside a scrolling panel or a
+       row of controls it is the first thing to be clipped; the border cannot
+       be, so the field still says which one has the caret. */
+    input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], .control-bare)):hover:not(:disabled),
+    textarea:where(:not(.control-bare)):hover:not(:disabled) {
+        border-color: var(--control-edge-hover);
+    }
+
+    input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], .control-bare)):focus,
+    textarea:where(:not(.control-bare)):focus,
+    select:focus {
+        border-color: var(--ring);
+    }
+
+    /* A field the viewer may not edit renders disabled rather than absent - see
+       `ui::form` - so "you may read this and not change it" is a state people
+       meet often, and it has to stay legible while it says so. A recessed fill
+       and dimmer text is the whole of it; hatching or a heavy grey would make
+       the value harder to read than the fact that it is locked.
+
+       The same exclusion list as the hover rule: a checkbox is drawn by the
+       platform, and a background-color on one is either ignored or, worse,
+       painted behind the tick. */
+    input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"])):disabled,
+    textarea:disabled,
+    select:disabled {
+        background-color: var(--control-surface-disabled);
+        color: var(--content-subtle);
+        cursor: not-allowed;
+    }
+
+    input:where([type="checkbox"], [type="radio"]):disabled {
+        cursor: not-allowed;
+    }
+
+    /* Firefox dims placeholders to 54% of their colour, which on a dark field
+       lands under every contrast floor there is. The colour is chosen here; the
+       browser does not get a second opinion. */
+    ::placeholder {
+        color: var(--content-subtle);
+        opacity: 1;
+    }
+
+    /* Chrome paints an autofilled field pale yellow - or pale blue in dark
+       mode - and the background-color it uses is not settable from CSS. The
+       inset shadow is the only surface that covers it, and the absurd
+       transition delay is what stops the yellow being animated in over the top
+       of the shadow. Both are the standard workaround; neither is elegant.
+
+       `-webkit-text-fill-color` rather than `color`, because the autofill
+       style overrides `color` as well. */
+    input:-webkit-autofill,
+    input:-webkit-autofill:hover,
+    input:-webkit-autofill:focus,
+    textarea:-webkit-autofill,
+    select:-webkit-autofill {
+        -webkit-text-fill-color: var(--content);
+        box-shadow: 0 0 0 100px var(--control-surface) inset;
+        caret-color: var(--content);
+        transition: background-color 100000s ease-in-out 0s;
     }
 
     /* Two exceptions to that one ceiling, because two kinds of value are not a
@@ -572,6 +672,26 @@
         margin: 0;
     }
 
+    /* The disclosure triangle a `<summary>` draws for itself.
+       ------------------------------------------------------------------
+       Removed rather than restyled: it is drawn by the platform, sits outside
+       the element's own box, and cannot be sized or coloured. Every collapsible
+       surface in the application supplies its own chevron instead - see
+       `ui::card` - which is themed, animates, and lines up with the rest of the
+       icon column.
+
+       Both spellings are needed: `list-style` is the standard, and WebKit still
+       reads the pseudo-element. Note that `display: flex` on the summary would
+       remove it in most browsers as a side effect; relying on that would make
+       the marker come back the day the header stopped being a flex row. */
+    summary {
+        list-style: none;
+    }
+
+    summary::-webkit-details-marker {
+        display: none;
+    }
+
     /* Every dropdown in the application, styled once.
        ------------------------------------------------------------------
        On the element rather than in a class because a `<select>` is not a
@@ -594,8 +714,8 @@
            wide screen is not a width any list of choices needs. */
         max-width: var(--container-measure);
         border-radius: var(--radius-control);
-        border: 1px solid var(--edge);
-        background-color: var(--surface-raised);
+        border: 1px solid var(--control-edge);
+        background-color: var(--control-surface);
         color: var(--content);
         /* Room on the right for the arrow, which sits in the padding. */
         padding: 0.125rem 1.5rem 0.125rem 0.5rem;
@@ -620,13 +740,8 @@
         }
     }
 
-    select:hover {
-        border-color: var(--edge-strong);
-    }
-
-    select:disabled {
-        cursor: not-allowed;
-        color: var(--content-subtle);
+    select:hover:not(:disabled) {
+        border-color: var(--control-edge-hover);
     }
 
     /* The popup list is drawn by the OS, not by us; these are the only two

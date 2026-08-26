@@ -139,6 +139,12 @@ pub static MENU: &[NavNode] = &[
             )
             .require(names::AUDIT_LOGS)
             .keywords(&["history", "activity", "trail", "who did what"]),
+            // Last, and gated on a permission nobody is given by default: it
+            // is a developer reference that happens to live in the shipped
+            // binary, not something a workspace bought.
+            NavNode::leaf("ui-library", "nav.ui_library", Icon::Palette, "/admin/ui")
+                .require(names::UI_LIBRARY)
+                .keywords(&["components", "kit", "design", "showcase", "widgets"]),
         ],
     )
     .require(names::ADMINISTRATION),
