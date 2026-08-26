@@ -12,6 +12,21 @@
 //! the help text and the error, `aria-invalid` when there is a message, and
 //! `aria-required`. Written once here, every field of every form in the
 //! application has it; written per screen, roughly none of them would.
+//!
+//! # A lookup is wired in both directions, and it has to be
+//!
+//! Every other control reports a string, and the draft is the only thing
+//! holding state. A [`LookupField`] owns a signal of its own, because what it
+//! holds is records with labels attached and the draft cannot always supply
+//! those from a value alone. So the two are kept in step by a pair of effects
+//! rather than one.
+//!
+//! The pair is safe because both ends compare before they write, which is what
+//! makes them settle instead of ringing. It is also *necessary*: a one-way
+//! binding from the field into the draft looks correct until somebody presses
+//! Cancel - [`FormState::reset`] replaces the draft wholesale, and a field
+//! that was not listening would go on showing the record the form was reset
+//! out of.
 
 use leptos::prelude::*;
 
@@ -20,7 +35,7 @@ use super::kind::FieldKind;
 use super::state::FormState;
 use super::value::FieldValue;
 use crate::l;
-use crate::ui::lookup::SelectField;
+use crate::ui::lookup::{LookupField, SelectField};
 
 /// One field, drawn.
 #[component]
@@ -162,6 +177,15 @@ where
         });
     };
 
+    // The same write, for a control that reports a whole value rather than a
+    // string off the DOM. Only a lookup does: a record carries a label, and
+    // `with_input` cannot invent one - see [`FieldValue::Records`].
+    let put = move |next: FieldValue| {
+        field.with_value(|field| {
+            state.edit(name, |draft| field.apply(draft, &next));
+        });
+    };
+
     // Border, radius, background, padding and the disabled treatment come from
     // the global `input`/`textarea` rule in `style/main.css`. What is left is
     // the one thing that is this control's own business: whether the field is
@@ -235,6 +259,58 @@ where
                     options=options
                     placeholder=if required { l!("form.choose_one") } else { l!("form.none") }
                     disabled=!editable
+                    invalid=Signal::derive(move || invalid.get().is_some())
+                    required=required
+                    described_by=described_by
+                />
+            }
+            .into_any()
+        }
+
+        FieldKind::Lookup {
+            choices,
+            quick_add,
+            multiple,
+        } => {
+            // Seeded here rather than in an effect, so both ends start equal
+            // and the first run of either has nothing to do. Seeding from an
+            // effect would race: whichever ran first would win, and if that
+            // were the write-back it would clear a draft that arrived with a
+            // record already in it.
+            let selected = RwSignal::new(current().as_records());
+
+            // The draft changed under us - a reset, or a save the server
+            // answered with a normalised entity. Anything the person had
+            // chosen is gone, and the field has to say so.
+            Effect::new(move |_| {
+                let stored = current().as_records();
+
+                if selected.get_untracked() != stored {
+                    selected.set(stored);
+                }
+            });
+
+            // Somebody chose. Compared first, so that the effect above setting
+            // this signal does not bounce straight back into the draft - and
+            // so that an unchanged selection does not clear the field's error
+            // message or make an untouched form look dirty.
+            Effect::new(move |_| {
+                let chosen = selected.get();
+
+                if current().as_records() != chosen {
+                    put(FieldValue::Records(chosen));
+                }
+            });
+
+            view! {
+                <LookupField
+                    id=id
+                    selected=selected
+                    choices=choices
+                    multiple=multiple
+                    quick_add=quick_add
+                    placeholder=placeholder
+                    disabled=Signal::derive(move || !editable)
                     invalid=Signal::derive(move || invalid.get().is_some())
                     required=required
                     described_by=described_by

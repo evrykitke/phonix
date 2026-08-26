@@ -45,6 +45,7 @@ use crate::server_fns::currency_fns::{enabled_currencies, save_currency};
 use crate::ui::card::CollapsibleCard;
 use crate::ui::editor::{EDITOR_GZIP_BYTES, RichText};
 use crate::ui::form::field::Choice;
+use crate::ui::form::{EntityForm, Field, FieldValue, FormAction, FormConfig};
 use crate::ui::lookup::{Choices, LookupField, QuickAdd, SelectField};
 use crate::ui::table::DataGrid;
 use crate::ui::table::config::currencies::currencies_picker;
@@ -209,12 +210,15 @@ fn lookup_tab() -> impl IntoView {
                                     <LookupField
                                         selected=added
                                         choices=Choices::List(choices)
-                                        quick_add=QuickAdd::form(
-                                            l!("ui_library.lookup.add.action"),
-                                            l!("ui_library.lookup.add.title"),
-                                            |answer| {
-                                                view! { <AddCurrency answer=answer /> }.into_any()
-                                            },
+                                        quick_add=Some(
+                                            QuickAdd::form(
+                                                l!("ui_library.lookup.add.action"),
+                                                l!("ui_library.lookup.add.title"),
+                                                |answer| {
+                                                    view! { <AddCurrency answer=answer /> }
+                                                        .into_any()
+                                                },
+                                            ),
                                         )
                                     />
                                 </Specimen>
@@ -247,9 +251,11 @@ fn lookup_tab() -> impl IntoView {
                                             );
                                             view! { <DataGrid config=config /> }.into_any()
                                         })
-                                        quick_add=QuickAdd::page(
-                                            l!("ui_library.lookup.page"),
-                                            "/admin/settings?tab=currencies",
+                                        quick_add=Some(
+                                            QuickAdd::page(
+                                                l!("ui_library.lookup.page"),
+                                                "/admin/settings?tab=currencies",
+                                            ),
                                         )
                                     />
                                 </Specimen>
@@ -257,6 +263,13 @@ fn lookup_tab() -> impl IntoView {
                         }
                     })}
                 </Suspense>
+            </Panel>
+
+            <Panel
+                title=l!("ui_library.lookup.form.title")
+                description=l!("ui_library.lookup.form.detail")
+            >
+                <LookupInAForm />
             </Panel>
 
             <Panel title=l!("ui_library.select.title") description=l!("ui_library.select.detail")>
@@ -270,6 +283,101 @@ fn lookup_tab() -> impl IntoView {
             >
                 <Prose>{l!("ui_library.lookup.seam.body")}</Prose>
             </CollapsibleCard>
+        </div>
+    }
+}
+
+/// What the form specimen edits.
+///
+/// Two halves of one answer, and that is the point rather than an awkwardness:
+/// a table picker hands back a row, and afterwards there is no id-to-label map
+/// anywhere for the form to consult. A draft holding `code` alone would redraw
+/// the field empty the next time the form rendered. Every real entity that
+/// references another one already stores the name for the same reason.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Payment {
+    reference: String,
+    currency_code: String,
+    currency_name: String,
+}
+
+/// A `FormConfig` that asks for a record picker.
+///
+/// Nothing is submitted anywhere - the one action reports the draft into
+/// `stored` - because what is worth seeing here is the field, not a round trip
+/// to a table the showcase would have to invent.
+fn payment_form(stored: RwSignal<Option<Payment>>) -> FormConfig<Payment> {
+    FormConfig::new("ui-library-payment", |draft: Payment| async move {
+        Ok::<_, String>(phonix_core::form::Submission::Saved(draft))
+    })
+    .field(
+        Field::text("reference", l!("ui_library.lookup.form.reference"), |p: &Payment| {
+            FieldValue::text(&p.reference)
+        })
+        .writing(|p, value| p.reference = value.as_input()),
+    )
+    .field(
+        Field::lookup(
+            "currency",
+            l!("ui_library.lookup.form.currency"),
+            Choices::table(|answer: Callback<Choice>| {
+                let config = currencies_picker(Callback::new(move |row: WorkspaceCurrency| {
+                    answer.run(
+                        Choice::new(row.currency.code(), row.currency.name())
+                            .detail(row.display()),
+                    );
+                }));
+
+                view! { <DataGrid config=config /> }.into_any()
+            }),
+            |p: &Payment| {
+                FieldValue::record(
+                    (!p.currency_code.is_empty())
+                        .then(|| Choice::new(&p.currency_code, &p.currency_name)),
+                )
+            },
+        )
+        .writing(|p, value| {
+            let chosen = value.as_records().into_iter().next();
+
+            p.currency_name = chosen
+                .as_ref()
+                .map(|choice| choice.label.clone())
+                .unwrap_or_default();
+            p.currency_code = chosen.map(|choice| choice.value).unwrap_or_default();
+        })
+        .required()
+        .help(l!("ui_library.lookup.form.currency_help"))
+        .adding(QuickAdd::page(
+            l!("ui_library.lookup.page"),
+            "/admin/settings?tab=currencies",
+        )),
+    )
+    .action(FormAction::run(
+        l!("ui_library.lookup.form.action"),
+        move |draft: Payment| stored.set(Some(draft)),
+    ))
+}
+
+/// The form, and the draft it would submit.
+///
+/// Echoed for the same reason the hand-placed specimens are: a lookup that
+/// looks right and writes the wrong thing into the draft is invisible from the
+/// control, and this is the only place it shows.
+#[component]
+fn lookup_in_a_form() -> impl IntoView {
+    let stored = RwSignal::new(None::<Payment>);
+
+    view! {
+        <div class="space-y-3">
+            <EntityForm config=payment_form(stored) value=Payment::default() />
+
+            <p class="font-mono text-2xs text-content-subtle">
+                {move || match stored.get() {
+                    None => l!("ui_library.lookup.form.nothing"),
+                    Some(payment) => format!("{payment:?}"),
+                }}
+            </p>
         </div>
     }
 }

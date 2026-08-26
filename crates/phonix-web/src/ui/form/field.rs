@@ -41,6 +41,7 @@ use phonix_core::identity::AuthUser;
 
 use super::kind::FieldKind;
 use super::value::FieldValue;
+use crate::ui::lookup::{Choices, QuickAdd};
 
 /// How a draft is read for one field.
 type Read<T> = Arc<dyn Fn(&T) -> FieldValue + Send + Sync>;
@@ -194,6 +195,88 @@ impl<T: 'static> Field<T> {
         read: impl Fn(&T) -> FieldValue + Send + Sync + 'static,
     ) -> Self {
         Self::new(field, label, FieldKind::MultiSelect { choices }, read).full_width()
+    }
+
+    /// One record of another entity.
+    ///
+    /// The reader returns [`FieldValue::Records`], which carries the label as
+    /// well as the value - and so the draft is expected to keep both. That is
+    /// not a concession: a table picker hands back a row and there is no
+    /// id-to-label map anywhere for the form to consult afterwards, so a draft
+    /// holding the id alone would redraw the field empty. Drafts loaded from
+    /// the server almost always carry the name already, for the same reason.
+    ///
+    /// ```ignore
+    /// Field::lookup("party_id", "Customer", Choices::table(pick_a_party), |i: &Invoice| {
+    ///     FieldValue::record(i.party_id.map(|id| Choice::new(id.to_string(), &i.party_name)))
+    /// })
+    /// .writing(|i, value| {
+    ///     let chosen = value.as_records().into_iter().next();
+    ///     i.party_name = chosen.as_ref().map(|c| c.label.clone()).unwrap_or_default();
+    ///     i.party_id = chosen.and_then(|c| c.value.parse().ok());
+    /// })
+    /// ```
+    pub fn lookup(
+        field: &'static str,
+        label: impl Into<String>,
+        choices: Choices,
+        read: impl Fn(&T) -> FieldValue + Send + Sync + 'static,
+    ) -> Self {
+        Self::new(
+            field,
+            label,
+            FieldKind::Lookup {
+                choices,
+                quick_add: None,
+                multiple: false,
+            },
+            read,
+        )
+    }
+
+    /// Any number of records of another entity.
+    ///
+    /// Full width, like [`multi_select`](Self::multi_select) and for the same
+    /// reason: what it holds is drawn as chips, and a column-wide box of them
+    /// wraps to three lines the moment somebody picks a third.
+    pub fn lookup_many(
+        field: &'static str,
+        label: impl Into<String>,
+        choices: Choices,
+        read: impl Fn(&T) -> FieldValue + Send + Sync + 'static,
+    ) -> Self {
+        Self::new(
+            field,
+            label,
+            FieldKind::Lookup {
+                choices,
+                quick_add: None,
+                multiple: true,
+            },
+            read,
+        )
+        .full_width()
+    }
+
+    /// Offer a way to create the record that is missing, without leaving.
+    ///
+    /// Only means anything on a lookup - it is the lookup's panel that grows
+    /// the extra row - so asking for one on any other kind is a mistake worth
+    /// hearing about in development rather than a line that quietly does
+    /// nothing in production.
+    #[must_use]
+    pub fn adding(mut self, add: QuickAdd) -> Self {
+        debug_assert!(
+            self.kind.is_lookup(),
+            "`{}` is not a lookup, so there is no panel for a quick add to sit in",
+            self.field,
+        );
+
+        if let FieldKind::Lookup { quick_add, .. } = &mut self.kind {
+            *quick_add = Some(add);
+        }
+
+        self
     }
 
     /// How this field is written back into the draft.
@@ -431,6 +514,83 @@ mod tests {
         let field = name_field().fixed();
 
         assert!(!field.editable_by(Some(&viewer(PermissionSet::all()))));
+    }
+
+    #[test]
+    fn a_lookup_reads_and_writes_both_halves_of_a_record() {
+        #[derive(Clone, PartialEq)]
+        struct Line {
+            code: String,
+            name: String,
+        }
+
+        let field = Field::lookup(
+            "code",
+            "Currency",
+            Choices::List(Vec::new()),
+            |line: &Line| {
+                FieldValue::record(
+                    (!line.code.is_empty()).then(|| Choice::new(&line.code, &line.name)),
+                )
+            },
+        )
+        .writing(|line, value| {
+            let chosen = value.as_records().into_iter().next();
+
+            line.name = chosen
+                .as_ref()
+                .map(|choice| choice.label.clone())
+                .unwrap_or_default();
+            line.code = chosen.map(|choice| choice.value).unwrap_or_default();
+        });
+
+        let mut line = Line {
+            code: String::new(),
+            name: String::new(),
+        };
+
+        field.apply(
+            &mut line,
+            &FieldValue::record(Some(Choice::new("USD", "US Dollar"))),
+        );
+
+        assert_eq!(line.code, "USD");
+        // The half that would be lost by a draft storing the id alone.
+        assert_eq!(line.name, "US Dollar");
+        assert_eq!(
+            field.value(&line),
+            FieldValue::record(Some(Choice::new("USD", "US Dollar")))
+        );
+    }
+
+    #[test]
+    fn a_quick_add_only_goes_on_a_lookup() {
+        // The panel is the lookup's. There is nowhere on a text box to put one,
+        // so the builder leaves the field alone and says so in development.
+        let field = Field::lookup("code", "Currency", Choices::List(Vec::new()), |_: &Draft| {
+            FieldValue::record(None)
+        })
+        .adding(QuickAdd::page("Add one", "/admin/settings"));
+
+        assert!(matches!(
+            field.kind,
+            FieldKind::Lookup {
+                quick_add: Some(_),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn choosing_several_records_takes_the_whole_width() {
+        // Chips wrap, and a column-wide box of them is three lines deep by the
+        // third one chosen.
+        let field = Field::lookup_many("codes", "Currencies", Choices::List(Vec::new()), |_: &Draft| {
+            FieldValue::records([])
+        });
+
+        assert!(field.wide);
+        assert!(matches!(field.kind, FieldKind::Lookup { multiple: true, .. }));
     }
 
     #[test]

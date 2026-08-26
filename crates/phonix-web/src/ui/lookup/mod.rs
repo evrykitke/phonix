@@ -96,6 +96,29 @@ pub enum Choices {
     Table { width: f64, view: Picker },
 }
 
+// Hand-written, and the reason is worth stating: [`FieldKind`] derives `Debug`,
+// and a kind that holds one of these has to be able to answer. The erased
+// closure is the one part that cannot describe itself, so it says so rather
+// than the whole type going undebuggable.
+//
+// `PartialEq` is *not* here, and deliberately. Two pickers are two closures,
+// and the only equality a closure can offer is pointer identity - which would
+// call two identically-built configurations different, every render. There is
+// no honest answer, so there is no answer; `FieldKind` dropped its derive.
+//
+// [`FieldKind`]: crate::ui::form::FieldKind
+impl std::fmt::Debug for Choices {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::List(choices) => f.debug_tuple("List").field(&choices.len()).finish(),
+            Self::Table { width, .. } => f
+                .debug_struct("Table")
+                .field("width", width)
+                .finish_non_exhaustive(),
+        }
+    }
+}
+
 impl Clone for Choices {
     fn clone(&self) -> Self {
         match self {
@@ -144,6 +167,23 @@ pub enum QuickAdd {
     /// This leaves the form, and there is no getting around that - which is
     /// exactly why it is the fallback and not the default.
     Page { label: String, href: String },
+}
+
+impl std::fmt::Debug for QuickAdd {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Form { label, title, .. } => f
+                .debug_struct("Form")
+                .field("label", label)
+                .field("title", title)
+                .finish_non_exhaustive(),
+            Self::Page { label, href } => f
+                .debug_struct("Page")
+                .field("label", label)
+                .field("href", href)
+                .finish(),
+        }
+    }
 }
 
 impl Clone for QuickAdd {
@@ -212,14 +252,31 @@ pub fn lookup_field(
     /// replaces, and the panel stays open.
     #[prop(optional)]
     multiple: bool,
-    #[prop(optional)] quick_add: Option<QuickAdd>,
-    #[prop(optional, into)] placeholder: Option<String>,
+    /// `Option`, and it stays one: the form kit reads this off a
+    /// [`FieldKind::Lookup`] where it is already optional, and a prop leptos
+    /// had stripped to `QuickAdd` could not be handed that.
+    ///
+    /// [`FieldKind::Lookup`]: crate::ui::form::FieldKind::Lookup
+    #[prop(optional_no_strip)]
+    quick_add: Option<QuickAdd>,
+    #[prop(optional_no_strip)] placeholder: Option<String>,
     #[prop(optional, into)] disabled: Signal<bool>,
     /// Ties the field to a `<label for>`. The list presentation puts it on the
     /// text box; the table presentation puts it on the button.
     #[prop(optional, into)]
     id: Option<String>,
     #[prop(optional, into)] invalid: Signal<bool>,
+    /// Marks the control required for a screen reader. The asterisk beside the
+    /// label is drawn by whoever wrote the label, and is not this component's.
+    #[prop(optional)]
+    required: bool,
+    /// The ids of the help line and the error message, when the form has them.
+    ///
+    /// Carried through rather than assembled here: the form kit is what knows
+    /// which of the two exist, and an `aria-describedby` naming an id that is
+    /// not on the page is worse than none - a screen reader announces the gap.
+    #[prop(optional, into)]
+    described_by: Signal<Option<String>>,
 ) -> impl IntoView {
     let open = RwSignal::new(false);
     let query = RwSignal::new(String::new());
@@ -456,6 +513,8 @@ pub fn lookup_field(
                         aria-expanded=move || if open.get() { "true" } else { "false" }
                         aria-disabled=move || disabled.get().then_some("true")
                         aria-invalid=move || invalid.get().then_some("true")
+                        aria-required=required.then_some("true")
+                        aria-describedby=move || described_by.get()
                         on:click=move |_| toggle()
                     >
                         <span class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
@@ -504,6 +563,8 @@ pub fn lookup_field(
                                 aria-expanded=move || if open.get() { "true" } else { "false" }
                                 aria-autocomplete="list"
                                 aria-invalid=move || invalid.get().then_some("true")
+                                aria-required=required.then_some("true")
+                                aria-describedby=move || described_by.get()
                                 prop:value=move || {
                                     // Open, it holds what is being typed.
                                     // Closed, it holds what was chosen - so

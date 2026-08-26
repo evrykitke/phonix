@@ -19,8 +19,20 @@
 //! an empty number box and a zero are different answers and a select that has
 //! not been touched is not the same as one set to its first option. Collapsing
 //! either would make a form quietly store something nobody typed.
+//!
+//! # A record is not a choice
+//!
+//! [`FieldValue::Choice`] holds a string because an option's label is a
+//! constant the control already has. A *record* chosen from another entity is
+//! not like that: its label lives in the other entity's row, and the control
+//! that found it - a table picker - has a row rather than an id-to-label map.
+//! A draft keeping only the id would redraw the field blank the next time the
+//! form rendered, which is why [`FieldValue::Records`] carries both halves and
+//! the draft is expected to store both.
 
 use std::collections::BTreeSet;
+
+use super::field::Choice;
 
 /// One control's current value.
 #[derive(Debug, Clone, PartialEq)]
@@ -34,6 +46,14 @@ pub enum FieldValue {
     /// Several choices. Ordered and de-duplicated so that two forms holding the
     /// same set compare equal however they were clicked into it.
     Choices(BTreeSet<String>),
+    /// Records chosen from another entity, each carrying the label needed to
+    /// draw it. Empty is nothing chosen; a single-valued lookup holds at most
+    /// one.
+    ///
+    /// A `Vec` rather than a set, because the order records were chosen in is
+    /// visible - they are drawn as chips in that order - and sorting them
+    /// would rearrange the field under the person filling it in.
+    Records(Vec<Choice>),
 }
 
 impl FieldValue {
@@ -50,6 +70,20 @@ impl FieldValue {
         Self::Choices(values.into_iter().map(Into::into).collect())
     }
 
+    /// The records a lookup holds.
+    pub fn records(records: impl IntoIterator<Item = Choice>) -> Self {
+        Self::Records(records.into_iter().collect())
+    }
+
+    /// One record, or nothing chosen.
+    ///
+    /// Takes an `Option` rather than offering a separate empty constructor,
+    /// because the caller almost always has one: a draft's `Option<PartyId>`,
+    /// or an id that is only meaningful next to the name stored beside it.
+    pub fn record(record: Option<Choice>) -> Self {
+        Self::Records(record.into_iter().collect())
+    }
+
     /// The value as a control's string, which is what an `<input>` binds to.
     pub fn as_input(&self) -> String {
         match self {
@@ -60,6 +94,11 @@ impl FieldValue {
             Self::Number(Some(number)) => format_number(*number),
             Self::Choice(Some(choice)) => choice.clone(),
             Self::Choices(choices) => choices.iter().cloned().collect::<Vec<_>>().join(", "),
+            Self::Records(records) => records
+                .iter()
+                .map(|record| record.value.clone())
+                .collect::<Vec<_>>()
+                .join(", "),
         }
     }
 
@@ -70,6 +109,7 @@ impl FieldValue {
             Self::Number(number) => number.is_some_and(|n| n != 0.0),
             Self::Choice(choice) => choice.is_some(),
             Self::Choices(choices) => !choices.is_empty(),
+            Self::Records(records) => !records.is_empty(),
         }
     }
 
@@ -85,6 +125,7 @@ impl FieldValue {
     pub fn as_choice(&self) -> Option<&str> {
         match self {
             Self::Choice(choice) => choice.as_deref(),
+            Self::Records(records) => records.first().map(|record| record.value.as_str()),
             Self::Text(text) if !text.is_empty() => Some(text),
             _ => None,
         }
@@ -95,7 +136,22 @@ impl FieldValue {
         match self {
             Self::Choices(choices) => choices.clone(),
             Self::Choice(Some(choice)) => BTreeSet::from([choice.clone()]),
+            Self::Records(records) => records
+                .iter()
+                .map(|record| record.value.clone())
+                .collect(),
             _ => BTreeSet::new(),
+        }
+    }
+
+    /// The records chosen, for a lookup.
+    ///
+    /// Empty for every other kind. This is the only accessor that keeps the
+    /// labels, and it is what the control seeds itself from.
+    pub fn as_records(&self) -> Vec<Choice> {
+        match self {
+            Self::Records(records) => records.clone(),
+            _ => Vec::new(),
         }
     }
 
@@ -133,6 +189,18 @@ impl FieldValue {
 
                 Self::Choices(choices)
             }
+            Self::Records(records) => {
+                // Removal only, and deliberately. A bare string can name a
+                // record but cannot describe one - there is no label to be had
+                // from the DOM - so adding here would store a chip with nothing
+                // written on it. A lookup answers with whole records through
+                // the field's writer instead; this is what a chip's own remove
+                // button goes through.
+                let mut records = records.clone();
+                records.retain(|record| record.value != input);
+
+                Self::Records(records)
+            }
         }
     }
 
@@ -149,6 +217,7 @@ impl FieldValue {
             Self::Number(number) => number.is_some(),
             Self::Choice(choice) => choice.is_some(),
             Self::Choices(choices) => !choices.is_empty(),
+            Self::Records(records) => !records.is_empty(),
         }
     }
 }
@@ -228,6 +297,61 @@ mod tests {
         let removed = added.with_input("admin".into());
 
         assert_eq!(removed.as_set(), BTreeSet::from(["auditor".to_owned()]));
+    }
+
+    #[test]
+    fn a_record_keeps_the_label_the_value_cannot_be_turned_back_into() {
+        // The whole reason this variant exists. A form re-rendered from a draft
+        // that kept only "USD" has nowhere to look up "US Dollar".
+        let chosen = FieldValue::record(Some(Choice::new("USD", "US Dollar")));
+
+        assert_eq!(chosen.as_choice(), Some("USD"));
+        assert_eq!(
+            chosen.as_records().first().map(|record| record.label.clone()),
+            Some("US Dollar".to_owned())
+        );
+        assert!(chosen.is_present());
+    }
+
+    #[test]
+    fn nothing_chosen_is_no_records_rather_than_an_empty_one() {
+        let empty = FieldValue::record(None);
+
+        assert_eq!(empty.as_input(), "");
+        assert!(!empty.is_present());
+        assert!(empty.as_records().is_empty());
+    }
+
+    #[test]
+    fn a_string_can_take_a_record_away_and_cannot_bring_one_back() {
+        // A bare string has no label attached, so adding through this path
+        // would store a chip with nothing written on it.
+        let held = FieldValue::records([Choice::new("USD", "US Dollar")]);
+
+        assert!(held.with_input("USD".to_owned()).as_records().is_empty());
+        assert_eq!(held.with_input("EUR".to_owned()), held);
+    }
+
+    #[test]
+    fn several_records_report_every_value_they_hold() {
+        let held = FieldValue::records([
+            Choice::new("USD", "US Dollar"),
+            Choice::new("EUR", "Euro"),
+        ]);
+
+        assert_eq!(held.as_input(), "USD, EUR");
+        assert_eq!(
+            held.as_set(),
+            BTreeSet::from(["USD".to_owned(), "EUR".to_owned()])
+        );
+        // The first is what a single-valued lookup would store.
+        assert_eq!(held.as_choice(), Some("USD"));
+    }
+
+    #[test]
+    fn only_a_lookup_answers_with_records() {
+        assert!(FieldValue::text("USD").as_records().is_empty());
+        assert!(FieldValue::choice("USD").as_records().is_empty());
     }
 
     #[test]
