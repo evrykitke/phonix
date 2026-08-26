@@ -1151,6 +1151,9 @@
 
   "tenant.absent": "no tenant",
 
+  "ui.card.problems.one": "{count} problem",
+  "ui.card.problems.other": "{count} problems",
+
   "ui_library.cards.detail": "A card that looks like a shortcut tile and opens instead of going anywhere. It arrives closed.",
   "ui_library.cards.limits.body": "Nothing outside a card can open it. There is no expand-all, and no opening one because a search matched something inside it. A disclosure driven from outside behaves differently under every interaction, so that will be a second component rather than a flag on this one.",
   "ui_library.cards.limits.title": "What it will not do",

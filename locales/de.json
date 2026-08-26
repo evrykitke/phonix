@@ -1151,6 +1151,9 @@
 
   "tenant.absent": "kein Arbeitsbereich",
 
+  "ui.card.problems.one": "{count} Problem",
+  "ui.card.problems.other": "{count} Probleme",
+
   "ui_library.cards.detail": "Eine Karte, die aussieht wie eine Verknüpfungskachel und sich öffnet, statt irgendwohin zu führen. Sie kommt geschlossen an.",
   "ui_library.cards.limits.body": "Nichts von außen kann eine Karte öffnen. Es gibt kein Alle-Aufklappen und kein Öffnen, weil eine Suche etwas darin gefunden hat. Eine von außen gesteuerte Aufklappung verhält sich bei jeder Interaktion anders - das wird eine zweite Komponente, kein Schalter an dieser.",
   "ui_library.cards.limits.title": "Was sie nicht tut",

@@ -41,7 +41,7 @@ use phonix_core::identity::{
 
 use crate::components::history::RecordHistory;
 use crate::components::page::{
-    FormActions, GhostButton, Notice, PageHeader, Panel, PrimaryButton, Tone,
+    FormActions, GhostButton, Notice, PageHeader, PrimaryButton, Tone,
 };
 use crate::icons::{Icon, IconSize};
 use crate::l;
@@ -50,6 +50,7 @@ use crate::pages::admin::mail_settings::MailSettingsTab;
 use crate::pages::admin::numbering::NumberingTab;
 use crate::pages::admin::organization::OrganizationTab;
 use crate::server_fns::settings_fns::{SettingsSaved, save_workspace_settings, workspace_settings};
+use crate::ui::card::CollapsibleCard;
 use crate::ui::tabs::{Tab, TabbedPanel};
 
 #[component]
@@ -85,6 +86,29 @@ pub fn settings_page() -> impl IntoView {
             })}
         </Suspense>
     }
+}
+
+/// Which of the three cards on the Security tab a rejected field belongs to.
+///
+/// The three policies validate independently and their field names do not
+/// overlap, so this is a match on the name rather than a table to keep in
+/// step. It is *total* on purpose: a card arrives collapsed, and a count on
+/// the wrong card costs one click, while a field name no arm claimed would be
+/// a save that appears to have done nothing at all.
+fn card_of(field: &str) -> SecurityCard {
+    match field {
+        "allow_totp" | "grace_period_days" | "remember_device_days" => SecurityCard::Mfa,
+        // The audit policy prefixes its fields, so it needs no list.
+        name if name.starts_with("audit_") => SecurityCard::Audit,
+        _ => SecurityCard::Password,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SecurityCard {
+    Password,
+    Mfa,
+    Audit,
 }
 
 /// The form itself, seeded from what the server returned.
@@ -198,6 +222,18 @@ fn settings_form(initial: WorkspaceSecuritySettings) -> impl IntoView {
         })
     };
 
+    // A collapsed card still submits everything inside it, and still draws
+    // the errors that come back - where nobody can see them. This is what the
+    // header shows instead, so a rejected save names the card to open rather
+    // than leaving three shut boxes and a red sentence at the top.
+    let problems_on = move |card: SecurityCard| {
+        Signal::derive(move || {
+            let count = errors
+                .with(|errors| errors.iter().filter(|error| card_of(&error.field) == card).count());
+            u32::try_from(count).unwrap_or(u32::MAX)
+        })
+    };
+
     // Rendered inside the Security tab rather than once below the strip,
     // because the Communication tab contains an `EntityForm` - a `<form>` of
     // its own, and a form inside a form is invalid markup whose inner submit
@@ -275,16 +311,25 @@ fn settings_form(initial: WorkspaceSecuritySettings) -> impl IntoView {
                             move || {
                                 view! {
                                 <form class="space-y-4" on:submit=submit>
-                                // Side by side once there is room. Two policies
-                                // stacked down a wide screen is a scroll spent
-                                // on space that was already there, and they are
-                                // read together - what a password must be, and
-                                // what is asked for after it. `items-start` so
-                                // the shorter panel is not stretched to match.
-                                <div class="grid gap-4 xl:grid-cols-2 xl:items-start">
-                                <Panel
+                                // Stacked, not side by side. The two policies
+                                // shared a row while they were open panels,
+                                // because two full-height forms down a wide
+                                // screen was a scroll spent on space that was
+                                // already there. Collapsing answers that far
+                                // better, and a column pairs badly with it: one
+                                // card open beside one card shut is a page of
+                                // whitespace with a heading floating in it.
+                                //
+                                // Width costs nothing here because it is not
+                                // spent - every input in the base layer carries
+                                // its own ceiling, so a full-width card holds
+                                // the same 26rem field it held at half the
+                                // width. See `--container-measure`.
+                                <CollapsibleCard
                                     title=l!("settings.password.title")
-                                    description=l!("settings.password.description")
+                                    detail=l!("settings.password.description")
+                                    icon=Icon::KeyRound
+                                    problems=problems_on(SecurityCard::Password)
                                 >
                                     <div class="space-y-4">
                                         <NumberField
@@ -361,11 +406,13 @@ fn settings_form(initial: WorkspaceSecuritySettings) -> impl IntoView {
                                             {l!("settings.password.expiry_note")}
                                         </p>
                                     </div>
-                                </Panel>
+                                </CollapsibleCard>
 
-                                <Panel
+                                <CollapsibleCard
                                     title=l!("account.mfa.title")
-                                    description=l!("settings.mfa.description")
+                                    detail=l!("settings.mfa.description")
+                                    icon=Icon::Smartphone
+                                    problems=problems_on(SecurityCard::Mfa)
                                 >
                                     <div class="space-y-4">
                                         <fieldset class="space-y-1.5">
@@ -428,19 +475,20 @@ fn settings_form(initial: WorkspaceSecuritySettings) -> impl IntoView {
                                             <span>{l!("settings.mfa.lockout_warning")}</span>
                                         </div>
                                     </div>
-                                </Panel>
-                                </div>
+                                </CollapsibleCard>
 
-                                <Panel
+                                <CollapsibleCard
                                     title=l!("settings.audit.title")
-                                    description=l!("settings.audit.description")
+                                    detail=l!("settings.audit.description")
+                                    icon=Icon::ScrollText
+                                    problems=problems_on(SecurityCard::Audit)
                                 >
                                     <AuditingPanel
                                         policy=audit
                                         retention_days=retention_days
                                         error=error_for("audit_retention_days")
                                     />
-                                </Panel>
+                                </CollapsibleCard>
 
                                 {actions()}
                                 </form>
@@ -756,5 +804,59 @@ where
                     .map(|message| view! { <p class="mt-1 text-sm text-danger">{message}</p> })
             }}
         </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_rejected_field_lands_on_the_card_that_draws_it() {
+        for field in ["min_length", "max_length", "expiry_days", "history_depth"] {
+            assert_eq!(card_of(field), SecurityCard::Password, "{field}");
+        }
+        for field in ["allow_totp", "grace_period_days", "remember_device_days"] {
+            assert_eq!(card_of(field), SecurityCard::Mfa, "{field}");
+        }
+        assert_eq!(card_of("audit_retention_days"), SecurityCard::Audit);
+    }
+
+    #[test]
+    fn a_save_that_breaks_all_three_policies_marks_all_three_cards() {
+        // The list above is names copied out of three validators, and a copy
+        // goes stale. This runs the validators instead: break one thing in
+        // each policy, and every card had better light up. A field renamed on
+        // the other side of the crate fails here rather than in a collapsed
+        // card that nobody opens.
+        let broken = WorkspaceSecuritySettings {
+            password: PasswordPolicy {
+                min_length: 4,
+                ..PasswordPolicy::system_default()
+            },
+            mfa: MfaPolicy {
+                enforcement: MfaEnforcement::Required,
+                allow_totp: false,
+                allow_recovery_codes: false,
+                ..MfaPolicy::system_default()
+            },
+            audit: AuditPolicy {
+                // Below MIN_RETENTION_DAYS, and not zero - zero is "for ever".
+                retention_days: Some(1),
+                ..AuditPolicy::system_default()
+            },
+        };
+
+        let Err(errors) = broken.validate() else {
+            panic!("these settings are meant to be rejected");
+        };
+
+        for card in [SecurityCard::Password, SecurityCard::Mfa, SecurityCard::Audit] {
+            assert!(
+                errors.iter().any(|error| card_of(&error.field) == card),
+                "nothing counted on {card:?}, from {:?}",
+                errors.iter().map(|error| &error.field).collect::<Vec<_>>(),
+            );
+        }
     }
 }

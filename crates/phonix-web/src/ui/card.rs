@@ -43,6 +43,7 @@
 
 use leptos::prelude::*;
 
+use crate::components::page::{Badge, Tone};
 use crate::icons::{Icon, IconSize};
 
 /// A card that opens.
@@ -65,12 +66,31 @@ pub fn collapsible_card(
     /// page, where arriving closed would be a page with nothing on it.
     #[prop(optional)]
     open: bool,
+    /// How many things inside are wrong.
+    ///
+    /// A closed card hides its contents from the eye and from nothing else. A
+    /// field that failed validation inside one still submits, still draws its
+    /// error, and still does it where nobody is looking - so a stack of closed
+    /// cards would answer a rejected save by appearing to do nothing at all.
+    /// This is the header saying which card to open.
+    #[prop(optional, into)]
+    problems: Signal<u32>,
     children: Children,
 ) -> impl IntoView {
     view! {
         // `group` so the chevron and the icon tile can answer to the card's
         // own `[open]` rather than each carrying state.
-        <details class="group rounded-card border border-edge bg-surface-raised" open=open>
+        //
+        // The border is the only part of a closed card big enough to find
+        // without reading it, which is why the problem count colours it as
+        // well as adding a badge.
+        <details
+            class=move || {
+                let edge = if problems.get() > 0 { "border-danger" } else { "border-edge" };
+                format!("group rounded-card border {edge} bg-surface-raised")
+            }
+            open=open
+        >
             <summary class="flex cursor-pointer items-start gap-3 rounded-card p-4 hover:bg-surface-hover group-open:rounded-b-none">
                 {icon
                     .map(|icon| {
@@ -92,6 +112,22 @@ pub fn collapsible_card(
                             }
                         })}
                 </span>
+
+                {move || {
+                    let count = problems.get();
+                    (count > 0)
+                        .then(|| {
+                            view! {
+                                <span class="mt-0.5 shrink-0">
+                                    <Badge
+                                        label=crate::lp!("ui.card.problems", count)
+                                        tone=Tone::Danger
+                                        icon=Icon::TriangleAlert
+                                    />
+                                </span>
+                            }
+                        })
+                }}
 
                 {meta
                     .map(|meta| {

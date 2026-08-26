@@ -1151,6 +1151,9 @@
 
   "tenant.absent": "aucun espace de travail",
 
+  "ui.card.problems.one": "{count} problème",
+  "ui.card.problems.other": "{count} problèmes",
+
   "ui_library.cards.detail": "Une carte qui ressemble à une tuile de raccourci et qui s'ouvre au lieu de mener ailleurs. Elle arrive fermée.",
   "ui_library.cards.limits.body": "Rien d'extérieur ne peut ouvrir une carte. Il n'y a pas de tout déplier, ni d'ouverture parce qu'une recherche a trouvé quelque chose à l'intérieur. Un dépliage piloté de l'extérieur se comporte autrement dans chaque interaction : ce sera un second composant, pas une option sur celui-ci.",
   "ui_library.cards.limits.title": "Ce qu'elle ne fera pas",
