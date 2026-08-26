@@ -19,7 +19,7 @@ use phonix_core::money::WorkspaceCurrency;
 use phonix_core::permissions;
 use phonix_core::query::Sort;
 
-use super::GridConfig;
+use super::{GridConfig, Pagination};
 use crate::components::page::{Badge, Tone};
 use crate::icons::Icon;
 use crate::l;
@@ -37,6 +37,89 @@ pub fn currencies_grid(
     on_edit: Callback<WorkspaceCurrency>,
     on_add: Callback<()>,
 ) -> GridConfig<WorkspaceCurrency> {
+    described()
+        .toolbar(
+            ToolbarAction::run(l!("currencies.add"), Icon::Plus, move || on_add.run(()))
+                .require(permissions::SETTINGS)
+                .primary(),
+        )
+        .action(
+            RowAction::run(
+                l!("common.edit"),
+                Icon::Pencil,
+                move |row: WorkspaceCurrency, _| on_edit.run(row),
+            )
+            .require(permissions::SETTINGS),
+        )
+        .action(
+            RowAction::run(
+                l!("currencies.disable"),
+                Icon::EyeOff,
+                |row: WorkspaceCurrency, grid| {
+                    let code = row.currency.code().to_owned();
+
+                    leptos::task::spawn_local(async move {
+                        match set_currency_enabled(code.clone(), false).await {
+                            Ok(_) => {
+                                grid.report(l!("currencies.disabled", code = code));
+                                grid.refresh();
+                            }
+                            // The server knows whether this was the base
+                            // currency or a permission, and either is worth
+                            // reading.
+                            Err(err) => grid.warn(err.to_string()),
+                        }
+                    });
+                },
+            )
+            // Offered only where it would do something. Disabling a disabled
+            // currency is a button that reports success and changes nothing.
+            .when(|row: &WorkspaceCurrency| row.is_enabled)
+            .require(permissions::SETTINGS),
+        )
+        .action(
+            RowAction::run(
+                l!("currencies.enable"),
+                Icon::Eye,
+                |row: WorkspaceCurrency, grid| {
+                    let code = row.currency.code().to_owned();
+
+                    leptos::task::spawn_local(async move {
+                        match set_currency_enabled(code.clone(), true).await {
+                            Ok(_) => {
+                                grid.report(l!("currencies.enabled", code = code));
+                                grid.refresh();
+                            }
+                            Err(err) => grid.warn(err.to_string()),
+                        }
+                    });
+                },
+            )
+            .when(|row: &WorkspaceCurrency| !row.is_enabled)
+            .require(permissions::SETTINGS),
+        )
+}
+
+/// The same list, as something to pick from.
+///
+/// A lookup showing a table shows *this* - see
+/// [`ui::lookup`](crate::ui::lookup). It is the same description of the same
+/// entity with the verbs taken off: the same columns, the same search, the
+/// same filter, the same order. Writing a second, smaller currency table for
+/// pickers is how a picker ends up showing a column the list stopped showing
+/// two releases ago.
+pub fn currencies_picker(on_choose: Callback<WorkspaceCurrency>) -> GridConfig<WorkspaceCurrency> {
+    described()
+        // A picker fits in a panel over a form, so it opens narrower and shows
+        // fewer rows than a screen given to the list would.
+        .min_width("sm:min-w-[28rem]")
+        .paginated(Pagination::of(&[8, 25, 50]))
+        .choosing(on_choose)
+}
+
+/// Everything about this entity that is true whether it is being administered
+/// or picked from.
+fn described() -> GridConfig<WorkspaceCurrency> {
     GridConfig::new("currencies", Source::in_memory(workspace_currencies))
         .searching(l!("currencies.search"))
         .exports_as("currencies")
@@ -109,66 +192,6 @@ pub fn currencies_grid(
                 "disabled" => !row.is_enabled,
                 _ => true,
             }),
-        )
-        .toolbar(
-            ToolbarAction::run(l!("currencies.add"), Icon::Plus, move || on_add.run(()))
-                .require(permissions::SETTINGS)
-                .primary(),
-        )
-        .action(
-            RowAction::run(
-                l!("common.edit"),
-                Icon::Pencil,
-                move |row: WorkspaceCurrency, _| on_edit.run(row),
-            )
-            .require(permissions::SETTINGS),
-        )
-        .action(
-            RowAction::run(
-                l!("currencies.disable"),
-                Icon::EyeOff,
-                |row: WorkspaceCurrency, grid| {
-                    let code = row.currency.code().to_owned();
-
-                    leptos::task::spawn_local(async move {
-                        match set_currency_enabled(code.clone(), false).await {
-                            Ok(_) => {
-                                grid.report(l!("currencies.disabled", code = code));
-                                grid.refresh();
-                            }
-                            // The server knows whether this was the base
-                            // currency or a permission, and either is worth
-                            // reading.
-                            Err(err) => grid.warn(err.to_string()),
-                        }
-                    });
-                },
-            )
-            // Offered only where it would do something. Disabling a disabled
-            // currency is a button that reports success and changes nothing.
-            .when(|row: &WorkspaceCurrency| row.is_enabled)
-            .require(permissions::SETTINGS),
-        )
-        .action(
-            RowAction::run(
-                l!("currencies.enable"),
-                Icon::Eye,
-                |row: WorkspaceCurrency, grid| {
-                    let code = row.currency.code().to_owned();
-
-                    leptos::task::spawn_local(async move {
-                        match set_currency_enabled(code.clone(), true).await {
-                            Ok(_) => {
-                                grid.report(l!("currencies.enabled", code = code));
-                                grid.refresh();
-                            }
-                            Err(err) => grid.warn(err.to_string()),
-                        }
-                    });
-                },
-            )
-            .when(|row: &WorkspaceCurrency| !row.is_enabled)
-            .require(permissions::SETTINGS),
         )
 }
 

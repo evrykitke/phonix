@@ -92,12 +92,14 @@ pub mod toolbar;
 use std::collections::BTreeSet;
 
 use leptos::prelude::*;
+use leptos_router::NavigateOptions;
+use leptos_router::hooks::use_navigate;
 use phonix_core::identity::AuthUser;
 use phonix_core::query::{Page, SortDirection};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-pub use action::{RowAction, ToolbarAction};
+pub use action::{ActionKind, RowAction, ToolbarAction};
 pub use column::{Align, Cell, Column};
 pub use config::{GridConfig, Pagination};
 pub use date::{DateFilter, DatePreset};
@@ -442,7 +444,10 @@ fn grid_body<T: GridRow>(
             .cloned()
             .collect()
     });
-    let has_actions = !actions.is_empty();
+    // A picker answers with the row instead of offering things to do to it,
+    // so the actions column is not drawn at all - see `GridConfig::choosing`.
+    let choosing = config.with_value(|config| config.choosing);
+    let has_actions = !actions.is_empty() && choosing.is_none();
     let actions = StoredValue::new(actions);
 
     let visible: Vec<Column<T>> = config.with_value(|config| {
@@ -523,6 +528,7 @@ fn grid_body<T: GridRow>(
                                     has_actions=has_actions
                                     has_detail=has_detail
                                     phone_span=phone_span
+                                    choosing=choosing
                                 />
                             }
                         })
@@ -606,6 +612,9 @@ fn grid_row_view<T: GridRow>(
     /// How many cells the row occupies on a phone, for the detail row's
     /// `colspan`.
     phone_span: usize,
+    /// Set when this grid is a picker: the row answers with itself instead of
+    /// going anywhere. See [`GridConfig::choosing`].
+    choosing: Option<Callback<T>>,
 ) -> impl IntoView {
     let open = RwSignal::new(false);
 
@@ -660,11 +669,52 @@ fn grid_row_view<T: GridRow>(
             .collect::<Vec<_>>()
     });
 
+    // Where a click on the row goes, if an action asked for it.
+    //
+    // Read out of `offered` rather than out of the configuration, which is the
+    // point: that list has already been filtered by permission and by `when`,
+    // so a viewer who cannot see Open cannot reach it by clicking either, and
+    // a row the action does not apply to is simply not clickable. One
+    // destination, declared once, gated once.
+    let opens = offered.iter().find_map(|action| match &action.kind {
+        ActionKind::Link(href) if action.opens_on_row_click() => Some(href(&row)),
+        _ => None,
+    });
+
     let row_menu = (has_actions && !offered.is_empty())
         .then(|| view! { <RowMenu actions=offered row=row.clone() handle=handle /> });
 
+    // Static per row: whether an action claimed the click cannot change while
+    // the row is on screen, because the filtering that decided it is the
+    // filtering that built the row.
+    let row_class = if opens.is_some() || choosing.is_some() {
+        "cursor-pointer hover:bg-surface-hover"
+    } else {
+        "hover:bg-surface-hover"
+    };
+
+    let navigate = use_navigate();
+    let chosen = row.clone();
+    let follow = move |event: leptos::ev::MouseEvent| {
+        if !is_a_plain_click(&event) {
+            return;
+        }
+
+        if let Some(choose) = choosing {
+            // `try_run`, because this row's owner may already be disposed
+            // while the transition holds its markup on screen - see the note
+            // on zombie rows in `menu`.
+            let _ = choose.try_run(chosen.clone());
+            return;
+        }
+
+        if let Some(href) = opens.clone() {
+            navigate(&href, NavigateOptions::default());
+        }
+    };
+
     view! {
-        <tr class="hover:bg-surface-hover">
+        <tr class=row_class on:click=follow>
             {has_detail
                 .then(|| {
                     view! {
@@ -733,6 +783,62 @@ fn grid_row_view<T: GridRow>(
                 }
             })}
     }
+}
+
+/// Whether a click on a row was somebody asking to open it.
+///
+/// Three things wear the same event and mean something else entirely, and all
+/// three are ordinary use of a table rather than edge cases:
+///
+/// * a **modified click** - ctrl, meta, shift or alt - means "new tab" or
+///   "extend the selection". A router navigation can honour neither, and
+///   swallowing it would take away the one thing a link is for. The menu's
+///   entry is a real `<a>` and answers all of them.
+/// * a click **on something that is already interactive**: the row menu's
+///   trigger, a link inside a cell, a checkbox. `closest` walks up from
+///   whatever was actually hit, so the icon inside a button counts as the
+///   button.
+/// * a click that **ends a drag over text**. Somebody copying an identifier out
+///   of a cell releases the mouse over the row, and the browser calls that a
+///   click on the row.
+///
+/// Browser only, like `place` above: the interfaces are asked for in the
+/// hydrate build alone, and the server never receives a click.
+#[cfg(feature = "hydrate")]
+fn is_a_plain_click(event: &leptos::ev::MouseEvent) -> bool {
+    use leptos::wasm_bindgen::JsCast;
+
+    if event.ctrl_key() || event.meta_key() || event.shift_key() || event.alt_key() {
+        return false;
+    }
+
+    let interactive = event
+        .target()
+        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+        .and_then(|element| {
+            element
+                .closest("a, button, input, select, textarea, label, [role='menu']")
+                .ok()
+                .flatten()
+        });
+    if interactive.is_some() {
+        return false;
+    }
+
+    // A collapsed selection is a caret with nothing in it, which is what an
+    // ordinary click leaves behind.
+    let selecting = window()
+        .get_selection()
+        .ok()
+        .flatten()
+        .is_some_and(|selection| !selection.is_collapsed());
+
+    !selecting
+}
+
+#[cfg(not(feature = "hydrate"))]
+const fn is_a_plain_click(_event: &leptos::ev::MouseEvent) -> bool {
+    false
 }
 
 /// Rows are on their way.

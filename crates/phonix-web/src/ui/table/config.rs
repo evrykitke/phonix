@@ -43,9 +43,10 @@ pub mod roles;
 pub mod taxes;
 pub mod users;
 
+use leptos::prelude::Callback;
 use phonix_core::query::{PageRequest, Sort};
 
-use super::action::{RowAction, ToolbarAction};
+use super::action::{ActionKind, RowAction, ToolbarAction};
 use super::column::Column;
 use super::date::DateFilter;
 use super::filter::Filter;
@@ -130,6 +131,9 @@ pub struct GridConfig<T: 'static> {
     /// scrolls sideways inside its own box. `sm:`-prefixed - see
     /// [`GridConfig::min_width`].
     pub(crate) min_width: &'static str,
+    /// Set when this grid is a picker rather than a list - see
+    /// [`GridConfig::choosing`].
+    pub(crate) choosing: Option<Callback<T>>,
 }
 
 impl<T: 'static> Clone for GridConfig<T> {
@@ -149,6 +153,7 @@ impl<T: 'static> Clone for GridConfig<T> {
             no_matches: self.no_matches.clone(),
             initial_sort: self.initial_sort.clone(),
             min_width: self.min_width,
+            choosing: self.choosing,
         }
     }
 }
@@ -181,6 +186,7 @@ impl<T: 'static> GridConfig<T> {
                 detail: crate::l!("grid.no_matches.detail"),
             },
             min_width: "sm:min-w-[44rem]",
+            choosing: None,
         }
     }
 
@@ -228,8 +234,31 @@ impl<T: 'static> GridConfig<T> {
     }
 
     /// Add something that can be done to a row.
+    ///
+    /// At most one may say [`on_row_click`](RowAction::on_row_click), and it
+    /// has to be a link. Both are refused in debug builds rather than left to
+    /// be discovered: two of them means a row click that does whichever was
+    /// declared first, and a `Run` means a row that changes data when somebody
+    /// clicks it to read it.
     #[must_use]
     pub fn action(mut self, action: RowAction<T>) -> Self {
+        debug_assert!(
+            self.choosing.is_none(),
+            "`{}` was added to a picker, and a picker draws no row menu",
+            action.label,
+        );
+        debug_assert!(
+            !action.opens_on_row_click() || matches!(action.kind, ActionKind::Link(_)),
+            "`{}` is what a row click does, so it has to go somewhere - use `RowAction::link`",
+            action.label,
+        );
+        debug_assert!(
+            !action.opens_on_row_click()
+                || !self.actions.iter().any(RowAction::opens_on_row_click),
+            "`{}` is the second action on this grid to claim the row click, and a click can              only do one thing",
+            action.label,
+        );
+
         self.actions.push(action);
         self
     }
@@ -290,6 +319,35 @@ impl<T: 'static> GridConfig<T> {
     pub fn sorted_by(mut self, sort: Sort) -> Self {
         self.initial_sort = Some(sort);
         self
+    }
+
+    /// Make this grid a picker: every row is a choice, and clicking one
+    /// answers with it.
+    ///
+    /// This is how a lookup shows a table instead of a list - see
+    /// [`ui::lookup`](crate::ui::lookup). The point of doing it here rather
+    /// than writing a second table is that everything an entity's list already
+    /// knows how to do comes with it: the same columns, the same search, the
+    /// same paging and sorting, the same one description of what the entity is.
+    ///
+    /// A picker has no row menu and takes no [`action`](Self::action). Inside a
+    /// popover over a half-filled form there is nothing to navigate to and
+    /// nothing worth doing to a row, and a menu of verbs there would be a way
+    /// to leave the form by accident.
+    #[must_use]
+    pub fn choosing(mut self, on_choose: Callback<T>) -> Self {
+        debug_assert!(
+            self.actions.is_empty(),
+            "a picker has no row menu, so the actions on it would never be drawn",
+        );
+
+        self.choosing = Some(on_choose);
+        self
+    }
+
+    /// Whether this grid is a picker.
+    pub const fn is_picker(&self) -> bool {
+        self.choosing.is_some()
     }
 
     /// How narrow the table may get before it scrolls inside its own box.

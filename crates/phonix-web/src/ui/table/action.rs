@@ -20,6 +20,25 @@
 //! `<button>` and calls back with the row. Anything that changes data is a
 //! `Run`; anything that goes somewhere is a `Link`. A `Run` that navigates and
 //! a `Link` that mutates are both bugs.
+//!
+//! # Clicking the row
+//!
+//! [`RowAction::on_row_click`] marks one link as the thing a click anywhere on
+//! the row does. It is a property of the *action*, not of the grid, so that
+//! there is only ever one destination written down: a `row_href` on the
+//! configuration beside an Open action pointing at the same page is two copies
+//! of one URL, and the day they disagree the row and its menu go to different
+//! screens.
+//!
+//! The action stays in the menu. The click is a shortcut to it and never a
+//! replacement for it - which is also the whole of the keyboard story, because
+//! a `<tr>` is not focusable and giving it `tabindex` would announce a second
+//! link to a screen reader that already has the real one two cells along.
+//!
+//! Only a [`Link`](ActionKind::Link) may take it. A row that deleted itself
+//! when somebody clicked it to read it would be indefensible, and
+//! [`GridConfig::action`](super::config::GridConfig::action) refuses the
+//! combination in debug builds rather than leaving it to be found.
 
 use std::sync::Arc;
 
@@ -65,6 +84,8 @@ pub struct RowAction<T: 'static> {
     pub(crate) available: Option<Applies<T>>,
     /// Text to confirm with before running. `None` runs immediately.
     pub(crate) confirm: Option<String>,
+    /// Whether a click on the row itself performs this action.
+    pub(crate) row_click: bool,
 }
 
 impl<T: 'static> Clone for RowAction<T> {
@@ -77,6 +98,7 @@ impl<T: 'static> Clone for RowAction<T> {
             kind: self.kind.clone(),
             available: self.available.clone(),
             confirm: self.confirm.clone(),
+            row_click: self.row_click,
         }
     }
 }
@@ -117,6 +139,7 @@ impl<T: 'static> RowAction<T> {
             kind,
             available: None,
             confirm: None,
+            row_click: false,
         }
     }
 
@@ -155,6 +178,29 @@ impl<T: 'static> RowAction<T> {
     pub fn confirm(mut self, question: impl Into<String>) -> Self {
         self.confirm = Some(question.into());
         self
+    }
+
+    /// Also do this when the row itself is clicked.
+    ///
+    /// For the one action on a list that is what somebody came to the list
+    /// for - Open, on a log they are reading rather than administering. At
+    /// most one action per grid may say it, and it has to be a
+    /// [`link`](Self::link); see the module documentation for why the click is
+    /// a shortcut to a menu entry rather than a setting of its own.
+    ///
+    /// Filtering applies unchanged. An action hidden by
+    /// [`require`](Self::require) or ruled out by [`when`](Self::when) takes
+    /// the row click with it, so a viewer who may not open a row cannot open
+    /// one by clicking it.
+    #[must_use]
+    pub const fn on_row_click(mut self) -> Self {
+        self.row_click = true;
+        self
+    }
+
+    /// Whether a click on the row performs this action.
+    pub const fn opens_on_row_click(&self) -> bool {
+        self.row_click
     }
 
     /// Whether this viewer may see the action at all.
@@ -277,6 +323,30 @@ mod tests {
             mfa_satisfied: true,
             email_verified: true,
         }
+    }
+
+    #[test]
+    fn nothing_claims_the_row_click_unless_it_says_so() {
+        let action = RowAction::<u8>::link("Open", Icon::Eye, |row| format!("/{row}"));
+
+        assert!(!action.opens_on_row_click());
+        assert!(action.on_row_click().opens_on_row_click());
+    }
+
+    #[test]
+    fn a_row_click_is_gated_by_the_action_it_is_a_shortcut_to() {
+        // The grid reads the destination out of the actions it has already
+        // filtered, so this is the whole of the gating: an action a viewer
+        // cannot see takes the row click away with it. A row click with a
+        // permission of its own would be a second gate to keep in step, and
+        // the day the two disagreed the quiet one would be the one that let
+        // somebody through.
+        let action = RowAction::<u8>::link("Open", Icon::Eye, |row| format!("/{row}"))
+            .on_row_click()
+            .require(phonix_core::permissions::USERS_EDIT);
+
+        assert!(!action.permitted(Some(&viewer(PermissionSet::new()))));
+        assert!(action.permitted(Some(&viewer(PermissionSet::all()))));
     }
 
     #[test]

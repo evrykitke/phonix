@@ -230,6 +230,9 @@ web-sys = { version = "0.3", features = [
     # that has none. See `phonix_web::ui::editor::bridge`.
     "HtmlScriptElement",
     "HtmlHeadElement",
+    # Telling a click on a table row apart from the end of a drag over the text
+    # in one of its cells. See `ui::table::is_a_plain_click`.
+    "Selection",
 ] }
 # Only for the `Array` a Blob's parts have to arrive in.
 js-sys = "0.3"

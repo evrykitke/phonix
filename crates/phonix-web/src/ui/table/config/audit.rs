@@ -169,9 +169,15 @@ pub fn audit_grid() -> GridConfig<AuditEvent> {
             .class("text-xs text-content-subtle"),
         )
         .action(
+            // The whole reason somebody is on this screen is to read one of
+            // these, so the row itself opens as well as the menu entry. The
+            // entry stays: it is the keyboard's way in, it is what a middle
+            // click opens in a tab, and it is the same URL either way because
+            // there is only one of it written down.
             RowAction::link(l!("common.open"), Icon::Eye, |event: &AuditEvent| {
                 format!("/admin/audit-logs/{}", event.id)
             })
+            .on_row_click()
             .require(permissions::AUDIT_LOGS),
         )
 }
