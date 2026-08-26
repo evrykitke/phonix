@@ -21,12 +21,26 @@
 //! those from a value alone. So the two are kept in step by a pair of effects
 //! rather than one.
 //!
-//! The pair is safe because both ends compare before they write, which is what
-//! makes them settle instead of ringing. It is also *necessary*: a one-way
-//! binding from the field into the draft looks correct until somebody presses
-//! Cancel - [`FormState::reset`] replaces the draft wholesale, and a field
-//! that was not listening would go on showing the record the form was reset
-//! out of.
+//! The pair is *necessary*: a one-way binding from the field into the draft
+//! looks correct until somebody presses Cancel - [`FormState::reset`] replaces
+//! the draft wholesale, and a field that was not listening would go on showing
+//! the record the form was reset out of.
+//!
+//! It is also the one place in this file that can hang the browser, so both
+//! halves are worth stating exactly. Two rules, and the first version of this
+//! broke both of them:
+//!
+//! **The write-back must not read the draft reactively.** It writes the draft,
+//! and `RwSignal::update` notifies whether or not the value changed - so an
+//! effect that both subscribes to the draft and writes it re-runs itself for
+//! ever. It reads through [`FormState::held`], which does not track.
+//!
+//! **The two sides must be able to agree.** They are compared by value and
+//! label, not by whole [`Choice`], because a `Choice` may carry a `detail` line
+//! that the picker attached and the draft has nowhere to store: rebuilt from
+//! the draft it comes back as `None`, so full equality would never once hold
+//! and the pair would write at each other for ever. Comparing what the draft
+//! can actually round-trip is what makes the fixpoint reachable.
 
 use leptos::prelude::*;
 
@@ -177,6 +191,11 @@ where
         });
     };
 
+    // What the draft holds for this field, read without subscribing to it.
+    // The reactive twin of this is `current`; see the module docs for why a
+    // control that writes the draft must not also track it.
+    let held = move || field.with_value(|field| state.held(|draft| field.value(draft)));
+
     // The same write, for a control that reports a whole value rather than a
     // string off the DOM. Only a lookup does: a record carries a label, and
     // `with_input` cannot invent one - see [`FieldValue::Records`].
@@ -285,19 +304,22 @@ where
             Effect::new(move |_| {
                 let stored = current().as_records();
 
-                if selected.get_untracked() != stored {
+                // Only when they name different records. A selection that
+                // agrees is left exactly as the picker gave it, which keeps
+                // the detail line the draft could not have stored.
+                if !same_records(&selected.get_untracked(), &stored) {
                     selected.set(stored);
                 }
             });
 
-            // Somebody chose. Compared first, so that the effect above setting
-            // this signal does not bounce straight back into the draft - and
-            // so that an unchanged selection does not clear the field's error
-            // message or make an untouched form look dirty.
+            // Somebody chose. Read untracked and compared first: this effect
+            // writes the draft, so tracking it would re-run this on its own
+            // write, for ever. Comparing also stops an unchanged selection
+            // clearing the field's error or making an untouched form dirty.
             Effect::new(move |_| {
                 let chosen = selected.get();
 
-                if current().as_records() != chosen {
+                if !same_records(&held().as_records(), &chosen) {
                     put(FieldValue::Records(chosen));
                 }
             });
@@ -373,6 +395,22 @@ where
     }
 }
 
+/// Whether two selections name the same records.
+///
+/// By value and label, which is all a draft can round-trip. A [`Choice`] may
+/// also carry a `detail` line - a picker attaches one from the row it was
+/// chosen from - and the reader that rebuilds a `Choice` out of the draft has
+/// nowhere to get that from. Comparing whole `Choice`es would therefore report
+/// two sides that hold the same record as different, every time, which is a
+/// pair of effects that never agree.
+fn same_records(held: &[Choice], chosen: &[Choice]) -> bool {
+    held.len() == chosen.len()
+        && held
+            .iter()
+            .zip(chosen)
+            .all(|(held, chosen)| held.value == chosen.value && held.label == chosen.label)
+}
+
 /// One member of a multiple-choice field.
 #[component]
 fn choice_row(
@@ -408,5 +446,50 @@ fn choice_row(
                     })}
             </span>
         </label>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn usd() -> Choice {
+        Choice::new("USD", "US Dollar")
+    }
+
+    #[test]
+    fn a_record_rebuilt_from_a_draft_still_names_the_same_record() {
+        // The bug this exists to stop: a picker attaches a detail line from
+        // the row it was chosen from, the draft has nowhere to keep it, and
+        // comparing whole `Choice`es made the two sides of the lookup's
+        // binding disagree for ever - which hung the tab.
+        let from_picker = usd().detail("United States");
+        let from_draft = usd();
+
+        assert_ne!(from_picker, from_draft);
+        assert!(same_records(&[from_draft], &[from_picker]));
+    }
+
+    #[test]
+    fn a_different_record_is_a_different_selection() {
+        assert!(!same_records(&[usd()], &[Choice::new("EUR", "Euro")]));
+        assert!(!same_records(&[usd()], &[]));
+        assert!(!same_records(&[], &[usd()]));
+    }
+
+    #[test]
+    fn a_renamed_record_is_a_change_the_field_has_to_take() {
+        // Same id, new name. The draft is what the server corrected, so the
+        // control has to follow it rather than keep the label it was given.
+        assert!(!same_records(
+            &[Choice::new("USD", "United States Dollar")],
+            &[usd()]
+        ));
+    }
+
+    #[test]
+    fn nothing_chosen_agrees_with_nothing_chosen() {
+        // Otherwise every lookup on a blank form writes on its first render.
+        assert!(same_records(&[], &[]));
     }
 }

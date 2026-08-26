@@ -81,6 +81,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> FormState<T> {
         self.draft.with(read)
     }
 
+    /// Read one field out of the draft **without subscribing to it**.
+    ///
+    /// For a control that writes the draft from inside an effect. `RwSignal`
+    /// notifies on every `update`, changed or not, so an effect that both
+    /// tracks the draft and writes it re-runs itself for ever - which is a
+    /// hung tab, not a slow one. The lookup in
+    /// [`control`](super::control) is the reason this exists.
+    pub fn held(&self, read: impl Fn(&T) -> FieldValue) -> FieldValue {
+        self.draft.with_untracked(read)
+    }
+
     /// Write one field into the draft, and take down that field's error.
     ///
     /// Clearing on edit rather than on the next submit is what stops a form
