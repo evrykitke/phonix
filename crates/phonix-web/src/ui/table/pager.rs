@@ -22,6 +22,14 @@
 //! reload - which makes the strip correct during the window rather than merely
 //! inert.
 //!
+//! The footing is still *read* through closures, and that is not decoration. A
+//! `{move || ...}` child is a dynamic node, and the server writes hydration
+//! markers around one; the same text written straight into the view is static
+//! and gets none. Reading a plain value inline instead of through a closure
+//! therefore changes what the browser walks when it hydrates, and the walk ends
+//! in an unrecoverable hydration error rather than a wrong number. Plain value,
+//! closure around it: both halves are load-bearing.
+//!
 //! # Numbered pages stay out of the way on a phone
 //!
 //! Previous and next are always there. The numbers between them are a window
@@ -68,15 +76,17 @@ pub fn grid_pager(
         <div class="flex flex-wrap items-center justify-between gap-2 border-t border-edge px-3 py-2 text-xs text-content-muted">
             <div class="flex items-center gap-3">
                 <span aria-live="polite">
-                    {if footing.total == 0 {
-                        l!("grid.no_rows")
-                    } else {
-                        l!(
-                            "grid.showing",
-                            first = footing.first.to_string(),
-                            last = footing.last.to_string(),
-                            total = footing.total.to_string(),
-                        )
+                    {move || {
+                        if footing.total == 0 {
+                            l!("grid.no_rows")
+                        } else {
+                            l!(
+                                "grid.showing",
+                                first = footing.first.to_string(),
+                                last = footing.last.to_string(),
+                                total = footing.total.to_string(),
+                            )
+                        }
                     }}
                 </span>
 
@@ -90,25 +100,29 @@ pub fn grid_pager(
                 <Step
                     label=l!("grid.previous")
                     icon=Icon::ChevronLeft
-                    disabled={footing.page <= 1}
+                    disabled=move || footing.page <= 1
                     on_click=move || state.go_to(footing.page.saturating_sub(1))
                 />
 
-                <span class="px-1 sm:hidden">{format!("{} / {}", footing.page, footing.pages)}</span>
+                <span class="px-1 sm:hidden">
+                    {move || format!("{} / {}", footing.page, footing.pages)}
+                </span>
 
                 <div class="hidden items-center gap-1 sm:flex">
-                    {window(footing.page, footing.pages)
-                        .into_iter()
-                        .map(|page| {
-                            view! { <PageNumber state=state page=page current=footing.page /> }
-                        })
-                        .collect::<Vec<_>>()}
+                    {move || {
+                        window(footing.page, footing.pages)
+                            .into_iter()
+                            .map(|page| {
+                                view! { <PageNumber state=state page=page current=footing.page /> }
+                            })
+                            .collect::<Vec<_>>()
+                    }}
                 </div>
 
                 <Step
                     label=l!("grid.next")
                     icon=Icon::ChevronRight
-                    disabled={footing.page >= footing.pages}
+                    disabled={move || footing.page >= footing.pages}
                     on_click=move || state.go_to(footing.page + 1)
                 />
             </div>
@@ -161,9 +175,13 @@ fn per_page(
 fn step(
     #[prop(into)] label: String,
     icon: Icon,
-    disabled: bool,
-    /// A plain closure rather than a `Callback`, because a callback is an arena
-    /// value and this button outlives its owner every time the table reloads.
+    /// Both of these are plain closures rather than a `Signal` and a
+    /// `Callback`, which is the whole point: a signal and a callback are arena
+    /// values, and this button outlives its owner every time the table reloads.
+    /// A closure over a `Copy` value owns nothing that can be disposed - and it
+    /// still renders as a *dynamic* attribute and a dynamic handler, which is
+    /// what keeps the markup the same shape on both sides of hydration.
+    disabled: impl Fn() -> bool + Send + Sync + 'static,
     on_click: impl Fn() + 'static,
 ) -> impl IntoView {
     view! {
