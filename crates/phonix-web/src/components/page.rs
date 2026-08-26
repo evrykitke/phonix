@@ -277,7 +277,8 @@ pub fn ghost_button(
         <button
             type="button"
             class=format!(
-                "inline-flex h-8 items-center gap-1.5 rounded-control border px-3 text-sm                  disabled:cursor-not-allowed disabled:opacity-60 {colours}",
+                "inline-flex h-8 items-center gap-1.5 rounded-control border px-3 text-sm \
+                 disabled:cursor-not-allowed disabled:opacity-60 {colours}",
             )
             disabled=move || disabled.get()
             on:click=move |_| on_click.run(())

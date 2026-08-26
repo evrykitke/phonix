@@ -16,12 +16,28 @@ use phonix_core::locale::Currency;
 use phonix_core::money::WorkspaceCurrency;
 
 use crate::components::page::{GhostButton, Panel, PrimaryButton};
+use crate::ui::card::CollapsibleCard;
 use crate::icons::Icon;
 use crate::l;
 use crate::server_fns::currency_fns::save_currency;
 use crate::ui::alert::{Alert, Alerts};
 use crate::ui::table::DataGrid;
+use crate::ui::form::field::Choice;
+use crate::ui::lookup::SelectField;
 use crate::ui::table::config::currencies::currencies_grid;
+
+/// Every currency there is, as something to pick from.
+///
+/// A hundred and sixty entries, which is why the panel gets a filter box - see
+/// `SEARCH_ABOVE` in `ui::lookup::select`. `Currency::label` already reads
+/// "USD - US Dollar", so typing either half finds it and there is nothing left
+/// for a detail line to add.
+fn currency_options() -> Vec<Choice> {
+    Currency::all()
+        .iter()
+        .map(|currency| Choice::new(currency.code(), currency.label()))
+        .collect()
+}
 
 #[component]
 pub fn currencies_tab() -> impl IntoView {
@@ -57,12 +73,19 @@ pub fn currencies_tab() -> impl IntoView {
 
     view! {
         <div class="space-y-3">
-            <Panel title=l!("currencies.title") description=l!("currencies.description")>
+            // Open, because this card is the tab - see the same note on the
+            // organization profile.
+            <CollapsibleCard
+                title=l!("currencies.title")
+                detail=l!("currencies.description")
+                icon=Icon::Boxes
+                open=true
+            >
                 {move || {
                     version.track();
                     view! { <DataGrid config=build() /> }
                 }}
-            </Panel>
+            </CollapsibleCard>
 
             // Created fresh each time `editing` changes, which is what re-seeds
             // the controls: they read their opening value once.
@@ -127,25 +150,24 @@ fn currency_editor(
             <Panel title=l!("currencies.add")>
                 <div class="space-y-3">
                     <div class="grid gap-3 sm:grid-cols-2">
-                        <label class="block space-y-1">
-                            <span class="text-xs font-medium text-content-muted">
-                                {l!("field.currency")}
-                            </span>
-                            <select
-                                class="w-full"
-                                prop:value=move || code.get()
-                                on:change=move |ev| code.set(event_target_value(&ev))
+                        // A `<div>` and a `<label for>` rather than a label
+                        // wrapped round the control: the control is a
+                        // `<button>` now, and a button inside a label is
+                        // markup with two things to click on one target.
+                        <div class="block space-y-1">
+                            <label
+                                for="currency-code"
+                                class="block text-xs font-medium text-content-muted"
                             >
-                                {Currency::all()
-                                    .iter()
-                                    .map(|currency| {
-                                        let value = currency.code().to_owned();
-                                        let label = currency.label();
-                                        view! { <option value=value>{label}</option> }
-                                    })
-                                    .collect_view()}
-                            </select>
-                        </label>
+                                {l!("field.currency")}
+                            </label>
+                            <SelectField
+                                id="currency-code"
+                                value=Signal::derive(move || code.get())
+                                on_change=Callback::new(move |value: String| code.set(value))
+                                options=currency_options()
+                            />
+                        </div>
 
                         <label class="block space-y-1">
                             <span class="text-xs font-medium text-content-muted">

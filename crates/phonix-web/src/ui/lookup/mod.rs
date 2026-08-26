@@ -61,7 +61,9 @@
 //! pointer anywhere else closes it rather than leaving it stranded beside the
 //! field it used to belong to.
 
+mod panel;
 mod place;
+mod select;
 
 use std::sync::Arc;
 
@@ -70,6 +72,7 @@ use leptos::wasm_bindgen::JsCast;
 use leptos_router::components::A;
 
 use self::place::At;
+pub use self::select::SelectField;
 use crate::icons::{Icon, IconSize};
 use crate::l;
 use crate::ui::form::field::Choice;

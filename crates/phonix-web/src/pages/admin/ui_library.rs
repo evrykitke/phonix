@@ -32,6 +32,7 @@ use leptos::prelude::*;
 use leptos_meta::Title;
 
 use phonix_core::i18n::Message;
+use phonix_core::locale::Currency;
 use phonix_core::money::WorkspaceCurrency;
 
 use crate::components::page::{
@@ -44,7 +45,7 @@ use crate::server_fns::currency_fns::{enabled_currencies, save_currency};
 use crate::ui::card::CollapsibleCard;
 use crate::ui::editor::{EDITOR_GZIP_BYTES, RichText};
 use crate::ui::form::field::Choice;
-use crate::ui::lookup::{Choices, LookupField, QuickAdd};
+use crate::ui::lookup::{Choices, LookupField, QuickAdd, SelectField};
 use crate::ui::table::DataGrid;
 use crate::ui::table::config::currencies::currencies_picker;
 use crate::ui::tabs::{Tab, TabbedPanel};
@@ -256,6 +257,10 @@ fn lookup_tab() -> impl IntoView {
                         }
                     })}
                 </Suspense>
+            </Panel>
+
+            <Panel title=l!("ui_library.select.title") description=l!("ui_library.select.detail")>
+                <SelectSpecimens />
             </Panel>
 
             <CollapsibleCard
@@ -552,5 +557,90 @@ fn status(label: String, tone: Tone) -> impl IntoView {
         <div class="mb-2">
             <Badge label=label tone=tone />
         </div>
+    }
+}
+
+/// [`SelectField`] at both sides of its one threshold, and with a way back to
+/// nothing.
+///
+/// Three of them rather than one, because the two things worth seeing are the
+/// differences: whether the panel grows a filter box, and whether the field
+/// offers an empty answer at all. A single specimen shows a dropdown, which
+/// nobody needed a page to see.
+#[component]
+fn select_specimens() -> impl IntoView {
+    let short = RwSignal::new("line".to_owned());
+    let long = RwSignal::new(String::new());
+    let optional = RwSignal::new(String::new());
+
+    // Under the threshold, so the panel opens without a filter box.
+    let rounding = vec![
+        Choice::new("line", l!("ui_library.select.short")).detail("1"),
+        Choice::new("document", l!("ui_library.select.long")).detail("2"),
+        Choice::new("none", l!("ui_library.select.nothing")).detail("3"),
+    ];
+    let currencies = Currency::all()
+        .iter()
+        .map(|currency| Choice::new(currency.code(), currency.label()))
+        .collect::<Vec<_>>();
+    let optional_choices = currencies.clone();
+
+    view! {
+        <div class="grid gap-6 lg:grid-cols-3">
+            <div class="space-y-1.5">
+                <p class="text-sm font-medium text-content">{l!("ui_library.select.short")}</p>
+                <p class="text-xs text-content-muted">{l!("ui_library.select.short.detail")}</p>
+                <SelectField
+                    value=Signal::derive(move || short.get())
+                    on_change=Callback::new(move |value: String| short.set(value))
+                    options=rounding
+                />
+                <Echo of=short />
+            </div>
+
+            <div class="space-y-1.5">
+                <p class="text-sm font-medium text-content">{l!("ui_library.select.long")}</p>
+                <p class="text-xs text-content-muted">{l!("ui_library.select.long.detail")}</p>
+                <SelectField
+                    value=Signal::derive(move || long.get())
+                    on_change=Callback::new(move |value: String| long.set(value))
+                    options=currencies
+                />
+                <Echo of=long />
+            </div>
+
+            <div class="space-y-1.5">
+                <p class="text-sm font-medium text-content">
+                    {l!("ui_library.select.clearable")}
+                </p>
+                <p class="text-xs text-content-muted">
+                    {l!("ui_library.select.clearable.detail")}
+                </p>
+                <SelectField
+                    value=Signal::derive(move || optional.get())
+                    on_change=Callback::new(move |value: String| optional.set(value))
+                    options=optional_choices
+                    clearable=true
+                />
+                <Echo of=optional />
+            </div>
+        </div>
+    }
+}
+
+/// What the field is actually holding.
+///
+/// The point of a showcase is the value underneath, not the control: a select
+/// that looks right and answers with the label rather than the value is a bug
+/// this page exists to catch.
+#[component]
+fn echo(of: RwSignal<String>) -> impl IntoView {
+    view! {
+        <p class="font-mono text-2xs text-content-subtle">
+            {move || {
+                let held = of.get();
+                if held.is_empty() { l!("ui_library.select.nothing") } else { held }
+            }}
+        </p>
     }
 }

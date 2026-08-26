@@ -20,6 +20,7 @@ use super::kind::FieldKind;
 use super::state::FormState;
 use super::value::FieldValue;
 use crate::l;
+use crate::ui::lookup::SelectField;
 
 /// One field, drawn.
 #[component]
@@ -212,31 +213,35 @@ where
         }
             .into_any(),
 
-        FieldKind::Select { choices } => view! {
-            <select
-                id=id
-                // Border, radius and arrow come from the global `select` rule
-                // in `style/main.css`; only the width is this control's own.
-                class="w-full text-sm disabled:cursor-not-allowed disabled:opacity-60"
-                disabled=!editable
-                aria-required=required.then_some("true")
-                aria-invalid=move || invalid.get().is_some().then_some("true")
-                aria-describedby=move || described_by.get()
-                prop:value=move || current().as_input()
-                on:change=move |event| set(event_target_value(&event))
-            >
-                // An unset select needs somewhere to sit, or it silently reads
-                // as its first option - which is a value nobody chose.
-                <option value="">
-                    {if required { l!("form.choose_one") } else { l!("form.none") }}
-                </option>
-                {choices
-                    .into_iter()
-                    .map(|choice| view! { <option value=choice.value.clone()>{choice.label}</option> })
-                    .collect::<Vec<_>>()}
-            </select>
+        FieldKind::Select { choices } => {
+            // An unset field needs somewhere to sit, or it silently reads as
+            // its first option - a value nobody chose. Where the field is not
+            // required that place is also an answer, so it is an entry in the
+            // list; where it is required it is only a prompt, and the way out
+            // of a chosen value is to choose another one.
+            let options = if required {
+                choices
+            } else {
+                let mut options = vec![Choice::new(String::new(), l!("form.none"))];
+                options.extend(choices);
+                options
+            };
+
+            view! {
+                <SelectField
+                    id=id
+                    value=Signal::derive(move || current().as_input())
+                    on_change=Callback::new(move |value: String| set(value))
+                    options=options
+                    placeholder=if required { l!("form.choose_one") } else { l!("form.none") }
+                    disabled=!editable
+                    invalid=Signal::derive(move || invalid.get().is_some())
+                    required=required
+                    described_by=described_by
+                />
+            }
+            .into_any()
         }
-            .into_any(),
 
         FieldKind::MultiSelect { choices } => view! {
             <fieldset

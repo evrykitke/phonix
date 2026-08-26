@@ -20,12 +20,23 @@ use leptos::prelude::*;
 use phonix_core::numbering::{NumberSeries, ResetPeriod, SeriesSaved, SeriesSettings};
 
 use crate::components::page::{GhostButton, Notice, Panel, PrimaryButton, Tone};
+use crate::ui::card::CollapsibleCard;
 use crate::icons::Icon;
 use crate::l;
 use crate::server_fns::numbering_fns::{preview_number_format, save_number_series};
 use crate::ui::alert::{Alert, Alerts};
 use crate::ui::table::DataGrid;
+use crate::ui::form::field::Choice;
+use crate::ui::lookup::SelectField;
 use crate::ui::table::config::numbering::number_series_grid;
+
+/// How often a series starts counting again.
+fn reset_options() -> Vec<Choice> {
+    ResetPeriod::ALL
+        .iter()
+        .map(|period| Choice::new(period.as_str(), crate::i18n::t(&period.label())))
+        .collect()
+}
 
 #[component]
 pub fn numbering_tab() -> impl IntoView {
@@ -44,12 +55,19 @@ pub fn numbering_tab() -> impl IntoView {
 
     view! {
         <div class="space-y-3">
-            <Panel title=l!("numbering.title") description=l!("numbering.description")>
+            // Open, because this card is the tab - see the same note on the
+            // organization profile.
+            <CollapsibleCard
+                title=l!("numbering.title")
+                detail=l!("numbering.description")
+                icon=Icon::FileText
+                open=true
+            >
                 {move || {
                     version.track();
                     view! { <DataGrid config=build() /> }
                 }}
-            </Panel>
+            </CollapsibleCard>
 
             {move || {
                 editing
@@ -197,35 +215,31 @@ fn series_editor(
                     </Transition>
 
                     <div class="grid gap-3 sm:grid-cols-2">
-                        <label class="block space-y-1">
-                            <span class="text-xs font-medium text-content-muted">
+                        // A `<div>` and a `<label for>` rather than a label
+                        // wrapped round the control - see the same note on the
+                        // currency editor.
+                        <div class="block space-y-1">
+                            <label
+                                for="series-reset"
+                                class="block text-xs font-medium text-content-muted"
+                            >
                                 {l!("numbering.reset")}
-                            </span>
-                            <select
-                                class="w-full"
-                                prop:value=move || reset.get().as_str().to_owned()
-                                on:change=move |ev| {
+                            </label>
+                            <SelectField
+                                id="series-reset"
+                                value=Signal::derive(move || reset.get().as_str().to_owned())
+                                on_change=Callback::new(move |value: String| {
                                     // Unrecognised keeps what was there: a
                                     // period silently becoming `Never` is a
                                     // series that stops resetting, and nobody
                                     // notices until January.
-                                    if let Some(period) = ResetPeriod::parse(
-                                        &event_target_value(&ev),
-                                    ) {
+                                    if let Some(period) = ResetPeriod::parse(&value) {
                                         reset.set(period);
                                     }
-                                }
-                            >
-                                {ResetPeriod::ALL
-                                    .iter()
-                                    .map(|period| {
-                                        let value = period.as_str();
-                                        let label = crate::i18n::t(&period.label());
-                                        view! { <option value=value>{label}</option> }
-                                    })
-                                    .collect_view()}
-                            </select>
-                        </label>
+                                })
+                                options=reset_options()
+                            />
+                        </div>
 
                         <label class="block space-y-1">
                             <span class="text-xs font-medium text-content-muted">

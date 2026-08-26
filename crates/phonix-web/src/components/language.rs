@@ -1,13 +1,19 @@
 //! Choosing a language.
 //!
-//! # Why a `<select>` and not a segmented control
+//! # Why a dropdown and not a segmented control
 //!
 //! The appearance menu next to this uses three buttons in a row, because there
 //! are exactly three themes and there always will be. Languages are the
 //! opposite: the list grows with the business, and a row of buttons that works
-//! at two is unusable at nine. A native select also gets keyboard navigation,
-//! type-to-jump and the platform's own picker on a phone, none of which a
-//! hand-built menu would have without being written twice.
+//! at two is unusable at nine.
+//!
+//! It is the kit's [`SelectField`](crate::ui::lookup::SelectField) and not the
+//! browser's `<select>`, like every other dropdown in the app. This is the one
+//! control where that costs something real - a native select on a phone opens
+//! the platform's own wheel, and this one opens a panel - and it is still the
+//! right trade: a menu of languages that does not take the app's theme is a
+//! white sheet over a dark page, on the screen whose entire job is to be
+//! legible to somebody who cannot read the rest of it.
 //!
 //! # Labelled in its own language
 //!
@@ -32,6 +38,8 @@ use phonix_core::i18n::Language;
 use crate::i18n::Locale;
 use crate::icons::{Icon, IconSize};
 use crate::l;
+use crate::ui::form::field::Choice;
+use crate::ui::lookup::SelectField;
 
 /// Write the choice and start again in the new language.
 fn switch_to(language: Language) {
@@ -117,31 +125,28 @@ pub fn language_picker() -> impl IntoView {
 /// The control both wrappers draw.
 #[component]
 fn language_select(current: Language) -> impl IntoView {
+    let options = Language::ALL
+        .iter()
+        .copied()
+        .map(|language| Choice::new(language.code(), language.native_name()))
+        .collect::<Vec<_>>();
+
     view! {
-        <select
-            class="w-full"
-            aria-label=l!("language.choose")
-            on:change=move |event| {
+        <SelectField
+            // Fixed for the life of this control: changing it reloads the page,
+            // so the value never moves under the field.
+            value=current.code().to_owned()
+            on_change=Callback::new(move |value: String| {
                 // An unrecognised value can only come from a tampered DOM, and
                 // the answer to that is to do nothing rather than to guess.
-                if let Some(language) = Language::parse(&event_target_value(&event))
+                if let Some(language) = Language::parse(&value)
                     && language != current
                 {
                     switch_to(language);
                 }
-            }
-        >
-            {Language::ALL
-                .iter()
-                .copied()
-                .map(|language| {
-                    view! {
-                        <option value=language.code() selected=language == current>
-                            {language.native_name()}
-                        </option>
-                    }
-                })
-                .collect::<Vec<_>>()}
-        </select>
+            })
+            options=options
+            label=l!("language.choose")
+        />
     }
 }

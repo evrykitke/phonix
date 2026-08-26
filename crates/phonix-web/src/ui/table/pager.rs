@@ -17,6 +17,8 @@ use leptos::prelude::*;
 
 use super::state::GridState;
 use crate::icons::{Icon, IconSize};
+use crate::ui::form::field::Choice;
+use crate::ui::lookup::SelectField;
 use crate::l;
 
 /// What the pager is describing. Computed by the grid from the page it drew.
@@ -124,30 +126,28 @@ fn window(page: u32, pages: u32) -> Vec<u32> {
 
 #[component]
 fn per_page(state: GridState, choices: &'static [u32]) -> impl IntoView {
+    let options = choices
+        .iter()
+        .map(|choice| Choice::new(choice.to_string(), choice.to_string()))
+        .collect::<Vec<_>>();
+
     view! {
-        <label class="flex items-center gap-1">
+        <div class="flex items-center gap-1">
             <span class="hidden sm:inline">{l!("grid.rows")}</span>
-            <select
-                // Border, background, radius and arrow come from the global
-                // `select` rule in `style/main.css`. Only the size is this
-                // control's own business.
-                class="h-6 text-xs outline-none"
-                aria-label=l!("grid.rows_per_page")
-                prop:value=move || state.per_page.get().to_string()
-                on:change=move |event| {
-                    if let Ok(per_page) = event_target_value(&event).parse::<u32>() {
+            <SelectField
+                value=Signal::derive(move || state.per_page.get().to_string())
+                // A value that will not parse is one this control did not
+                // offer, so it is dropped rather than guessed at.
+                on_change=Callback::new(move |value: String| {
+                    if let Ok(per_page) = value.parse::<u32>() {
                         state.set_per_page(per_page);
                     }
-                }
-            >
-                {choices
-                    .iter()
-                    .map(|choice| {
-                        view! { <option value=choice.to_string()>{choice.to_string()}</option> }
-                    })
-                    .collect::<Vec<_>>()}
-            </select>
-        </label>
+                })
+                options=options
+                label=l!("grid.rows_per_page")
+                class="h-6 w-auto min-h-0 px-1.5 text-xs"
+            />
+        </div>
     }
 }
 

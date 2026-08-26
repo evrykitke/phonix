@@ -30,6 +30,8 @@ use super::date_picker::DateRangePicker;
 use super::filter::FilterChoice;
 use super::state::GridState;
 use crate::icons::{Icon, IconSize};
+use crate::ui::form::field::Choice;
+use crate::ui::lookup::SelectField;
 use crate::l;
 
 /// One filter, as the bar needs to know it.
@@ -156,34 +158,32 @@ pub fn grid_toolbar(
 
 /// One narrowing, as a dropdown.
 ///
-/// A `<select>` rather than a row of chips: the choices are exclusive and there
-/// are usually three of them, which is what a select is for - and it is styled
-/// once, globally, in `style/main.css`, so this control carries only its size.
+/// A dropdown rather than a row of chips: the choices are exclusive and there
+/// are usually three of them, which is what a dropdown is for. `SelectField`
+/// rather than the browser's own - see [`ui::lookup::select`] for why - so this
+/// control carries only its size.
+///
+/// [`ui::lookup::select`]: crate::ui::lookup::SelectField
 #[component]
 fn filter_select(state: GridState, filter: FilterControl) -> impl IntoView {
     let key = filter.key;
+    let options = filter
+        .choices
+        .iter()
+        .map(|choice| Choice::new(choice.value, choice.label.clone()))
+        .collect::<Vec<_>>();
 
     view! {
-        <select
-            class="h-8 shrink-0 text-sm"
-            aria-label=filter.label.clone()
-            title=filter.label.clone()
-            prop:value=move || state.filter(key)
-            on:change=move |event| state.set_filter(key, event_target_value(&event))
-        >
-            // `prop:value` on the select and nothing on the options, which is
-            // how the page-size control does it. A reactive `selected` here
-            // would be an attribute whose server-rendered value has to match
-            // what the browser computes at hydration, and the first choice is
-            // already what both of them start on.
-            {filter
-                .choices
-                .iter()
-                .map(|choice| {
-                    view! { <option value=choice.value>{choice.label.clone()}</option> }
-                })
-                .collect::<Vec<_>>()}
-        </select>
+        <SelectField
+            value=Signal::derive(move || state.filter(key))
+            on_change=Callback::new(move |value: String| state.set_filter(key, value))
+            options=options
+            label=filter.label.clone()
+            // Only the size. The `all` choice carries the empty value, so an
+            // unnarrowed table already reads as "All" without this having to
+            // say what nothing means.
+            class="h-8 w-auto shrink-0"
+        />
     }
 }
 

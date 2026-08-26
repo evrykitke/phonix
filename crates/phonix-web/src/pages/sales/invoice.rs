@@ -43,6 +43,8 @@ use crate::server_fns::books_fns::{
 };
 use crate::server_fns::master_fns::list_parties;
 use crate::ui::alert::{Alert, Alerts, Confirm};
+use crate::ui::form::field::Choice;
+use crate::ui::lookup::SelectField;
 
 /// Raising one.
 #[component]
@@ -488,38 +490,58 @@ fn header_fields(
     draft: RwSignal<InvoiceInput>,
     parties: StoredValue<Vec<PartySummary>>,
 ) -> impl IntoView {
+    // Built once, here, rather than inside the view: none of these lists change
+    // while the form is open.
+    let party_options = parties.with_value(|parties| {
+        parties
+            .iter()
+            // A deactivated party is not somebody to invoice.
+            .filter(|party| party.is_active)
+            .map(|party| {
+                Choice::new(party.id.to_string(), party.name.clone()).detail(party.code.clone())
+            })
+            .collect::<Vec<_>>()
+    });
+    let currency_options = Currency::all()
+        .iter()
+        .map(|currency| Choice::new(currency.code(), currency.label()))
+        .collect::<Vec<_>>();
+    let pricing_options = [Pricing::Exclusive, Pricing::Inclusive]
+        .into_iter()
+        .map(|pricing| Choice::new(pricing.as_str(), crate::i18n::t(&pricing.label())))
+        .collect::<Vec<_>>();
+    let rounding_options = [RoundingLevel::Line, RoundingLevel::Document]
+        .into_iter()
+        .map(|level| Choice::new(level.as_str(), crate::i18n::t(&level.label())))
+        .collect::<Vec<_>>();
+
     view! {
         <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <label class="block space-y-1">
-                <span class="text-xs font-medium text-content-muted">
-                    {l!("invoices.customer")}
-                </span>
-                <select
-                    class="w-full"
-                    prop:value=move || {
-                        draft.with(|d| d.party_id.map(|id| id.to_string()).unwrap_or_default())
-                    }
-                    on:change=move |ev| {
-                        let chosen = event_target_value(&ev).parse::<Uuid>().ok();
-                        draft.update(|d| d.party_id = chosen);
-                    }
+            // A `<div>` and a `<label for>` rather than a label wrapped round
+            // the control: every dropdown in this row is a `<button>` now, and
+            // a button inside a label is markup with two things to click on
+            // one target.
+            <div class="block space-y-1">
+                <label
+                    for="invoice-customer"
+                    class="block text-xs font-medium text-content-muted"
                 >
-                    <option value="">{l!("common.not_set")}</option>
-                    {move || {
-                        parties
-                            .get_value()
-                            .into_iter()
-                            // A deactivated party is not somebody to invoice.
-                            .filter(|party| party.is_active)
-                            .map(|party| {
-                                let value = party.id.to_string();
-                                let label = format!("{} ({})", party.name, party.code);
-                                view! { <option value=value>{label}</option> }
-                            })
-                            .collect_view()
-                    }}
-                </select>
-            </label>
+                    {l!("invoices.customer")}
+                </label>
+                <SelectField
+                    id="invoice-customer"
+                    value=Signal::derive(move || {
+                        draft.with(|d| d.party_id.map(|id| id.to_string()).unwrap_or_default())
+                    })
+                    on_change=Callback::new(move |value: String| {
+                        let chosen = value.parse::<Uuid>().ok();
+                        draft.update(|d| d.party_id = chosen);
+                    })
+                    options=party_options
+                    placeholder=l!("common.not_set")
+                    clearable=true
+                />
+            </div>
 
             <label class="block space-y-1">
                 <span class="text-xs font-medium text-content-muted">
@@ -555,80 +577,67 @@ fn header_fields(
                 />
             </label>
 
-            <label class="block space-y-1">
-                <span class="text-xs font-medium text-content-muted">
+            <div class="block space-y-1">
+                <label
+                    for="invoice-currency"
+                    class="block text-xs font-medium text-content-muted"
+                >
                     {l!("field.currency")}
-                </span>
-                <select
-                    class="w-full"
-                    prop:value=move || draft.with(|d| d.currency.code().to_owned())
-                    on:change=move |ev| {
+                </label>
+                <SelectField
+                    id="invoice-currency"
+                    value=Signal::derive(move || draft.with(|d| d.currency.code().to_owned()))
+                    on_change=Callback::new(move |value: String| {
                         // Unrecognised keeps what was there: a currency
                         // silently becoming dollars changes what every amount
                         // on the document means.
-                        if let Ok(currency) = Currency::parse(event_target_value(&ev)) {
+                        if let Ok(currency) = Currency::parse(value) {
                             draft.update(|d| d.currency = currency);
                         }
-                    }
-                >
-                    {Currency::all()
-                        .iter()
-                        .map(|currency| {
-                            let value = currency.code().to_owned();
-                            let label = currency.label();
-                            view! { <option value=value>{label}</option> }
-                        })
-                        .collect_view()}
-                </select>
-            </label>
+                    })
+                    options=currency_options
+                />
+            </div>
 
-            <label class="block space-y-1">
-                <span class="text-xs font-medium text-content-muted">
+            <div class="block space-y-1">
+                <label
+                    for="invoice-pricing"
+                    class="block text-xs font-medium text-content-muted"
+                >
                     {l!("invoices.pricing")}
-                </span>
-                <select
-                    class="w-full"
-                    prop:value=move || draft.with(|d| d.pricing.as_str().to_owned())
-                    on:change=move |ev| {
-                        if let Some(pricing) = Pricing::parse(&event_target_value(&ev)) {
+                </label>
+                <SelectField
+                    id="invoice-pricing"
+                    value=Signal::derive(move || draft.with(|d| d.pricing.as_str().to_owned()))
+                    on_change=Callback::new(move |value: String| {
+                        if let Some(pricing) = Pricing::parse(&value) {
                             draft.update(|d| d.pricing = pricing);
                         }
-                    }
-                >
-                    {[Pricing::Exclusive, Pricing::Inclusive]
-                        .into_iter()
-                        .map(|pricing| {
-                            let value = pricing.as_str();
-                            let label = crate::i18n::t(&pricing.label());
-                            view! { <option value=value>{label}</option> }
-                        })
-                        .collect_view()}
-                </select>
-            </label>
+                    })
+                    options=pricing_options
+                />
+            </div>
 
-            <label class="block space-y-1">
-                <span class="text-xs font-medium text-content-muted">
+            <div class="block space-y-1">
+                <label
+                    for="invoice-rounding"
+                    class="block text-xs font-medium text-content-muted"
+                >
                     {l!("invoices.rounding")}
-                </span>
-                <select
-                    class="w-full"
-                    prop:value=move || draft.with(|d| d.rounding_level.as_str().to_owned())
-                    on:change=move |ev| {
-                        if let Some(level) = RoundingLevel::parse(&event_target_value(&ev)) {
+                </label>
+                <SelectField
+                    id="invoice-rounding"
+                    value=Signal::derive(move || {
+                        draft.with(|d| d.rounding_level.as_str().to_owned())
+                    })
+                    on_change=Callback::new(move |value: String| {
+                        if let Some(level) = RoundingLevel::parse(&value) {
                             draft.update(|d| d.rounding_level = level);
                         }
-                    }
-                >
-                    {[RoundingLevel::Line, RoundingLevel::Document]
-                        .into_iter()
-                        .map(|level| {
-                            let value = level.as_str();
-                            let label = crate::i18n::t(&level.label());
-                            view! { <option value=value>{label}</option> }
-                        })
-                        .collect_view()}
-                </select>
-            </label>
+                    })
+                    options=rounding_options
+                />
+            </div>
         </div>
     }
 }
@@ -703,6 +712,15 @@ fn line_row(
         draft.with(|d| d.lines.get(index).map(read).unwrap_or_default())
     };
 
+    let tax_options = treatments.with_value(|treatments| {
+        treatments
+            .iter()
+            .map(|treatment| {
+                Choice::new(treatment.tax_group_id.to_string(), treatment.group_code.clone())
+            })
+            .collect::<Vec<_>>()
+    });
+
     view! {
         <tr class="border-b border-edge/60">
             <td class="py-1 text-xs text-content-subtle">{index + 1}</td>
@@ -760,39 +778,30 @@ fn line_row(
                 />
             </td>
             <td class="py-1 pr-2">
-                <select
-                    class="w-full"
-                    prop:value=move || {
+                <SelectField
+                    value=Signal::derive(move || {
                         field(|line| {
                             line.tax_group_id.map(|id| id.to_string()).unwrap_or_default()
                         })
-                    }
-                    on:change=move |ev| {
-                        let chosen = event_target_value(&ev).parse::<Uuid>().ok();
+                    })
+                    on_change=Callback::new(move |value: String| {
+                        let chosen = value.parse::<Uuid>().ok();
                         draft
                             .update(|d| {
                                 if let Some(line) = d.lines.get_mut(index) {
                                     line.tax_group_id = chosen;
                                 }
                             });
-                    }
-                >
+                    })
+                    options=tax_options
                     // "No tax" is not the same as a zero rate - that is a group
                     // whose rate is zero, and the difference shows on the
-                    // document and in the return.
-                    <option value="">{l!("invoices.no_tax")}</option>
-                    {move || {
-                        treatments
-                            .get_value()
-                            .into_iter()
-                            .map(|treatment| {
-                                let value = treatment.tax_group_id.to_string();
-                                let label = treatment.group_code.clone();
-                                view! { <option value=value>{label}</option> }
-                            })
-                            .collect_view()
-                    }}
-                </select>
+                    // document and in the return. So it is the empty value,
+                    // said out loud, rather than an absence.
+                    placeholder=l!("invoices.no_tax")
+                    clearable=true
+                    label=l!("taxes.title")
+                />
             </td>
             <td class="py-1 text-right">
                 <button

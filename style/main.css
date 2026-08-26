@@ -464,7 +464,7 @@
 
     /* Every text-like control in the application, styled once.
        ------------------------------------------------------------------
-       Same reasoning as `select` below: a control nobody has to remember to
+       A control nobody has to remember to
        decorate cannot drift. Before this rule there were five spellings of
        "a text box" in the codebase - the form kit's, `components/forms.rs`,
        the account page's, the settings page's - and the invitation screen,
@@ -546,8 +546,7 @@
     }
 
     input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], .control-bare)):focus,
-    textarea:where(:not(.control-bare)):focus,
-    select:focus {
+    textarea:where(:not(.control-bare)):focus {
         border-color: var(--ring);
     }
 
@@ -561,8 +560,7 @@
        platform, and a background-color on one is either ignored or, worse,
        painted behind the tick. */
     input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="file"])):disabled,
-    textarea:disabled,
-    select:disabled {
+    textarea:disabled {
         background-color: var(--control-surface-disabled);
         color: var(--content-subtle);
         cursor: not-allowed;
@@ -591,8 +589,7 @@
     input:-webkit-autofill,
     input:-webkit-autofill:hover,
     input:-webkit-autofill:focus,
-    textarea:-webkit-autofill,
-    select:-webkit-autofill {
+    textarea:-webkit-autofill {
         -webkit-text-fill-color: var(--content);
         box-shadow: 0 0 0 100px var(--control-surface) inset;
         caret-color: var(--content);
@@ -692,72 +689,19 @@
         display: none;
     }
 
-    /* Every dropdown in the application, styled once.
+    /* Every dropdown in the application: a control that is not an element.
        ------------------------------------------------------------------
-       On the element rather than in a class because a `<select>` is not a
-       component anybody should have to remember to decorate: the platform
-       control is themed by default, and markup that wants one just writes
-       `<select>`. Left as-is, browsers each draw their own - grey chrome on
-       Windows, a rounded pill on macOS, neither of which knows about dark
-       mode - so the one control the user reaches for most is the one that
-       looks foreign.
+       Worn by `ui::lookup`'s field and by `ui::lookup::SelectField`, which is
+       every dropdown there is - the browser's `<select>` is not used anywhere
+       and the element rule that used to style it has gone with it. See the
+       module docs on `SelectField` for why: a native dropdown is drawn by the
+       operating system, so it does not take the app's theme, its type or its
+       spacing, and on a dark page it opens a white menu.
 
-       `appearance: none` is what makes that possible, and it takes the
-       arrow with it, so the arrow is drawn back as a background image. It
-       is inlined as a data URI - the CSP forbids fetching one - and its
-       stroke is `currentColor`, so it follows the theme without a second
-       copy for dark mode. */
-    select {
-        appearance: none;
-        /* The same ceiling as a text box, and for the same reason - the form
-           kit asks for `w-full` so a select fills its column, and a column on a
-           wide screen is not a width any list of choices needs. */
-        max-width: var(--container-measure);
-        border-radius: var(--radius-control);
-        border: 1px solid var(--control-edge);
-        background-color: var(--control-surface);
-        color: var(--content);
-        /* Room on the right for the arrow, which sits in the padding. */
-        padding: 0.125rem 1.5rem 0.125rem 0.5rem;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-        background-repeat: no-repeat;
-        background-position: right 0.375rem center;
-        background-size: 0.75rem;
-        cursor: pointer;
-    }
-
-    /* The arrow is a black SVG tinted to the current text colour. `mask`
-       would be cleaner but cannot be combined with the background above, so
-       the dark theme swaps the stroke instead. */
-    :root[data-theme="dark"] select,
-    :root:not([data-theme="light"]) select {
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-    }
-
-    @media (prefers-color-scheme: light) {
-        :root:not([data-theme="dark"]) select {
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-        }
-    }
-
-    select:hover:not(:disabled) {
-        border-color: var(--control-edge-hover);
-    }
-
-    /* The popup list is drawn by the OS, not by us; these are the only two
-       properties it honours, and without them a dark theme opens a white
-       menu. */
-    select option {
-        background-color: var(--surface-raised);
-        color: var(--content);
-    }
-
-    /* A lookup field: a control that is not an element.
-       ------------------------------------------------------------------
-       Every other control in this application is styled on the element, which
-       is the arrangement that keeps a text box in a form and a text box in a
-       toolbar the same object. A lookup cannot be: it holds chips, a text box
-       and two buttons inside one box that has to look like a single control.
+       Every other control here is styled on the element, which is the
+       arrangement that keeps a text box in a form and a text box in a toolbar
+       the same object. These cannot be: they hold chips, a text box and two
+       buttons inside one box that has to read as a single control.
 
        So the *shell* borrows the control tokens, and the `<input>` inside it
        gives its own back - otherwise there are two borders, two backgrounds
@@ -789,6 +733,13 @@
 
     .lookup-shell:hover:not(:disabled, [aria-disabled="true"]) {
         border-color: var(--control-edge-hover);
+    }
+
+    /* Only the button presentation. The composite one has a text box across
+       most of its width, and a pointer over a caret is a lie about what a
+       click there does. */
+    button.lookup-shell:not(:disabled) {
+        cursor: pointer;
     }
 
     /* `:disabled` for the button presentation, `aria-disabled` for the
