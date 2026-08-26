@@ -32,13 +32,21 @@ use leptos::prelude::*;
 use leptos_meta::Title;
 
 use phonix_core::i18n::Message;
+use phonix_core::money::WorkspaceCurrency;
 
-use crate::components::page::{Badge, PageHeader, Panel, Tone};
+use crate::components::page::{
+    Badge, FormActions, Notice, PageHeader, Panel, PrimaryButton, Tone,
+};
 use crate::i18n::t;
 use crate::icons::Icon;
 use crate::l;
+use crate::server_fns::currency_fns::{enabled_currencies, save_currency};
 use crate::ui::card::CollapsibleCard;
 use crate::ui::editor::{EDITOR_GZIP_BYTES, RichText};
+use crate::ui::form::field::Choice;
+use crate::ui::lookup::{Choices, LookupField, QuickAdd};
+use crate::ui::table::DataGrid;
+use crate::ui::table::config::currencies::currencies_picker;
 use crate::ui::tabs::{Tab, TabbedPanel};
 
 #[component]
@@ -55,6 +63,10 @@ pub fn ui_library_page() -> impl IntoView {
             view! { <EditorTab /> }.into_any()
         })
         .icon(Icon::Pencil),
+        Tab::new("lookup", l!("ui_library.tab.lookup"), || {
+            view! { <LookupTab /> }.into_any()
+        })
+        .icon(Icon::Search),
         Tab::new("roadmap", l!("ui_library.tab.roadmap"), || {
             view! { <RoadmapTab /> }.into_any()
         })
@@ -120,6 +132,272 @@ fn cards_tab() -> impl IntoView {
     }
 }
 
+/// [`LookupField`], in all three presentations, over the currency list.
+///
+/// Currencies because they are the sample entity for anything in the kit that
+/// needs data: a real list, a real service behind the quick add, and a
+/// `GridConfig` that already exists. A fixture of the showcase's own would
+/// demonstrate the showcase.
+///
+/// # Why the chosen value is echoed under each field
+///
+/// A lookup that looks right and reports the wrong thing is the failure worth
+/// catching, and it is invisible from the control itself. The line underneath
+/// is what the field would put in a draft.
+#[component]
+fn lookup_tab() -> impl IntoView {
+    // Loaded once and shared by the list-shaped specimens. The table one does
+    // not use it: it goes through the grid, which fetches its own.
+    let currencies = OnceResource::new(enabled_currencies());
+
+    let one = RwSignal::new(Vec::<Choice>::new());
+    let many = RwSignal::new(Vec::<Choice>::new());
+    let picked = RwSignal::new(Vec::<Choice>::new());
+    let added = RwSignal::new(Vec::<Choice>::new());
+
+    view! {
+        <div class="space-y-3">
+            <Panel title=l!("ui_library.lookup.title") description=l!("ui_library.lookup.detail")>
+                <Suspense fallback=|| {
+                    view! { <p class="text-sm text-content-subtle">{l!("common.loading")}</p> }
+                }>
+                    {move || Suspend::new(async move {
+                        let choices = currencies
+                            .await
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|currency| {
+                                Choice::new(currency.code(), currency.name())
+                                    .detail(currency.code())
+                            })
+                            .collect::<Vec<_>>();
+
+                        // A clone per specimen, named up here. Each `Specimen`
+                        // holds its children in a closure, so one binding
+                        // cloned at three call sites is one binding moved into
+                        // the first closure and gone by the second.
+                        let (for_one, for_many) = (choices.clone(), choices.clone());
+
+                        view! {
+                            <div class="grid gap-6 lg:grid-cols-2">
+                                <Specimen
+                                    title=l!("ui_library.lookup.one.title")
+                                    detail=l!("ui_library.lookup.one.detail")
+                                    chosen=one
+                                >
+                                    <LookupField selected=one choices=Choices::List(for_one) />
+                                </Specimen>
+
+                                <Specimen
+                                    title=l!("ui_library.lookup.many.title")
+                                    detail=l!("ui_library.lookup.many.detail")
+                                    chosen=many
+                                >
+                                    <LookupField
+                                        selected=many
+                                        choices=Choices::List(for_many)
+                                        multiple=true
+                                    />
+                                </Specimen>
+
+                                <Specimen
+                                    title=l!("ui_library.lookup.add.title")
+                                    detail=l!("ui_library.lookup.add.detail")
+                                    chosen=added
+                                >
+                                    <LookupField
+                                        selected=added
+                                        choices=Choices::List(choices)
+                                        quick_add=QuickAdd::form(
+                                            l!("ui_library.lookup.add.action"),
+                                            l!("ui_library.lookup.add.title"),
+                                            |answer| {
+                                                view! { <AddCurrency answer=answer /> }.into_any()
+                                            },
+                                        )
+                                    />
+                                </Specimen>
+
+                                <Specimen
+                                    title=l!("ui_library.lookup.table.title")
+                                    detail=l!("ui_library.lookup.table.detail")
+                                    chosen=picked
+                                >
+                                    <LookupField
+                                        selected=picked
+                                        // The panel holds the currency list
+                                        // itself: same columns, same search,
+                                        // same filter. Nothing written here
+                                        // describes a currency, which is the
+                                        // whole of the argument for doing it
+                                        // this way.
+                                        choices=Choices::table(|answer: Callback<Choice>| {
+                                            let config = currencies_picker(
+                                                Callback::new(move |row: WorkspaceCurrency| {
+                                                    answer
+                                                        .run(
+                                                            Choice::new(
+                                                                    row.currency.code(),
+                                                                    row.currency.name(),
+                                                                )
+                                                                .detail(row.display()),
+                                                        );
+                                                }),
+                                            );
+                                            view! { <DataGrid config=config /> }.into_any()
+                                        })
+                                        quick_add=QuickAdd::page(
+                                            l!("ui_library.lookup.page"),
+                                            "/admin/settings?tab=currencies",
+                                        )
+                                    />
+                                </Specimen>
+                            </div>
+                        }
+                    })}
+                </Suspense>
+            </Panel>
+
+            <CollapsibleCard
+                title=l!("ui_library.lookup.seam.title")
+                detail=l!("ui_library.lookup.seam.detail")
+                icon=Icon::Blocks
+            >
+                <Prose>{l!("ui_library.lookup.seam.body")}</Prose>
+            </CollapsibleCard>
+        </div>
+    }
+}
+
+/// One lookup, labelled, with what it currently holds written underneath.
+#[component]
+fn specimen(
+    #[prop(into)] title: String,
+    #[prop(into)] detail: String,
+    chosen: RwSignal<Vec<Choice>>,
+    children: Children,
+) -> impl IntoView {
+    view! {
+        <div class="space-y-1.5">
+            <p class="text-sm font-medium text-content">{title}</p>
+            <p class="max-w-long text-xs leading-relaxed text-content-subtle">{detail}</p>
+            {children()}
+            <p class="font-mono text-2xs text-content-subtle">
+                {move || {
+                    let chosen = chosen.get();
+                    if chosen.is_empty() {
+                        l!("ui_library.lookup.empty")
+                    } else {
+                        chosen
+                            .iter()
+                            .map(|choice| choice.value.clone())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    }
+                }}
+            </p>
+        </div>
+    }
+}
+
+/// The quick-add form, for the specimen that has one.
+///
+/// A real service call, not a stub. The claim being demonstrated is that a
+/// value discovered to be missing can be created without leaving the form, and
+/// a fake one would demonstrate a dialog closing.
+#[component]
+fn add_currency(answer: Callback<Choice>) -> impl IntoView {
+    let code = RwSignal::new(String::new());
+    let symbol = RwSignal::new(String::new());
+    let failed = RwSignal::new(None::<String>);
+    let saving = RwSignal::new(false);
+
+    let submit = move |event: leptos::ev::SubmitEvent| {
+        event.prevent_default();
+        let typed = code.get_untracked().trim().to_uppercase();
+        if typed.is_empty() {
+            return;
+        }
+
+        saving.set(true);
+        failed.set(None);
+        let wanted = symbol.get_untracked().trim().to_owned();
+
+        leptos::task::spawn_local(async move {
+            let result =
+                save_currency(typed.clone(), true, (!wanted.is_empty()).then_some(wanted)).await;
+            let _ = saving.try_set(false);
+
+            match result {
+                Ok(list) => {
+                    // Answered from what the server stored rather than from
+                    // what was typed: the service knows the currency's real
+                    // name, and echoing the input back would put "usd" in a
+                    // field that should read "US Dollar".
+                    let stored = list.iter().find(|row| row.currency.code() == typed).map(
+                        |row| {
+                            Choice::new(row.currency.code(), row.currency.name())
+                                .detail(row.display())
+                        },
+                    );
+
+                    match stored {
+                        Some(choice) => answer.run(choice),
+                        None => {
+                            let _ = failed.try_set(Some(l!("ui_library.lookup.add.missing")));
+                        }
+                    }
+                }
+                Err(err) => {
+                    let _ = failed.try_set(Some(err.to_string()));
+                }
+            }
+        });
+    };
+
+    view! {
+        <form class="space-y-3" on:submit=submit>
+            <Notice message=Signal::derive(move || failed.get()) tone=Tone::Danger />
+
+            <div>
+                <label for="quick-currency-code" class="text-sm font-medium text-content">
+                    {l!("field.code")}
+                </label>
+                <input
+                    id="quick-currency-code"
+                    class="mt-1"
+                    maxlength="3"
+                    placeholder="EUR"
+                    prop:value=move || code.get()
+                    on:input=move |event| code.set(event_target_value(&event))
+                />
+            </div>
+
+            <div>
+                <label for="quick-currency-symbol" class="text-sm font-medium text-content">
+                    {l!("field.symbol")}
+                </label>
+                <input
+                    id="quick-currency-symbol"
+                    class="mt-1"
+                    maxlength="8"
+                    prop:value=move || symbol.get()
+                    on:input=move |event| symbol.set(event_target_value(&event))
+                />
+            </div>
+
+            <FormActions>
+                <PrimaryButton
+                    label=l!("common.add")
+                    icon=Icon::Plus
+                    button_type="submit"
+                    pending=Signal::derive(move || saving.get())
+                />
+            </FormActions>
+        </form>
+    }
+}
+
 /// What is agreed to be built, and where each one has got to.
 ///
 /// Drawn with the card it is the roadmap for, which is deliberate: the entry
@@ -153,7 +431,7 @@ fn roadmap_tab() -> impl IntoView {
                     detail=l!("ui_library.roadmap.select.detail")
                     icon=Icon::Search
                 >
-                    <Status tone=Tone::Neutral label=l!("ui_library.status.planned") />
+                    <Status tone=Tone::Success label=l!("ui_library.status.built") />
                     <Prose>{l!("ui_library.roadmap.select.body")}</Prose>
                 </CollapsibleCard>
 
@@ -162,8 +440,19 @@ fn roadmap_tab() -> impl IntoView {
                     detail=l!("ui_library.roadmap.rows.detail")
                     icon=Icon::ClipboardList
                 >
-                    <Status tone=Tone::Neutral label=l!("ui_library.status.planned") />
+                    <Status tone=Tone::Success label=l!("ui_library.status.built") />
                     <Prose>{l!("ui_library.roadmap.rows.body")}</Prose>
+                </CollapsibleCard>
+
+                // Not built, and here rather than in a notebook because this
+                // page is where the agreed list lives.
+                <CollapsibleCard
+                    title=l!("ui_library.roadmap.forms.title")
+                    detail=l!("ui_library.roadmap.forms.detail")
+                    icon=Icon::ClipboardList
+                >
+                    <Status tone=Tone::Neutral label=l!("ui_library.status.planned") />
+                    <Prose>{l!("ui_library.roadmap.forms.body")}</Prose>
                 </CollapsibleCard>
             </div>
         </Panel>

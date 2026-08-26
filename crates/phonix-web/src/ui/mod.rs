@@ -35,6 +35,7 @@ pub mod calendar;
 pub mod card;
 pub mod editor;
 pub mod form;
+pub mod lookup;
 pub mod table;
 pub mod tabs;
 pub mod viewer;
