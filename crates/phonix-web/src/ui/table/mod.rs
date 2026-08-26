@@ -162,17 +162,29 @@ pub fn data_grid<T: GridRow>(config: GridConfig<T>) -> impl IntoView {
     // See `reloading` below for what it is for; `<Transition/>` sets it.
     let reloading = RwSignal::new(false);
 
+    // A picker is a simple table inside somebody else's card, and it is a
+    // different enough thing to be worth reading in one place. See
+    // `GridConfig::choosing` for what it loses and why.
+    let picking = config.is_picker();
+
     // Fixed for the life of the grid, so they are taken now rather than read
     // out of the configuration on every render.
-    let choices: Vec<ColumnChoice> = config
-        .columns
-        .iter()
-        .map(|column| ColumnChoice {
-            field: column.field,
-            header: column.header.clone(),
-            hideable: column.hideable,
-        })
-        .collect();
+    //
+    // None of them for a picker: an empty list is what turns the column menu
+    // off, in the same way an absent export stem turns the export off.
+    let choices: Vec<ColumnChoice> = if picking {
+        Vec::new()
+    } else {
+        config
+            .columns
+            .iter()
+            .map(|column| ColumnChoice {
+                field: column.field,
+                header: column.header.clone(),
+                hideable: column.hideable,
+            })
+            .collect()
+    };
 
     let filter_controls: Vec<FilterControl> = config
         .filters
@@ -189,7 +201,7 @@ pub fn data_grid<T: GridRow>(config: GridConfig<T>) -> impl IntoView {
 
     let toolbar_actions = config.toolbar.clone();
     let search_placeholder = config.search_placeholder.clone();
-    let export_stem = config.export_stem;
+    let export_stem = config.export_stem.filter(|_| !picking);
     let per_page_choices = config.pagination.choices;
     let grid_id = config.id;
 
@@ -206,18 +218,31 @@ pub fn data_grid<T: GridRow>(config: GridConfig<T>) -> impl IntoView {
         export_stem.map(|stem| Callback::new(move |()| export_now(stem, config, state, loaded)));
 
     view! {
-        <div class="space-y-3">
-            <GridToolbar
-                grid_id=grid_id
-                state=state
-                actions=toolbar_actions
-                user=viewer
-                search_placeholder=search_placeholder
-                filters=filter_controls
-                dates=date_controls
-                columns=choices
-                on_export=on_export
-            />
+        // A picker brings no spacing of its own. It is drawn inside a panel
+        // that is already a card, and a bordered box inset from another
+        // bordered box is two frames where the eye expects one.
+        <div class=if picking { "" } else { "space-y-3" }>
+            // Pinned for a picker, because the panel it sits in is what
+            // scrolls: a search box that leaves the top of the list is a
+            // search box that cannot be corrected without scrolling back for
+            // it. A list screen scrolls the whole page and needs none of this.
+            <div class=if picking {
+                "sticky top-0 z-10 border-b border-edge bg-surface-raised px-2 py-2"
+            } else {
+                ""
+            }>
+                <GridToolbar
+                    grid_id=grid_id
+                    state=state
+                    actions=toolbar_actions
+                    user=viewer
+                    search_placeholder=search_placeholder
+                    filters=filter_controls
+                    dates=date_controls
+                    columns=choices
+                    on_export=on_export
+                />
+            </div>
 
             {move || {
                 notice
@@ -255,7 +280,11 @@ pub fn data_grid<T: GridRow>(config: GridConfig<T>) -> impl IntoView {
             // finishes in 30ms should not flash, but it must not accept a click
             // in those 30ms either.
             <div
-                class="overflow-hidden rounded-card border border-edge bg-surface-raised transition-opacity delay-150 duration-200"
+                class=if picking {
+                    "transition-opacity delay-150 duration-200"
+                } else {
+                    "overflow-hidden rounded-card border border-edge bg-surface-raised transition-opacity delay-150 duration-200"
+                }
                 class:pointer-events-none=move || reloading.get()
                 class:opacity-60=move || reloading.get()
                 aria-busy=move || if reloading.get() { "true" } else { "false" }
@@ -447,7 +476,8 @@ fn grid_body<T: GridRow>(
     // A picker answers with the row instead of offering things to do to it,
     // so the actions column is not drawn at all - see `GridConfig::choosing`.
     let choosing = config.with_value(|config| config.choosing);
-    let has_actions = !actions.is_empty() && choosing.is_none();
+    let picking = choosing.is_some();
+    let has_actions = !actions.is_empty() && !picking;
     let actions = StoredValue::new(actions);
 
     let visible: Vec<Column<T>> = config.with_value(|config| {
@@ -537,7 +567,32 @@ fn grid_body<T: GridRow>(
             </table>
         </div>
 
-        <GridPager state=state footing=Signal::derive(move || footing) choices=per_page_choices />
+        {(!picking)
+            .then(|| {
+                view! {
+                    <GridPager
+                        state=state
+                        footing=Signal::derive(move || footing)
+                        choices=per_page_choices
+                    />
+                }
+            })}
+
+        // A picker has no pager, and that is only honest if it admits when it
+        // is holding rows back. Silence here would be a list that stops at
+        // fifty and looks complete. See `GridConfig::choosing`.
+        {(picking && footing.total > footing.last)
+            .then(|| {
+                view! {
+                    <p class="border-t border-edge px-3 py-2 text-xs text-content-muted">
+                        {l!(
+                            "grid.picker.more",
+                            shown = footing.last.to_string(),
+                            total = footing.total.to_string(),
+                        )}
+                    </p>
+                }
+            })}
     }
     .into_any()
 }

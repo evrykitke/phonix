@@ -19,7 +19,7 @@ use phonix_core::money::WorkspaceCurrency;
 use phonix_core::permissions;
 use phonix_core::query::Sort;
 
-use super::{GridConfig, Pagination};
+use super::GridConfig;
 use crate::components::page::{Badge, Tone};
 use crate::icons::Icon;
 use crate::l;
@@ -110,10 +110,10 @@ pub fn currencies_grid(
 /// two releases ago.
 pub fn currencies_picker(on_choose: Callback<WorkspaceCurrency>) -> GridConfig<WorkspaceCurrency> {
     described()
-        // A picker fits in a panel over a form, so it opens narrower and shows
-        // fewer rows than a screen given to the list would.
+        // A picker fits in a panel over a form, so it opens narrower than a
+        // screen given to the whole list would. How many rows it shows is not
+        // this file's business - see `GridConfig::choosing`.
         .min_width("sm:min-w-[28rem]")
-        .paginated(Pagination::of(&[8, 25, 50]))
         .choosing(on_choose)
 }
 

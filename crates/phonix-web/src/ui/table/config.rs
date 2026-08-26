@@ -56,6 +56,14 @@ use crate::icons::Icon;
 /// The page sizes offered when a configuration does not say.
 pub const PER_PAGE_CHOICES: &[u32] = &[10, 25, 50, 100];
 
+/// How many rows a picker holds.
+///
+/// A picker has no pager - see [`GridConfig::choosing`] - so this is the whole
+/// list there is to scroll, and the grid says so under the last row when there
+/// are more. High enough that most lists are entirely there; low enough that a
+/// popover over a half-filled form never becomes a page in its own right.
+pub const PICKER_ROWS: u32 = 50;
+
 /// How many rows a page holds, and what else may be chosen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pagination {
@@ -255,7 +263,8 @@ impl<T: 'static> GridConfig<T> {
         debug_assert!(
             !action.opens_on_row_click()
                 || !self.actions.iter().any(RowAction::opens_on_row_click),
-            "`{}` is the second action on this grid to claim the row click, and a click can              only do one thing",
+            "`{}` is the second action on this grid to claim the row click, and a click \
+             can only do one thing",
             action.label,
         );
 
@@ -288,8 +297,16 @@ impl<T: 'static> GridConfig<T> {
         self
     }
 
+    /// How many rows a page holds, and what else may be chosen.
+    ///
+    /// Not for a picker, which has neither - see [`choosing`](Self::choosing).
     #[must_use]
-    pub const fn paginated(mut self, pagination: Pagination) -> Self {
+    pub fn paginated(mut self, pagination: Pagination) -> Self {
+        debug_assert!(
+            !self.is_picker(),
+            "a picker draws no pager, so this page size would be a control nobody is offered",
+        );
+
         self.pagination = pagination;
         self
     }
@@ -334,11 +351,23 @@ impl<T: 'static> GridConfig<T> {
     /// popover over a half-filled form there is nothing to navigate to and
     /// nothing worth doing to a row, and a menu of verbs there would be a way
     /// to leave the form by accident.
+    ///
+    /// It loses the rest of the list screen's furniture too, and for the same
+    /// reason: a picker is a simple table. No export - the rows are somebody
+    /// else's field, not a report. No column menu - a panel is not where
+    /// anybody arranges a table. No pager - it shows [`PICKER_ROWS`] and says
+    /// so, because the way to reach the six hundredth currency is to type its
+    /// name, not to walk twelve pages of a popover looking for it. The search
+    /// box stays, and it is the whole navigation.
     #[must_use]
     pub fn choosing(mut self, on_choose: Callback<T>) -> Self {
         debug_assert!(
             self.actions.is_empty(),
             "a picker has no row menu, so the actions on it would never be drawn",
+        );
+        debug_assert!(
+            self.pagination == Pagination::default(),
+            "a picker draws no pager, so this page size would be a control nobody is offered",
         );
 
         self.choosing = Some(on_choose);
@@ -369,7 +398,13 @@ impl<T: 'static> GridConfig<T> {
     pub fn initial_request(&self) -> PageRequest {
         PageRequest {
             page: 1,
-            per_page: self.pagination.default,
+            // A picker's page is the whole list it will ever show, so the size
+            // is not the configuration's business - see `choosing`.
+            per_page: if self.is_picker() {
+                PICKER_ROWS
+            } else {
+                self.pagination.default
+            },
             search: String::new(),
             sort: self.initial_sort.clone(),
             // Every filter opens on its first choice, which is "everything" -

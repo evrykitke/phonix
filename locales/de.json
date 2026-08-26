@@ -612,6 +612,7 @@
   "grid.no_matches.title": "Nichts stimmt damit überein",
   "grid.no_rows": "Keine Zeilen",
   "grid.page": "Seite {page}",
+  "grid.picker.more": "Die ersten {shown} von {total} werden angezeigt. Suchen Sie nach den übrigen.",
   "grid.previous": "Zurück",
   "grid.row_actions": "Aktionen",
   "grid.rows": "Zeilen",

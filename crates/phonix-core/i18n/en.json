@@ -612,6 +612,7 @@
   "grid.no_matches.title": "Nothing matches that",
   "grid.no_rows": "No rows",
   "grid.page": "Page {page}",
+  "grid.picker.more": "Showing the first {shown} of {total}. Search for the rest.",
   "grid.previous": "Previous",
   "grid.row_actions": "Actions",
   "grid.rows": "Rows",

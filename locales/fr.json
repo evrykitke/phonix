@@ -612,6 +612,7 @@
   "grid.no_matches.title": "Aucun résultat",
   "grid.no_rows": "Aucune ligne",
   "grid.page": "Page {page}",
+  "grid.picker.more": "Affichage des {shown} premiers sur {total}. Recherchez les autres.",
   "grid.previous": "Précédent",
   "grid.row_actions": "Actions",
   "grid.rows": "Lignes",
