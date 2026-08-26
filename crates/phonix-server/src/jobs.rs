@@ -491,6 +491,12 @@ async fn prune_tenant(tenant: &TenantSlug, pool: &PgPool) {
 /// A tenant whose pool cannot be opened is skipped with a warning rather than
 /// ending the pass: one unreachable database must not stop the other ninety-nine
 /// from having their work done.
+///
+/// The rows read here are carried into `resolve_record` rather than being
+/// reduced back to slugs. Handing back the slug would have the registry read
+/// each row a second time, so a pass would cost one query per tenant on top of
+/// the single list - growing with the catalog, on a loop that runs whether or
+/// not there is any work to do.
 async fn active_tenants(state: &AppState) -> Vec<(TenantSlug, PgPool)> {
     let records = match state.catalog.list().await {
         Ok(records) => records,
@@ -511,10 +517,14 @@ async fn active_tenants(state: &AppState) -> Vec<(TenantSlug, PgPool)> {
             continue;
         }
 
-        match state.tenants.resolve(&record.slug).await {
-            Ok(handle) => open.push((record.slug, handle.pool.clone())),
+        // Kept back for the log line and the caller, because the record itself
+        // is handed over.
+        let slug = record.slug.clone();
+
+        match state.tenants.resolve_record(record).await {
+            Ok(handle) => open.push((slug, handle.pool)),
             Err(err) => {
-                tracing::warn!(tenant = %record.slug, error = %err, "skipping a tenant this pass");
+                tracing::warn!(tenant = %slug, error = %err, "skipping a tenant this pass");
             }
         }
     }

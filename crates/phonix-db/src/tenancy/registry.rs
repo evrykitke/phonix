@@ -76,10 +76,33 @@ impl TenantRegistry {
     /// [`DbError::TenantInactive`] for a suspended or archived one.
     pub async fn resolve(&self, slug: &TenantSlug) -> Result<TenantHandle, DbError> {
         let record = self.record_for(slug).await?;
+        self.open(record).await
+    }
 
+    /// The same thing, for a caller that already holds the catalog row.
+    ///
+    /// [`resolve`](Self::resolve) starts from a slug, so it has to read the
+    /// catalog to learn which database the tenant lives in. A caller that has
+    /// *just* read the catalog itself would otherwise hand the slug back and
+    /// have the identical row read a second time - and the background sweep in
+    /// `phonix-server` reads every row at the top of every pass, so on an idle
+    /// deployment that second read was the majority of all catalog traffic.
+    ///
+    /// The row is used as given. That is only correct for a row the caller read
+    /// moments ago: a stale one names a database the tenant may since have been
+    /// moved off. Anything holding a row of unknown age wants `resolve`.
+    pub async fn resolve_record(&self, record: TenantRecord) -> Result<TenantHandle, DbError> {
+        self.open(Arc::new(record)).await
+    }
+
+    /// Attach a pool to a row, refusing one that may not serve traffic.
+    ///
+    /// The shared tail of both entry points, so that the status check cannot
+    /// come to mean one thing for a request and another for a background pass.
+    async fn open(&self, record: Arc<TenantRecord>) -> Result<TenantHandle, DbError> {
         if !record.status.serves_traffic() {
             return Err(DbError::TenantInactive {
-                slug: slug.to_string(),
+                slug: record.slug.to_string(),
                 status: format!("{:?}", record.status).to_lowercase(),
             });
         }
