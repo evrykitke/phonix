@@ -194,8 +194,19 @@ pub fn select_field(
         }
     };
 
+    // `try_run`, like every other reactive touch in this module: a select can
+    // sit inside a grid row or a pager, and a transition disposes the owner of
+    // what is on screen the moment the table starts reloading. Running a
+    // callback out of a disposed arena is a panic, and a panic in wasm takes
+    // the whole page with it. See the note on zombie rows in `ui::table::menu`.
+    //
+    // Answering with nothing is the honest outcome here anyway: a control whose
+    // owner is gone is about to be replaced, and the caller it would report to
+    // no longer exists. What must not happen is that the caller is *alive* and
+    // the callback is not - which is why a long-lived callback is the fix and
+    // this is only the floor under it.
     let take = move |choice: &Choice| {
-        on_change.run(choice.value.clone());
+        let _ = on_change.try_run(choice.value.clone());
         let _ = open.try_set(false);
         let _ = query.try_set(String::new());
     };
@@ -309,7 +320,7 @@ pub fn select_field(
                                                 title=l!("lookup.clear")
                                                 on:click=move |event| {
                                                     event.stop_propagation();
-                                                    on_change.run(String::new());
+                                                    let _ = on_change.try_run(String::new());
                                                 }
                                             >
                                                 <Icon icon=Icon::X size=IconSize::Xs />

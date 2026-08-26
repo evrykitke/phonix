@@ -6,6 +6,22 @@
 //! 9" only answers it after they have worked out how big a page is, and it is
 //! the same width on screen.
 //!
+//! # Nothing here owns a reactive value
+//!
+//! The strip is drawn inside the grid's `Transition`, and a transition disposes
+//! the owner of what is on screen the moment a refetch starts - see the note on
+//! zombie rows in [`menu`](super::menu). A `Callback` or a derived signal made
+//! here would therefore be gone while the control that reads it is still on the
+//! screen and still clickable, and reading one is a panic that takes the whole
+//! page with it.
+//!
+//! Hence the shape of this file. The footing arrives as a plain value, the
+//! buttons carry plain closures, and the one `Callback` a `SelectField` insists
+//! on is made by the grid and handed in. All that is left for a handler to
+//! touch is `state`, whose signals belong to the grid itself and outlive every
+//! reload - which makes the strip correct during the window rather than merely
+//! inert.
+//!
 //! # Numbered pages stay out of the way on a phone
 //!
 //! Previous and next are always there. The numbers between them are a window
@@ -38,70 +54,62 @@ const WINDOW: u32 = 2;
 #[component]
 pub fn grid_pager(
     state: GridState,
-    footing: Signal<Footing>,
+    /// What is on the screen. A plain value rather than a signal: it describes
+    /// the page this strip was drawn for, and the next page brings its own.
+    footing: Footing,
     /// Page sizes on offer. Empty hides the control.
     choices: &'static [u32],
+    /// What to do when a different page size is chosen. Handed in rather than
+    /// made here - see the module note on why nothing in this strip owns a
+    /// reactive value.
+    on_per_page: Callback<String>,
 ) -> impl IntoView {
     view! {
         <div class="flex flex-wrap items-center justify-between gap-2 border-t border-edge px-3 py-2 text-xs text-content-muted">
             <div class="flex items-center gap-3">
                 <span aria-live="polite">
-                    {move || {
-                        let f = footing.get();
-
-                        if f.total == 0 {
-                            l!("grid.no_rows")
-                        } else {
-                            l!(
-                                "grid.showing",
-                                first = f.first.to_string(),
-                                last = f.last.to_string(),
-                                total = f.total.to_string(),
-                            )
-                        }
+                    {if footing.total == 0 {
+                        l!("grid.no_rows")
+                    } else {
+                        l!(
+                            "grid.showing",
+                            first = footing.first.to_string(),
+                            last = footing.last.to_string(),
+                            total = footing.total.to_string(),
+                        )
                     }}
                 </span>
 
                 {(!choices.is_empty())
-                    .then(|| view! { <PerPage state=state choices=choices /> })}
+                    .then(|| {
+                        view! { <PerPage state=state choices=choices on_change=on_per_page /> }
+                    })}
             </div>
 
             <div class="flex items-center gap-1">
                 <Step
                     label=l!("grid.previous")
                     icon=Icon::ChevronLeft
-                    disabled=Signal::derive(move || footing.get().page <= 1)
-                    on_click=Callback::new(move |()| {
-                        state.go_to(footing.get().page.saturating_sub(1))
-                    })
+                    disabled={footing.page <= 1}
+                    on_click=move || state.go_to(footing.page.saturating_sub(1))
                 />
 
-                <span class="px-1 sm:hidden">
-                    {move || {
-                        let f = footing.get();
-                        format!("{} / {}", f.page, f.pages)
-                    }}
-                </span>
+                <span class="px-1 sm:hidden">{format!("{} / {}", footing.page, footing.pages)}</span>
 
                 <div class="hidden items-center gap-1 sm:flex">
-                    {move || {
-                        let f = footing.get();
-
-                        window(f.page, f.pages)
-                            .into_iter()
-                            .map(|page| view! { <PageNumber state=state page=page current=f.page /> })
-                            .collect::<Vec<_>>()
-                    }}
+                    {window(footing.page, footing.pages)
+                        .into_iter()
+                        .map(|page| {
+                            view! { <PageNumber state=state page=page current=footing.page /> }
+                        })
+                        .collect::<Vec<_>>()}
                 </div>
 
                 <Step
                     label=l!("grid.next")
                     icon=Icon::ChevronRight
-                    disabled=Signal::derive(move || {
-                        let f = footing.get();
-                        f.page >= f.pages
-                    })
-                    on_click=Callback::new(move |()| state.go_to(footing.get().page + 1))
+                    disabled={footing.page >= footing.pages}
+                    on_click=move || state.go_to(footing.page + 1)
                 />
             </div>
         </div>
@@ -125,7 +133,11 @@ fn window(page: u32, pages: u32) -> Vec<u32> {
 }
 
 #[component]
-fn per_page(state: GridState, choices: &'static [u32]) -> impl IntoView {
+fn per_page(
+    state: GridState,
+    choices: &'static [u32],
+    on_change: Callback<String>,
+) -> impl IntoView {
     let options = choices
         .iter()
         .map(|choice| Choice::new(choice.to_string(), choice.to_string()))
@@ -136,13 +148,7 @@ fn per_page(state: GridState, choices: &'static [u32]) -> impl IntoView {
             <span class="hidden sm:inline">{l!("grid.rows")}</span>
             <SelectField
                 value=Signal::derive(move || state.per_page.get().to_string())
-                // A value that will not parse is one this control did not
-                // offer, so it is dropped rather than guessed at.
-                on_change=Callback::new(move |value: String| {
-                    if let Ok(per_page) = value.parse::<u32>() {
-                        state.set_per_page(per_page);
-                    }
-                })
+                on_change=on_change
                 options=options
                 label=l!("grid.rows_per_page")
                 class="h-6 w-auto min-h-0 px-1.5 text-xs"
@@ -155,16 +161,18 @@ fn per_page(state: GridState, choices: &'static [u32]) -> impl IntoView {
 fn step(
     #[prop(into)] label: String,
     icon: Icon,
-    #[prop(into)] disabled: Signal<bool>,
-    on_click: Callback<()>,
+    disabled: bool,
+    /// A plain closure rather than a `Callback`, because a callback is an arena
+    /// value and this button outlives its owner every time the table reloads.
+    on_click: impl Fn() + 'static,
 ) -> impl IntoView {
     view! {
         <button
             type="button"
             class="grid size-7 place-items-center rounded-control border border-edge text-content-muted hover:bg-surface-hover hover:text-content disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-            disabled=move || disabled.get()
+            disabled=disabled
             aria-label=label
-            on:click=move |_| on_click.run(())
+            on:click=move |_| on_click()
         >
             <Icon icon=icon size=IconSize::Xs />
         </button>

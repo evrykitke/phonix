@@ -339,7 +339,7 @@ pub fn lookup_field(
     // panel away: somebody who has just created the value they were looking
     // for is finished with the list.
     let created = Callback::new(move |choice: Choice| {
-        choose.run(choice);
+        let _ = choose.try_run(choice);
         let _ = adding.try_set(false);
         let _ = open.try_set(false);
     });
@@ -427,7 +427,7 @@ pub fn lookup_field(
                     && let Some(choice) = matching.get_untracked().get(active.get_untracked())
                 {
                     event.prevent_default();
-                    choose.run(choice.clone());
+                    let _ = choose.try_run(choice.clone());
                 }
             }
             "Escape" => {
@@ -787,7 +787,7 @@ fn list_body(
                                 // listener would otherwise race this one.
                                 on:pointerdown=move |event| {
                                     event.prevent_default();
-                                    choose.run(picked.clone());
+                                    let _ = choose.try_run(picked.clone());
                                 }
                                 on:pointerenter=move |_| {
                                     let _ = active.try_set(index);
@@ -839,7 +839,9 @@ fn quick_add_dialog(
     view! {
         <div
             class="fixed inset-0 z-[70] grid place-items-center bg-overlay p-4"
-            on:click=move |_| close.run(())
+            on:click=move |_| {
+                let _ = close.try_run(());
+            }
         >
             <div
                 class="alert-enter w-[min(32rem,100%)] overflow-hidden rounded-card border border-edge bg-surface-raised shadow-pop"
@@ -855,7 +857,9 @@ fn quick_add_dialog(
                         type="button"
                         class="shrink-0 text-content-subtle hover:text-content"
                         aria-label=l!("common.close")
-                        on:click=move |_| close.run(())
+                        on:click=move |_| {
+                            let _ = close.try_run(());
+                        }
                     >
                         <Icon icon=Icon::X size=IconSize::Sm />
                     </button>

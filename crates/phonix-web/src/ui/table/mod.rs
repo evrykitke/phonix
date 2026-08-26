@@ -217,6 +217,21 @@ pub fn data_grid<T: GridRow>(config: GridConfig<T>) -> impl IntoView {
     let on_export =
         export_stem.map(|stem| Callback::new(move |()| export_now(stem, config, state, loaded)));
 
+    // Made here rather than in the pager, for the same reason `on_export` is: a
+    // `Callback` lives in whichever owner is current when it is made, and the
+    // pager is built inside the `Transition` below - whose owner is disposed the
+    // instant a refetch starts, while its markup stays on the screen. A page
+    // size chosen from a callback allocated there is a panic rather than a
+    // narrower table. This one belongs to the grid and outlives every reload.
+    //
+    // A value that will not parse is one the control did not offer, so it is
+    // dropped rather than guessed at.
+    let on_per_page = Callback::new(move |value: String| {
+        if let Ok(per_page) = value.parse::<u32>() {
+            state.set_per_page(per_page);
+        }
+    });
+
     view! {
         // A picker brings no spacing of its own. It is drawn inside a panel
         // that is already a card, and a bordered box inset from another
@@ -347,6 +362,7 @@ pub fn data_grid<T: GridRow>(config: GridConfig<T>) -> impl IntoView {
                                             handle=handle
                                             page=page
                                             per_page_choices=per_page_choices
+                                            on_per_page=on_per_page
                                         />
                                     }
                                         .into_any()
@@ -441,6 +457,9 @@ fn grid_body<T: GridRow>(
     handle: GridHandle,
     page: Page<T>,
     per_page_choices: &'static [u32],
+    /// Set the page size. Made by the grid, because this component's own owner
+    /// does not survive a reload - see the note on zombie rows in [`menu`].
+    on_per_page: Callback<String>,
 ) -> impl IntoView {
     if page.is_empty() {
         let empty = config.with_value(|config| {
@@ -572,8 +591,9 @@ fn grid_body<T: GridRow>(
                 view! {
                     <GridPager
                         state=state
-                        footing=Signal::derive(move || footing)
+                        footing=footing
                         choices=per_page_choices
+                        on_per_page=on_per_page
                     />
                 }
             })}
