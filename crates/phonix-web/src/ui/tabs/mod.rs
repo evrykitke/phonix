@@ -201,6 +201,76 @@ pub fn tabbed_panel(
                 // as tabs are added, which moves the content under the pointer.
                 class="flex gap-1 overflow-x-auto border-b border-edge"
             >
+                // Which tabs exist is a permission question, and the viewer is a
+                // blocking resource, so asked outside a boundary it is asked at two
+                // different moments: the server renders this pass before the session
+                // resolves, sees nobody, and drops every gated tab; the browser hydrates
+                // with the session already serialized into the document and draws them.
+                // A different number of buttons is not a strip drawn wrong - it is an
+                // unrecoverable hydration error, and a wasm panic takes the page.
+                //
+                // Nothing for a fallback, and no flash to hide: a blocking resource
+                // resolves before the first paint, so the server simply waits here.
+                <Suspense fallback=|| ()>
+                    {move || {
+                        let user = viewer.get();
+                        let requested = query.with(|params| params.get(TAB_PARAM));
+
+                        let visible: Vec<Tab> = tabs
+                            .with_value(|tabs| {
+                                tabs.iter().filter(|tab| tab.visible_to(user.as_ref())).cloned().collect()
+                            });
+
+                        let current = active(&visible, requested.as_deref()).map(|tab| tab.key);
+
+                        visible
+                            .into_iter()
+                            .map(|tab| {
+                                let selected = current == Some(tab.key);
+                                let key = tab.key;
+                                let icon = tab.icon;
+                                let label = tab.label.clone();
+
+                                let class = if selected {
+                                    "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 \
+                                     border-brand px-3 py-2 text-sm font-medium text-content"
+                                } else {
+                                    "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 \
+                                     border-transparent px-3 py-2 text-sm text-content-muted \
+                                     hover:border-edge hover:text-content"
+                                };
+
+                                view! {
+                                    <button
+                                        type="button"
+                                        role="tab"
+                                        id=format!("{id}-tab-{key}")
+                                        aria-controls=format!("{id}-panel-{key}")
+                                        aria-selected=if selected { "true" } else { "false" }
+                                        class=class
+                                        on:click=move |_| go.run(key)
+                                    >
+                                        {icon.map(|icon| view! { <Icon icon=icon size=IconSize::Xs /> })}
+                                        {label}
+                                    </button>
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    }}
+                </Suspense>
+            </div>
+
+            // The same read as the strip, and it cannot share that boundary: which
+            // tab is active is decided from the visible set, so the panel needs the
+            // viewer exactly as much as the strip does, and one gated tab means a
+            // different panel - a different subtree - on the two sides.
+            //
+            // This boundary reaches further than it looks. A resource read anywhere
+            // inside the tab's own content, outside a boundary of its own, is
+            // gathered here, and the whole panel then waits for it. That is the
+            // price of choosing the tab at all, and it is the rule that content was
+            // already under: a tab that loads something owns the boundary for it.
+            <Suspense fallback=|| ()>
                 {move || {
                     let user = viewer.get();
                     let requested = query.with(|params| params.get(TAB_PARAM));
@@ -210,66 +280,20 @@ pub fn tabbed_panel(
                             tabs.iter().filter(|tab| tab.visible_to(user.as_ref())).cloned().collect()
                         });
 
-                    let current = active(&visible, requested.as_deref()).map(|tab| tab.key);
-
-                    visible
-                        .into_iter()
+                    active(&visible, requested.as_deref())
                         .map(|tab| {
-                            let selected = current == Some(tab.key);
-                            let key = tab.key;
-                            let icon = tab.icon;
-                            let label = tab.label.clone();
-
-                            let class = if selected {
-                                "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 \
-                                 border-brand px-3 py-2 text-sm font-medium text-content"
-                            } else {
-                                "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 \
-                                 border-transparent px-3 py-2 text-sm text-content-muted \
-                                 hover:border-edge hover:text-content"
-                            };
-
                             view! {
-                                <button
-                                    type="button"
-                                    role="tab"
-                                    id=format!("{id}-tab-{key}")
-                                    aria-controls=format!("{id}-panel-{key}")
-                                    aria-selected=if selected { "true" } else { "false" }
-                                    class=class
-                                    on:click=move |_| go.run(key)
+                                <div
+                                    role="tabpanel"
+                                    id=format!("{id}-panel-{}", tab.key)
+                                    aria-labelledby=format!("{id}-tab-{}", tab.key)
                                 >
-                                    {icon.map(|icon| view! { <Icon icon=icon size=IconSize::Xs /> })}
-                                    {label}
-                                </button>
+                                    {tab.view()}
+                                </div>
                             }
                         })
-                        .collect::<Vec<_>>()
                 }}
-            </div>
-
-            {move || {
-                let user = viewer.get();
-                let requested = query.with(|params| params.get(TAB_PARAM));
-
-                let visible: Vec<Tab> = tabs
-                    .with_value(|tabs| {
-                        tabs.iter().filter(|tab| tab.visible_to(user.as_ref())).cloned().collect()
-                    });
-
-                active(&visible, requested.as_deref())
-                    .map(|tab| {
-                        view! {
-                            <div
-                                role="tabpanel"
-                                id=format!("{id}-panel-{}", tab.key)
-                                aria-labelledby=format!("{id}-tab-{}", tab.key)
-                            >
-                                {tab.view()}
-                            </div>
-                        }
-                    })
-            }}
+            </Suspense>
         </div>
     }
 }

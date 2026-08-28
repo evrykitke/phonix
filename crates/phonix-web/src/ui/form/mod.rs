@@ -267,27 +267,41 @@ pub fn entity_form<T: Draft>(
             </div>
 
             <div class="flex flex-wrap items-center justify-end gap-2 border-t border-edge pt-3">
-                {move || {
-                    let user = viewer.get();
+                // Which buttons exist is a permission question, asked of a blocking
+                // resource, and outside a boundary it is asked at two different moments:
+                // the server renders this pass before the session resolves and drops
+                // every gated button, the browser hydrates with the session already in
+                // the document and keeps them. A different number of buttons is an
+                // unrecoverable hydration error, not a toolbar drawn wrong.
+                //
+                // The fields above read the same viewer and are left alone deliberately.
+                // There the answer only reaches a `disabled` attribute, which corrects
+                // itself when the signal arrives - and a boundary around the fields
+                // would gather every lookup's options and hold the whole form until
+                // they land.
+                <Suspense fallback=|| ()>
+                    {move || {
+                        let user = viewer.get();
 
-                    buttons
-                        .iter()
-                        .filter(|action| action.permitted(user.as_ref()))
-                        .cloned()
-                        .map(|action| {
-                            view! {
-                                <ActionButton
-                                    action=action
-                                    state=state
-                                    host=host
-                                    reports=reports
-                                    alerts=alerts
-                                    on_submit=Callback::new(submit)
-                                />
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                }}
+                        buttons
+                            .iter()
+                            .filter(|action| action.permitted(user.as_ref()))
+                            .cloned()
+                            .map(|action| {
+                                view! {
+                                    <ActionButton
+                                        action=action
+                                        state=state
+                                        host=host
+                                        reports=reports
+                                        alerts=alerts
+                                        on_submit=Callback::new(submit)
+                                    />
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    }}
+                </Suspense>
             </div>
         </form>
     }

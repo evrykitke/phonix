@@ -93,12 +93,26 @@ fn get_started() -> impl IntoView {
     let enabled = InstalledApps::get();
 
     view! {
-        {move || {
-                // `None` is "not resolved yet", and drawing the card then
-                // would be telling somebody their workspace is empty before
-                // anybody has looked. It resolves before the first paint - the
-                // shell's resource is blocking - so this branch is only ever
-                // hit by a component rendered outside a shell.
+        // A boundary, and not decoration. Both of these are the shell's
+        // resources, and a resource read outside one is read at two different
+        // moments on the two sides of hydration: the server renders this pass
+        // synchronously, before anything has resolved, and sees `None`; the
+        // browser hydrates with the answer already serialized into the document
+        // and sees the list. Nothing on one side and a whole card on the other
+        // is not a card drawn in the wrong place - it is an unrecoverable
+        // hydration error, and a wasm panic takes the rest of the page with it.
+        // Inside a boundary the server waits, and both sides draw the same
+        // thing. `ui::table` states the same rule over `Loaded`.
+        //
+        // Nothing for a fallback, because "not resolved yet" and "nothing to
+        // say" want the same drawing here - and both resources are blocking, so
+        // the wait is over before the first paint either way.
+        <Suspense fallback=|| ()>
+            {move || {
+                // `None` is "not resolved yet", and drawing the card then would
+                // be telling somebody their workspace is empty before anybody
+                // has looked. Inside the boundary above it is only reachable by
+                // a component rendered outside a shell.
                 let installed = enabled.get()?;
                 let anything_on = apps::optional().any(|app| {
                     installed.iter().any(|id| id == app.id)
@@ -133,6 +147,7 @@ fn get_started() -> impl IntoView {
                         </div>
                     }
                 })
-        }}
+            }}
+        </Suspense>
     }
 }

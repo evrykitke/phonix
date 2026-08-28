@@ -346,60 +346,77 @@ pub fn permission_tree(
             </div>
 
             <ul class="p-1">
-                {move || {
-                    let shown = rows();
+                // One boundary for the list and for everything a row draws inside it.
+                // The installed apps decide which definitions exist at all, and within a
+                // row they decide whether there is a chevron or a spacer and whether the
+                // tally badge is there - all of it a different shape on the server,
+                // where the blocking resource has not resolved during this pass, than in
+                // the browser, where it has. Nothing under here reads anything else, so
+                // the boundary costs one wait that the blocking resource was making the
+                // document take anyway.
+                <Suspense fallback=|| ()>
+                    {move || {
+                        let shown = rows();
 
-                    if shown.is_empty() {
-                        return view! {
-                            <li class="px-3 py-6 text-center text-sm text-content-subtle">
-                                {l!("permissions.no_match")}
-                            </li>
-                        }
-                            .into_any();
-                    }
-
-                    shown
-                        .into_iter()
-                        .map(|definition| {
-                            view! {
-                                <PermissionRow
-                                    definition=definition
-                                    selection=selection
-                                    disabled=disabled
-                                    collapsed=collapsed
-                                    filtering=Signal::derive(filtering)
-                                    annotate=annotate
-                                />
+                        if shown.is_empty() {
+                            return view! {
+                                <li class="px-3 py-6 text-center text-sm text-content-subtle">
+                                    {l!("permissions.no_match")}
+                                </li>
                             }
-                        })
-                        .collect::<Vec<_>>()
-                        .into_any()
-                }}
+                                .into_any();
+                        }
+
+                        shown
+                            .into_iter()
+                            .map(|definition| {
+                                view! {
+                                    <PermissionRow
+                                        definition=definition
+                                        selection=selection
+                                        disabled=disabled
+                                        collapsed=collapsed
+                                        filtering=Signal::derive(filtering)
+                                        annotate=annotate
+                                    />
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .into_any()
+                    }}
+                </Suspense>
             </ul>
 
             <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs text-content-subtle">
-                <span>
-                    {move || {
-                        let count = selection.with(PermissionSet::len);
-                        l!(
-                            "permissions.selected_of",
-                            count = count.to_string(),
-                            total = in_reach().to_string(),
-                        )
-                    }}
-                </span>
-                <Show when=move || filtering() fallback=|| ()>
+                // The counters read the installed apps too, and only to produce text,
+                // which corrects itself rather than killing the page. Behind the
+                // boundary anyway: the alternative is shipping a document that counts
+                // against every permission in the build, including apps this workspace
+                // has never installed, and then quietly rewriting the number.
+                <Suspense fallback=|| ()>
                     <span>
                         {move || {
-                            let shown = rows().len();
+                            let count = selection.with(PermissionSet::len);
                             l!(
-                                "permissions.shown_of",
-                                shown = shown.to_string(),
+                                "permissions.selected_of",
+                                count = count.to_string(),
                                 total = in_reach().to_string(),
                             )
                         }}
                     </span>
-                </Show>
+                    <Show when=move || filtering() fallback=|| ()>
+                        <span>
+                            {move || {
+                                let shown = rows().len();
+                                l!(
+                                    "permissions.shown_of",
+                                    shown = shown.to_string(),
+                                    total = in_reach().to_string(),
+                                )
+                            }}
+                        </span>
+                    </Show>
+                </Suspense>
             </div>
         </div>
     }

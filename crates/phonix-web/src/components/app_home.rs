@@ -166,23 +166,31 @@ pub fn app_home(
                     {l!("apps.home.go_to")}
                 </h2>
                 <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {shortcuts
-                        .into_iter()
-                        .map(|shortcut| {
-                            let permission = shortcut.permission;
-                            let allowed = move || {
-                                permission.is_none_or(|permission| {
-                                    viewer.get().is_some_and(|user| user.can(permission))
-                                })
-                            };
+                    // A gate here is a tile or nothing, and the viewer is a blocking
+                    // resource: read outside a boundary, the server renders before it
+                    // resolves and draws no gated tile, while the browser hydrates with the
+                    // session in the document and draws them all. That is a difference in
+                    // node count, which is an unrecoverable hydration error rather than a
+                    // grid that fills in late.
+                    <Suspense fallback=|| ()>
+                        {shortcuts
+                            .into_iter()
+                            .map(|shortcut| {
+                                let permission = shortcut.permission;
+                                let allowed = move || {
+                                    permission.is_none_or(|permission| {
+                                        viewer.get().is_some_and(|user| user.can(permission))
+                                    })
+                                };
 
-                            view! {
-                                <Show when=allowed fallback=|| ()>
-                                    <ShortcutTile shortcut=shortcut.clone() />
-                                </Show>
-                            }
-                        })
-                        .collect::<Vec<_>>()}
+                                view! {
+                                    <Show when=allowed fallback=|| ()>
+                                        <ShortcutTile shortcut=shortcut.clone() />
+                                    </Show>
+                                }
+                            })
+                            .collect::<Vec<_>>()}
+                    </Suspense>
                 </div>
             </section>
         </div>
