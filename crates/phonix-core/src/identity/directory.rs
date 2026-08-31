@@ -27,10 +27,38 @@ pub struct UserListing {
     pub mfa_enabled: bool,
     /// Role names, in the order the database returned them.
     pub roles: Vec<String>,
-    /// Set when the account is locked out after failed sign-ins.
+    /// Set when the account is locked out after failed sign-ins. Nothing
+    /// clears it when it passes, so an instant in the past is an ordinary
+    /// value meaning "was locked, is not now".
     pub locked_until: Option<chrono::DateTime<chrono::Utc>>,
+    /// Whether that lockout still held **when this row was read**, decided by
+    /// the server.
+    ///
+    /// Carried rather than worked out from `locked_until` by whoever is
+    /// drawing, for two reasons. The browser's clock is not authoritative
+    /// about whether an account is locked - the server's is, and it is the one
+    /// enforcing it. And a view that compares `locked_until` against
+    /// `Utc::now()` is read at two different moments on the two sides of
+    /// hydration: a lockout expiring in the gap makes the server draw a badge
+    /// the browser does not, the two disagree about the node count, and that
+    /// is an unrecoverable hydration error rather than a stale badge. See
+    /// [`lockout_holds`].
+    pub locked: bool,
     pub last_login_at: Option<chrono::DateTime<chrono::Utc>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Whether a lockout ending at `locked_until` still holds at `now`.
+///
+/// A free function taking the instant, rather than a method reading the clock,
+/// so that asking the question requires saying *when* - and so the only place
+/// that can answer it is one that has a trustworthy answer to that. The DBAL
+/// calls it once per read and stores the result in [`UserListing::locked`].
+pub fn lockout_holds(
+    locked_until: Option<chrono::DateTime<chrono::Utc>>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    locked_until.is_some_and(|until| until > now)
 }
 
 impl UserListing {
@@ -55,10 +83,6 @@ impl UserListing {
         }
     }
 
-    /// Whether the account is locked out right now.
-    pub fn is_locked(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
-        self.locked_until.is_some_and(|until| until > now)
-    }
 
     /// Whether the text matches this row, for the search box.
     ///
@@ -94,6 +118,7 @@ mod tests {
             mfa_enabled: false,
             roles: vec!["Admin".into()],
             locked_until: None,
+            locked: false,
             last_login_at: None,
             created_at: chrono::Utc::now(),
         }
@@ -135,17 +160,21 @@ mod tests {
     #[test]
     fn a_lockout_expires_on_its_own() {
         let now = chrono::Utc::now();
-        let locked = UserListing {
-            locked_until: Some(now + chrono::Duration::minutes(5)),
-            ..listing()
-        };
-        let expired = UserListing {
-            locked_until: Some(now - chrono::Duration::minutes(5)),
-            ..listing()
-        };
 
-        assert!(locked.is_locked(now));
-        assert!(!expired.is_locked(now));
-        assert!(!listing().is_locked(now));
+        assert!(lockout_holds(Some(now + chrono::Duration::minutes(5)), now));
+        // Nothing clears the column, so this is the ordinary resting state of
+        // any account that was ever locked out.
+        assert!(!lockout_holds(Some(now - chrono::Duration::minutes(5)), now));
+        assert!(!lockout_holds(None, now));
+    }
+
+    #[test]
+    fn the_boundary_is_the_instant_it_expires() {
+        let now = chrono::Utc::now();
+
+        // Exactly `now` is over. The two sides of a comparison this narrow are
+        // why the answer is decided once by the server and carried, rather
+        // than recomputed wherever a row is drawn.
+        assert!(!lockout_holds(Some(now), now));
     }
 }

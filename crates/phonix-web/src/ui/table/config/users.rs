@@ -254,7 +254,12 @@ fn roles_cell(user: &UserListing) -> impl IntoView {
 /// Status, plus the flags that change what the account can actually do.
 fn status_cell(user: &UserListing) -> impl IntoView {
     let status = user.status;
-    let locked = user.is_locked(chrono::Utc::now());
+    // Carried on the row, not compared against `Utc::now()` here. This decides
+    // whether a badge exists, and a clock read during a render is read at two
+    // different moments on the two sides of hydration - a lockout expiring in
+    // that gap makes the node counts disagree, which freezes the page. See
+    // `UserListing::locked`.
+    let locked = user.locked;
     let mfa_enabled = user.mfa_enabled;
     let unverified = !user.email_verified;
 

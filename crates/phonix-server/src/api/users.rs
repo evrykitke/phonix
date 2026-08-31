@@ -94,8 +94,13 @@ pub struct UserResource {
     pub roles: Vec<String>,
     /// Set while the account is locked out after failed sign-ins. `null` is the
     /// ordinary case, and an instant in the past means the lockout has expired
-    /// without anything having cleared the column.
+    /// without anything having cleared the column - so this is not on its own
+    /// the answer to "can they sign in".
     pub locked_until: Option<DateTime<Utc>>,
+    /// Whether that lockout still held when this row was read. The comparison
+    /// `locked_until` needs, done against the server's clock rather than the
+    /// caller's.
+    pub locked: bool,
     /// `null` for somebody who was invited and never arrived.
     pub last_login_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -113,6 +118,7 @@ impl From<&UserListing> for UserResource {
             mfa_enabled: row.mfa_enabled,
             roles: row.roles.clone(),
             locked_until: row.locked_until,
+            locked: row.locked,
             last_login_at: row.last_login_at,
             created_at: row.created_at,
         }
@@ -297,6 +303,7 @@ mod tests {
             mfa_enabled: false,
             roles: roles.iter().map(|role| (*role).to_owned()).collect(),
             locked_until: None,
+            locked: false,
             last_login_at: None,
             created_at: Utc::now(),
         }

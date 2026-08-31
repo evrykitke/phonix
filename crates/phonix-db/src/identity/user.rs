@@ -8,6 +8,7 @@
 use chrono::{DateTime, Utc};
 use phonix_config::LockoutConfig;
 use phonix_core::PermissionSet;
+use phonix_core::identity::directory::lockout_holds;
 use phonix_core::identity::{AuthUser, UserId, UserListing, UserStatus};
 use sqlx::{FromRow, PgExecutor, Row};
 
@@ -278,6 +279,13 @@ where
     .await
     .map_err(DbError::Query)?;
 
+    // One instant for the whole result set, so the rows agree with each other
+    // as well as with the browser: reading the clock per row could put two
+    // accounts whose lockouts end in the same millisecond on opposite sides of
+    // it. Decided here rather than where a row is drawn - see
+    // `UserListing::locked`.
+    let now = Utc::now();
+
     rows.into_iter()
         .map(|row| {
             let raw_status: String = row.try_get("status")?;
@@ -288,6 +296,7 @@ where
                 })?;
 
             let email_verified_at: Option<DateTime<Utc>> = row.try_get("email_verified_at")?;
+            let locked_until: Option<DateTime<Utc>> = row.try_get("locked_until")?;
 
             Ok(UserListing {
                 id: row.try_get("id")?,
@@ -298,7 +307,8 @@ where
                 email_verified: email_verified_at.is_some(),
                 mfa_enabled: row.try_get("mfa_enabled")?,
                 roles: row.try_get("roles")?,
-                locked_until: row.try_get("locked_until")?,
+                locked_until,
+                locked: lockout_holds(locked_until, now),
                 last_login_at: row.try_get("last_login_at")?,
                 created_at: row.try_get("created_at")?,
             })
