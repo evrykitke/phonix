@@ -40,3 +40,7 @@ desktop.ini
 # version-stamped by interpreter, so committing it is churn that conflicts.
 __pycache__/
 *.pyc
+
+# Local build settings. `target-dir` here is an absolute path on one
+# machine, so committing it would send that path to the build box.
+/.cargo

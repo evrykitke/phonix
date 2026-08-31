@@ -165,7 +165,14 @@ fn per_page(
                 on_change=on_change
                 options=options
                 label=l!("grid.rows_per_page")
-                class="h-6 w-auto min-h-0 px-1.5 text-xs"
+                // A floor, not just `w-auto`: the panel is drawn at the field's
+                // width (`SAME_AS_FIELD` in `lookup::select`), and an option row
+                // is wider than the field's own text - `px-3`, a tick and its
+                // gap, and `text-sm` against this trigger's `text-xs`. A field
+                // sized to "25" therefore opens a panel that cannot fit "25"
+                // back, and every choice truncates to nothing. This leaves room
+                // for the widest page size plus that chrome.
+                class="h-6 w-auto min-w-[4.5rem] min-h-0 px-1.5 text-xs"
             />
         </div>
     }

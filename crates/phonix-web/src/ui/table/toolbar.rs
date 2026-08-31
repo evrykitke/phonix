@@ -211,7 +211,12 @@ fn filter_select(state: GridState, filter: FilterControl) -> impl IntoView {
             // Only the size. The `all` choice carries the empty value, so an
             // unnarrowed table already reads as "All" without this having to
             // say what nothing means.
-            class="h-8 w-auto shrink-0"
+            //
+            // `min-w` because the panel is drawn at the field's width, and an
+            // option row spends about 42px on padding and the tick before any
+            // label - so a field sized to the short choice that happens to be
+            // in force opens a panel the longer ones truncate inside.
+            class="h-8 w-auto min-w-[9rem] shrink-0"
         />
     }
 }
