@@ -60,6 +60,15 @@
 //! means it does not travel with the page, so a scroll, a wheel, a resize or a
 //! pointer anywhere else closes it rather than leaving it stranded beside the
 //! field it used to belong to.
+//!
+//! # Every reactive read here is guarded
+//!
+//! A lookup is drawn inside grid rows, and a `Transition` disposes the owner
+//! of what is on screen while leaving the markup up. Every closure in this
+//! file can therefore be re-run after the signals it reads have gone - the
+//! ones a caller handed in, and this component's own, which is the half that
+//! is easy to argue yourself out of. The whole argument is written out once,
+//! in [`select`](select), and it applies here line for line.
 
 mod panel;
 mod place;
@@ -291,7 +300,9 @@ pub fn lookup_field(
     // comment the server left behind. Rendering it after hydration has
     // finished is neither.
     let ready = RwSignal::new(false);
-    Effect::new(move |_| ready.set(true));
+    Effect::new(move |_| {
+        let _ = ready.try_set(true);
+    });
 
     // Latches the first time the panel opens, and never goes back. A picker
     // built from `open` alone would be thrown away and rebuilt on every close,
@@ -347,9 +358,9 @@ pub fn lookup_field(
     // --- the filtered list -------------------------------------------------
 
     let matching = Signal::derive(move || {
-        let needle = query.get().trim().to_lowercase();
+        let needle = query.try_get().unwrap_or_default().trim().to_lowercase();
 
-        choices.with_value(|choices| {
+        let matched = choices.try_with_value(|choices| {
             let Choices::List(list) = choices else {
                 return Vec::new();
             };
@@ -369,13 +380,15 @@ pub fn lookup_field(
                 })
                 .cloned()
                 .collect::<Vec<_>>()
-        })
+        });
+
+        matched.unwrap_or_default()
     });
 
     // --- opening and closing ----------------------------------------------
 
     let show = move || {
-        if disabled.get_untracked() {
+        if disabled.try_get_untracked().unwrap_or(false) {
             return;
         }
         // Measured on the way open and never again: the field's rectangle only
@@ -388,7 +401,7 @@ pub fn lookup_field(
     };
 
     let toggle = move || {
-        if open.get_untracked() {
+        if open.try_get_untracked().unwrap_or(false) {
             let _ = open.try_set(false);
         } else {
             show();
@@ -408,8 +421,9 @@ pub fn lookup_field(
         match event.key().as_str() {
             "ArrowDown" => {
                 event.prevent_default();
-                if open.get_untracked() {
-                    let last = matching.get_untracked().len().saturating_sub(1);
+                if open.try_get_untracked().unwrap_or(false) {
+                    let rows = matching.try_get_untracked().unwrap_or_default();
+                    let last = rows.len().saturating_sub(1);
                     let _ = active.try_update(|index| *index = (*index + 1).min(last));
                 } else {
                     show();
@@ -423,11 +437,13 @@ pub fn lookup_field(
                 // Only when the panel is up. Otherwise this is somebody
                 // submitting the form the field is in, and swallowing that
                 // would be the field taking over a key it does not own.
-                if open.get_untracked()
-                    && let Some(choice) = matching.get_untracked().get(active.get_untracked())
-                {
-                    event.prevent_default();
-                    let _ = choose.try_run(choice.clone());
+                if open.try_get_untracked().unwrap_or(false) {
+                    let rows = matching.try_get_untracked().unwrap_or_default();
+
+                    if let Some(choice) = active.try_get_untracked().and_then(|at| rows.get(at)) {
+                        event.prevent_default();
+                        let _ = choose.try_run(choice.clone());
+                    }
                 }
             }
             "Escape" => {
@@ -435,7 +451,12 @@ pub fn lookup_field(
             }
             // Backspace on an empty box takes the last chip off, which is what
             // every other control shaped like this does.
-            "Backspace" if multiple && query.get_untracked().is_empty() => {
+            "Backspace"
+                if multiple
+                    && query
+                        .try_get_untracked()
+                        .is_some_and(|typed| typed.is_empty()) =>
+            {
                 let _ = selected.try_update(|selected| {
                     selected.pop();
                 });
@@ -451,9 +472,9 @@ pub fn lookup_field(
     // plain custom properties and there is no utility that names them - a
     // class like `bg-control-surface` looks right and compiles to nothing.
     let shell_class = move || {
-        let edge = if invalid.get() {
+        let edge = if invalid.try_get().unwrap_or(false) {
             "border-danger"
-        } else if open.get() {
+        } else if open.try_get().unwrap_or(false) {
             "border-brand"
         } else {
             ""
@@ -464,7 +485,8 @@ pub fn lookup_field(
 
     let chips = move || {
         selected
-            .get()
+            .try_get()
+            .unwrap_or_default()
             .into_iter()
             .map(|choice| {
                 let value = choice.value.clone();
@@ -474,7 +496,7 @@ pub fn lookup_field(
                         <button
                             type="button"
                             class="shrink-0 text-content-subtle hover:text-danger"
-                            disabled=move || disabled.get()
+                            disabled=move || disabled.try_get().unwrap_or(false)
                             aria-label=l!("lookup.remove", name = choice.label.clone())
                             on:click=move |event| {
                                 event.stop_propagation();
@@ -508,18 +530,20 @@ pub fn lookup_field(
                         type="button"
                         id=field_id
                         class=shell_class
-                        disabled=move || disabled.get()
+                        disabled=move || disabled.try_get().unwrap_or(false)
                         aria-haspopup="dialog"
-                        aria-expanded=move || if open.get() { "true" } else { "false" }
-                        aria-disabled=move || disabled.get().then_some("true")
-                        aria-invalid=move || invalid.get().then_some("true")
+                        aria-expanded=move || {
+                            if open.try_get().unwrap_or(false) { "true" } else { "false" }
+                        }
+                        aria-disabled=move || disabled.try_get().unwrap_or(false).then_some("true")
+                        aria-invalid=move || invalid.try_get().unwrap_or(false).then_some("true")
                         aria-required=required.then_some("true")
-                        aria-describedby=move || described_by.get()
+                        aria-describedby=move || described_by.try_get().flatten()
                         on:click=move |_| toggle()
                     >
                         <span class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
                             {move || {
-                                if selected.get().is_empty() {
+                                if selected.try_get().is_none_or(|held| held.is_empty()) {
                                     view! {
                                         <span class="truncate text-content-subtle">
                                             {l!("lookup.nothing_chosen")}
@@ -543,9 +567,9 @@ pub fn lookup_field(
                     // in `style/main.css`.
                     <div
                         class=shell_class
-                        aria-disabled=move || disabled.get().then_some("true")
+                        aria-disabled=move || disabled.try_get().unwrap_or(false).then_some("true")
                         on:click=move |_| {
-                            if !open.get_untracked() {
+                            if matches!(open.try_get_untracked(), Some(false)) {
                                 show();
                             }
                         }
@@ -558,23 +582,26 @@ pub fn lookup_field(
                                 role="combobox"
                                 autocomplete="off"
                                 class="min-w-16 flex-1"
-                                disabled=move || disabled.get()
+                                disabled=move || disabled.try_get().unwrap_or(false)
                                 placeholder=placeholder_text
-                                aria-expanded=move || if open.get() { "true" } else { "false" }
+                                aria-expanded=move || {
+                                    if open.try_get().unwrap_or(false) { "true" } else { "false" }
+                                }
                                 aria-autocomplete="list"
-                                aria-invalid=move || invalid.get().then_some("true")
+                                aria-invalid=move || invalid.try_get().unwrap_or(false).then_some("true")
                                 aria-required=required.then_some("true")
-                                aria-describedby=move || described_by.get()
+                                aria-describedby=move || described_by.try_get().flatten()
                                 prop:value=move || {
                                     // Open, it holds what is being typed.
                                     // Closed, it holds what was chosen - so
                                     // the field reads as the answer rather
                                     // than as the question that found it.
-                                    if open.get() || multiple {
-                                        query.get()
+                                    if open.try_get().unwrap_or(false) || multiple {
+                                        query.try_get().unwrap_or_default()
                                     } else {
                                         selected
-                                            .get()
+                                            .try_get()
+                                            .unwrap_or_default()
                                             .first()
                                             .map(|choice| choice.label.clone())
                                             .unwrap_or_default()
@@ -583,7 +610,7 @@ pub fn lookup_field(
                                 on:input=move |event| {
                                     let _ = query.try_set(event_target_value(&event));
                                     let _ = active.try_set(0);
-                                    if !open.get_untracked() {
+                                    if matches!(open.try_get_untracked(), Some(false)) {
                                         show();
                                     }
                                 }
@@ -592,7 +619,7 @@ pub fn lookup_field(
                         </span>
 
                         {move || {
-                            (!selected.get().is_empty() && !multiple && !disabled.get())
+                            (selected.try_get().is_some_and(|held| !held.is_empty()) && !multiple && !disabled.try_get().unwrap_or(false))
                                 .then(|| {
                                     view! {
                                         <button
@@ -623,14 +650,16 @@ pub fn lookup_field(
             <div
                 node_ref=panel
                 class="alert-enter z-[55] flex flex-col overflow-hidden rounded-card border border-edge bg-surface-raised shadow-pop"
-                class:hidden=move || !open.get()
-                aria-hidden=move || if open.get() { "false" } else { "true" }
-                style=move || at.get().style()
+                class:hidden=move || !open.try_get().unwrap_or(false)
+                aria-hidden=move || {
+                    if open.try_get().unwrap_or(false) { "false" } else { "true" }
+                }
+                style=move || at.try_get().unwrap_or_default().style()
             >
                 <div class="min-h-0 flex-1 overflow-auto overscroll-contain">
                     {move || {
                         choices
-                            .with_value(|choices| match choices {
+                            .try_with_value(|choices| match choices {
                                 Choices::List(_) => {
                                     view! {
                                         <ListBody
@@ -651,7 +680,9 @@ pub fn lookup_field(
                                     // nobody has touched.
                                     view! {
                                         {move || {
-                                            (ready.get() && opened.get()).then(|| view(choose))
+                                            (ready.try_get().unwrap_or(false)
+                                                && opened.try_get().unwrap_or(false))
+                                                .then(|| view(choose))
                                         }}
                                     }
                                         .into_any()
@@ -662,7 +693,7 @@ pub fn lookup_field(
 
                 {move || {
                     quick_add
-                        .with_value(|quick_add| {
+                        .try_with_value(|quick_add| {
                             quick_add
                                 .as_ref()
                                 .map(|add| {
@@ -705,10 +736,10 @@ pub fn lookup_field(
             // The quick-add dialog. Outside the panel, because the panel is
             // what it replaces, and deferred for the same reason the picker is.
             {move || {
-                (ready.get() && adding.get())
+                (ready.try_get().unwrap_or(false) && adding.try_get().unwrap_or(false))
                     .then(|| {
                         quick_add
-                            .with_value(|quick_add| match quick_add {
+                            .try_with_value(|quick_add| match quick_add {
                                 Some(QuickAdd::Form { title, view, .. }) => {
                                     let view = Arc::clone(view);
                                     view! {
@@ -746,7 +777,7 @@ fn list_body(
     view! {
         <div role="listbox" class="py-1">
             {move || {
-                let rows = matching.get();
+                let rows = matching.try_get().unwrap_or_default();
                 if rows.is_empty() {
                     return view! {
                         <p class="px-3 py-4 text-center text-sm text-content-subtle">
@@ -764,7 +795,8 @@ fn list_body(
                         let ticked = move || {
                             multiple
                                 && selected
-                                    .get()
+                                    .try_get()
+                                    .unwrap_or_default()
                                     .iter()
                                     .any(|held| held.value == value)
                         };
@@ -773,7 +805,7 @@ fn list_body(
                                 type="button"
                                 role="option"
                                 class=move || {
-                                    let state = if active.get() == index {
+                                    let state = if active.try_get() == Some(index) {
                                         "bg-surface-hover"
                                     } else {
                                         ""

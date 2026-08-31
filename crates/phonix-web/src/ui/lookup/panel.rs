@@ -40,7 +40,12 @@ pub(super) fn dismiss_when_moved(
         // Nothing is listening while nothing is open. The listeners are on the
         // window, and a page of forty closed dropdowns would otherwise be a
         // hundred and sixty handlers running on every wheel event.
-        if !open.get() {
+        //
+        // `try_get`, because this runs again whenever `open` is set and the
+        // grid can dispose the arena in between - the same window every read
+        // in `select` is guarded against. A field whose signal has gone is
+        // treated as closed, which is what tears the listeners down.
+        if !open.try_get().unwrap_or(false) {
             return;
         }
 

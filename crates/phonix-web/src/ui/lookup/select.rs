@@ -32,6 +32,38 @@
 //!     options=vec![Choice::new("never", "Never"), Choice::new("yearly", "Yearly")]
 //! />
 //! ```
+//!
+//! # Every reactive read is guarded, this module's own signals included
+//!
+//! A select is drawn inside grid rows and inside the grid's pager, and a
+//! `Transition` disposes the owner of what is on screen the moment the table
+//! starts reloading. The markup stays: old rows are what a transition shows
+//! while the new page is on its way, so every attribute closure hanging off
+//! them is a live subscriber to signals that have already gone.
+//!
+//! Two things reach into that window. The obvious one is the signals a
+//! *caller* hands in - `value`, `disabled`, `invalid` belong to the grid and
+//! outlive the disposal, so they go on notifying subscribers allocated in the
+//! owner that has just gone.
+//!
+//! The other is this module's own signals, which is the one that is easy to
+//! argue yourself out of: `open` is disposed alongside everything that reads
+//! it, so surely it can never be read late. It can, because marking an effect
+//! dirty and running it are not the same tick. `take` closes the panel and
+//! tells the caller in the same handler, and whichever order those go in, one
+//! of them queues the field's class effect while the arena is alive and the
+//! other disposes that arena before the queue is flushed. The effect then
+//! runs against an `open` that no longer exists. That is what a page size
+//! chosen in a grid panicked on, at the last bare `open.get()` in this file.
+//!
+//! So: **`try_*` every reactive read a view closure can re-run, and derive
+//! nothing.** A `Signal::derive` and a `StoredValue` are arena values too - a
+//! plain closure over `Copy` captures answers the same question and owns
+//! nothing that can be disposed, which is why `chosen` and `matching` are
+//! closures and why the option rows compare two strings instead of sharing a
+//! memo. A select whose owner has gone reads as nothing chosen, shows an
+//! empty list and drops its border colour, and all of that is honest: it is a
+//! picture of a control that is about to be replaced.
 
 use leptos::prelude::*;
 
@@ -121,45 +153,54 @@ pub fn select_field(
 
     // --- what is showing ---------------------------------------------------
 
-    let matching = Signal::derive(move || {
-        let needle = query.get().trim().to_lowercase();
+    let matching = move || {
+        let needle = query.try_get().unwrap_or_default().trim().to_lowercase();
 
-        options.with_value(|options| {
-            options
-                .iter()
-                .filter(|choice| {
-                    needle.is_empty()
-                        || choice.label.to_lowercase().contains(&needle)
-                        // The detail line too, for the same reason the lookup
-                        // searches it: that is where a code lives.
-                        || choice
-                            .detail
-                            .as_deref()
-                            .is_some_and(|detail| detail.to_lowercase().contains(&needle))
-                })
-                .cloned()
-                .collect::<Vec<_>>()
-        })
-    });
+        options
+            .try_with_value(|options| {
+                options
+                    .iter()
+                    .filter(|choice| {
+                        needle.is_empty()
+                            || choice.label.to_lowercase().contains(&needle)
+                            // The detail line too, for the same reason the
+                            // lookup searches it: that is where a code lives.
+                            || choice
+                                .detail
+                                .as_deref()
+                                .is_some_and(|detail| detail.to_lowercase().contains(&needle))
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
 
     // The label for what is chosen. A value with no matching option reads as
     // nothing chosen rather than as itself: a raw id in a field is a bug
     // report, not a label.
-    let chosen = Signal::derive(move || {
-        let wanted = value.get();
+    //
+    // A closure, never a `Signal::derive`, for the reason spelled out at the
+    // tick in the list below: `value` belongs to the caller and outlives this
+    // control, so a signal derived here goes on being notified after its own
+    // owner has been disposed. `try_get` is the floor under the same thing - a
+    // select whose owner is gone reads as nothing chosen, which is honest,
+    // because it is about to be replaced.
+    let chosen = move || {
+        let wanted = value.try_get()?;
 
-        options.with_value(|options| {
+        options.try_with_value(|options| {
             options
                 .iter()
                 .find(|choice| choice.value == wanted)
                 .map(|choice| choice.label.clone())
-        })
-    });
+        })?
+    };
 
     // --- opening and closing -----------------------------------------------
 
     let show = move || {
-        if disabled.get_untracked() {
+        if disabled.try_get_untracked().unwrap_or(false) {
             return;
         }
 
@@ -170,9 +211,7 @@ pub fn select_field(
         // Opens on what is chosen, so the arrow keys start where somebody
         // already is rather than at the top of a list they scrolled past.
         let wanted = value.try_get_untracked().unwrap_or_default();
-        let at_index = matching
-            .try_get_untracked()
-            .unwrap_or_default()
+        let at_index = matching()
             .iter()
             .position(|choice| choice.value == wanted)
             .unwrap_or(0);
@@ -187,7 +226,7 @@ pub fn select_field(
     };
 
     let toggle = move || {
-        if open.get_untracked() {
+        if open.try_get_untracked().unwrap_or(false) {
             let _ = open.try_set(false);
         } else {
             show();
@@ -205,10 +244,16 @@ pub fn select_field(
     // no longer exists. What must not happen is that the caller is *alive* and
     // the callback is not - which is why a long-lived callback is the fix and
     // this is only the floor under it.
+    //
+    // The panel is put away first and the caller told second. Either order is
+    // safe now that every read is guarded, but only this one actually closes
+    // the control: a caller that refetches on the answer disposes this arena
+    // while the handler is still running, and a `try_set` after that is a
+    // no-op on a signal nobody is left to read.
     let take = move |choice: &Choice| {
-        let _ = on_change.try_run(choice.value.clone());
         let _ = open.try_set(false);
         let _ = query.try_set(String::new());
+        let _ = on_change.try_run(choice.value.clone());
     };
 
     dismiss_when_moved(open, panel, anchor);
@@ -218,8 +263,8 @@ pub fn select_field(
     let on_key = move |event: leptos::ev::KeyboardEvent| match event.key().as_str() {
         "ArrowDown" => {
             event.prevent_default();
-            if open.get_untracked() {
-                let last = matching.get_untracked().len().saturating_sub(1);
+            if open.try_get_untracked().unwrap_or(false) {
+                let last = matching().len().saturating_sub(1);
                 let _ = active.try_update(|index| *index = (*index + 1).min(last));
             } else {
                 show();
@@ -227,7 +272,7 @@ pub fn select_field(
         }
         "ArrowUp" => {
             event.prevent_default();
-            if open.get_untracked() {
+            if open.try_get_untracked().unwrap_or(false) {
                 let _ = active.try_update(|index| *index = index.saturating_sub(1));
             } else {
                 show();
@@ -237,11 +282,13 @@ pub fn select_field(
             // Only while the panel is up. Closed, this is a button, and Enter
             // on a button belongs to the browser - swallowing it would also
             // swallow the Enter that submits the form the field is in.
-            if open.get_untracked()
-                && let Some(choice) = matching.get_untracked().get(active.get_untracked())
-            {
-                event.prevent_default();
-                take(choice);
+            if open.try_get_untracked().unwrap_or(false) {
+                let rows = matching();
+
+                if let Some(choice) = active.try_get_untracked().and_then(|at| rows.get(at)) {
+                    event.prevent_default();
+                    take(choice);
+                }
             }
         }
         "Escape" => {
@@ -256,9 +303,9 @@ pub fn select_field(
     // stylesheet: the `--control-*` tokens are plain custom properties, so a
     // class like `bg-control-surface` looks right and compiles to nothing.
     let shell_class = move || {
-        let edge = if invalid.get() {
+        let edge = if invalid.try_get().unwrap_or(false) {
             "border-danger"
-        } else if open.get() {
+        } else if open.try_get().unwrap_or(false) {
             "border-brand"
         } else {
             ""
@@ -276,19 +323,19 @@ pub fn select_field(
                 type="button"
                 id=id
                 class=shell_class
-                disabled=move || disabled.get()
+                disabled=move || disabled.try_get().unwrap_or(false)
                 role="combobox"
                 aria-haspopup="listbox"
-                aria-expanded=move || if open.get() { "true" } else { "false" }
-                aria-invalid=move || invalid.get().then_some("true")
+                aria-expanded=move || if open.try_get().unwrap_or(false) { "true" } else { "false" }
+                aria-invalid=move || invalid.try_get().unwrap_or(false).then_some("true")
                 aria-required=required.then_some("true")
-                aria-describedby=move || described_by.get()
+                aria-describedby=move || described_by.try_get().flatten()
                 aria-label=label
                 on:click=move |_| toggle()
                 on:keydown=on_key
             >
                 <span class="min-w-0 flex-1 truncate text-left">
-                    {move || match chosen.get() {
+                    {move || match chosen() {
                         Some(label) => {
                             view! { <span class="text-content">{label}</span> }.into_any()
                         }
@@ -303,7 +350,7 @@ pub fn select_field(
                     .then(|| {
                         view! {
                             {move || {
-                                (chosen.get().is_some() && !disabled.get())
+                                (chosen().is_some() && !disabled.try_get().unwrap_or(false))
                                     .then(|| {
                                         view! {
                                             // A `<button>` inside a `<button>`
@@ -342,9 +389,9 @@ pub fn select_field(
             <div
                 node_ref=panel
                 class="alert-enter z-[55] flex flex-col overflow-hidden rounded-card border border-edge bg-surface-raised shadow-pop"
-                class:hidden=move || !open.get()
-                aria-hidden=move || if open.get() { "false" } else { "true" }
-                style=move || at.get().style()
+                class:hidden=move || !open.try_get().unwrap_or(false)
+                aria-hidden=move || if open.try_get().unwrap_or(false) { "false" } else { "true" }
+                style=move || at.try_get().unwrap_or_default().style()
             >
                 {searchable
                     .then(|| {
@@ -356,7 +403,7 @@ pub fn select_field(
                                     autocomplete="off"
                                     class="w-full max-w-none text-sm"
                                     placeholder=l!("lookup.search")
-                                    prop:value=move || query.get()
+                                    prop:value=move || query.try_get().unwrap_or_default()
                                     on:input=move |event| {
                                         let _ = query.try_set(event_target_value(&event));
                                         let _ = active.try_set(0);
@@ -375,7 +422,7 @@ pub fn select_field(
                     class="min-h-0 flex-1 overflow-auto overscroll-contain py-1"
                 >
                     {move || {
-                        let rows = matching.get();
+                        let rows = matching();
 
                         if rows.is_empty() {
                             return view! {
@@ -394,21 +441,32 @@ pub fn select_field(
                                 // option longer than a narrow select truncates.
                                 // This is where the rest of it is.
                                 let full = choice.label.clone();
-                                // Derived rather than a closure, so both the
-                                // tick and the attribute that announces it can
-                                // read the same answer.
-                                let is = choice.value.clone();
-                                let ticked = Signal::derive(move || value.get() == is);
+                                // Two closures over a cloned value, never one
+                                // `Signal::derive`. A derived signal is an
+                                // arena value allocated in whatever owner is
+                                // current, and a select is drawn inside a
+                                // grid pager and inside grid rows - owners a
+                                // `Transition` disposes the moment the table
+                                // starts reloading. `value` belongs to the
+                                // grid and outlives that, so it goes on
+                                // notifying subscribers that no longer exist,
+                                // and reading one traps the module. Two string
+                                // compares cost less than the signal did.
+                                let ticked = {
+                                    let is = choice.value.clone();
+                                    move || value.try_get().is_some_and(|chosen| chosen == is)
+                                };
+                                let announced = ticked.clone();
 
                                 view! {
                                     <button
                                         type="button"
                                         role="option"
                                         aria-selected=move || {
-                                            if ticked.get() { "true" } else { "false" }
+                                            if announced() { "true" } else { "false" }
                                         }
                                         class=move || {
-                                            let state = if active.get() == index {
+                                            let state = if active.try_get() == Some(index) {
                                                 "bg-surface-hover"
                                             } else {
                                                 ""
@@ -432,7 +490,7 @@ pub fn select_field(
                                         <span class="flex min-w-0 items-center gap-1.5">
                                             <span
                                                 class="w-3 shrink-0 text-brand"
-                                                class:invisible=move || !ticked.get()
+                                                class:invisible=move || !ticked()
                                                 aria-hidden="true"
                                             >
                                                 <Icon icon=Icon::Check size=IconSize::Xs />
