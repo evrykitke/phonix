@@ -1,6 +1,6 @@
 # ADR 0002 — The public API: a versioned surface, and the credential that opens it
 
-Status: proposed
+Status: accepted, built 2026-08-28, verified 2026-08-31
 Date: 2026-08-28
 
 Phonix is a Leptos application, and its server functions are already an HTTP
@@ -478,8 +478,8 @@ lists and revokes, carries the `api_enabled` control, and hands the token over
 once at `/admin/api-keys/new`. Until it existed a key could only be created
 from code, which was enough to test the surface and not enough to sell it.
 
-**One amendment, proposed by [ADR 0003](0003-mobile-authentication.md)** and
-not in force until that record is accepted and built: §4 above
+**One amendment from [ADR 0003](0003-mobile-authentication.md)**, in force
+since that record was accepted and built on 2026-08-29: §4 above
 says `api_enabled` is checked "in the API router's authentication layer, before
 the key is even looked up", and that stays true *of a key*. A request
 authenticated by a **session** bearer - a person signed in on their own phone -
