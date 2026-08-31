@@ -47,6 +47,7 @@ pub mod docs;
 pub mod json;
 pub mod paging;
 pub mod problem;
+pub mod roles;
 pub mod scalar_bundle;
 pub mod session;
 pub mod users;
@@ -75,6 +76,7 @@ use problem::Problem;
         (name = "auth", description = "Signing a person in, and what their session may do."),
         (name = "currencies", description = "The currencies a workspace transacts in."),
         (name = "users", description = "The people with an account on this workspace."),
+        (name = "roles", description = "The roles a workspace defines, and what each one grants."),
     ),
     modifiers(&BearerSecurity),
 )]
@@ -136,6 +138,8 @@ fn parts() -> (Router<AppState>, utoipa::openapi::OpenApi) {
         .routes(routes!(currencies::get, currencies::save))
         .routes(routes!(users::list))
         .routes(routes!(users::get))
+        .routes(routes!(roles::list))
+        .routes(routes!(roles::get))
         .split_for_parts()
 }
 
