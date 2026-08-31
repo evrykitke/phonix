@@ -27,7 +27,7 @@ use utoipa::ToSchema;
 
 use super::auth::ApiCaller;
 use super::json::ApiJson;
-use super::paging::{ListParams, ListRequest, PageEnvelope};
+use super::paging::{ListParams, ListRequest, PageEnvelope, cut};
 use super::problem::Problem;
 
 /// A currency this workspace deals in.
@@ -84,6 +84,9 @@ pub struct SaveCurrency {
 /// Ungated, exactly as the screen's read is: every page with an amount on it
 /// needs this list, so requiring a permission would mean granting the
 /// administration area to anybody who can raise a document.
+///
+/// Sorts by `code` (the default), `name` or `enabled`. Narrows on
+/// `filter[enabled]`.
 #[utoipa::path(
     get,
     path = "/currencies",
@@ -216,8 +219,14 @@ fn missing(code: &str) -> Problem {
 /// The list is bounded by ISO 4217: a workspace that used every currency there
 /// has ever been would have under two hundred rows, and it is read whole on
 /// every screen that shows an amount. Paging it in SQL would be three
-/// statements to save nothing. Every other resource pages in the DBAL, because
-/// every other resource grows.
+/// statements to save nothing.
+///
+/// A resource pages here only while the service it calls hands back the whole
+/// list for its own reasons. The moment one of them grows a `PageRequest`
+/// parameter, its handler passes the request down instead - the envelope and
+/// the query contract do not change either way, which is the point of
+/// [`super::paging`] owning the tail rather than each resource owning all of
+/// it.
 fn paginate(rows: Vec<WorkspaceCurrency>, request: &PageRequest) -> Page<CurrencyResource> {
     let needle = request.needle();
 
@@ -256,19 +265,7 @@ fn paginate(rows: Vec<WorkspaceCurrency>, request: &PageRequest) -> Page<Currenc
         matching.reverse();
     }
 
-    let total = matching.len() as u64;
-    let request = request.clamped_to(total);
-    let offset = usize::try_from(request.offset()).unwrap_or(usize::MAX);
-    let limit = usize::try_from(request.limit()).unwrap_or(usize::MAX);
-
-    let page = matching
-        .into_iter()
-        .skip(offset)
-        .take(limit)
-        .map(CurrencyResource::from)
-        .collect();
-
-    Page::new(page, total, &request)
+    cut(matching, request, CurrencyResource::from)
 }
 
 #[cfg(test)]

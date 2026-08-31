@@ -390,6 +390,61 @@ Not in the first cut, and each for a stated reason:
   everything a screen does. When an export endpoint exists it can carry a cursor;
   adding one to `v1` later is additive.
 
+### Amended 2026-08-31 — users, and what the second resource cost
+
+The afternoon happened, and the estimate held. **Users** is the second
+resource, read-only:
+
+```
+GET    /api/v1/users                 list, paged            (Users)
+GET    /api/v1/users/{id}            one                    (Users)
+```
+
+It was chosen over the larger candidates because it proves the two things
+currencies structurally could not:
+
+* **A gated read.** Currencies reads ungated, so every 200 the first resource
+  ever returned was also a 200 for a key carrying no scopes at all. `Users`
+  requires `Pages.Administration.Users`, so the intersection of the owner's
+  grants with the key's scopes is now load-bearing on a *read* and not only on
+  the one `PUT`.
+* **An opaque address.** A currency is reached by a code the caller already
+  knows; an account is reached by an id that only the list can supply. That is
+  the ordinary shape of every resource after this one.
+
+Three things the build settled, worth recording because they are decisions the
+third resource should not have to make again:
+
+1. **`ServiceError::rejected` is a 422, and a missing row wants a 404.**
+   `directory::find` answers a missing account with a rejection, which
+   §"Errors" renders as a validation problem with a field in it. That is right
+   for a form and wrong for an address. The handler therefore does its own
+   lookup over the same list `find` scans, and spells the 404 itself - exactly
+   as `currencies::get` already did for an unknown ISO code. **A `find` on a
+   service is not automatically a `GET` on a resource**, and the difference is
+   the status.
+
+2. **An unknown *sort field* is ignored; an unknown *filter value* narrows to
+   nothing.** §"Paging" says a bad parameter is clamped rather than refused,
+   and that still holds - but the two are not the same request. Sorting by a
+   column this build does not have is a client asking for an ordering, and any
+   ordering answers it. Filtering on `status=retired` is a client naming a set,
+   and handing back everybody would assert that everybody is in it. Neither is
+   a 422; the difference is what "clamped" means for each.
+
+3. **Paging in memory is a property of the service, not of the resource.**
+   §"Paging" was written as though currencies were the exception because it is
+   bounded. It is not the rule: a handler pages in memory while the use case it
+   calls hands back the whole list for the screen's own reasons, and passes the
+   `PageRequest` down the day that use case takes one. The wire contract is
+   identical either way, which is the point - `api::paging::cut` now owns the
+   clamp-and-cut tail so no resource can get `total` or the last page wrong on
+   its own.
+
+Still not here, and still for the reasons above: writes to users (roles and
+status move together, and a key must not be able to hand itself a role),
+exchange rates, webhooks, and cursor pagination.
+
 ## Consequences
 
 * A published spec cannot be walked back. Every endpoint added to `v1` is

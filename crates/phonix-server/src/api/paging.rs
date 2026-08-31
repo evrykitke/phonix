@@ -63,8 +63,13 @@ pub struct ListParams {
     /// Rows per page. Above 500 is served as 500.
     #[param(example = 25, maximum = 500)]
     pub per_page: Option<u32>,
-    /// A field to sort by. One this resource does not know is ignored.
-    #[param(example = "code")]
+    /// A field to sort by, named in the endpoint's own description. One this
+    /// resource does not know is ignored rather than refused, so a client
+    /// written against a later build still gets its rows.
+    ///
+    /// No example here: this struct documents every list, and the fields
+    /// differ from one to the next - an example naming a real field of one
+    /// resource is wrong on all the others.
     pub sort: Option<String>,
     /// `asc` or `desc`. Anything else reads as `asc`.
     #[param(example = "asc")]
@@ -170,9 +175,94 @@ impl<T> PageEnvelope<T> {
     }
 }
 
+/// Clamp, cut and convert: the tail every in-memory list shares.
+///
+/// Searching, narrowing and sorting are each resource's own business and look
+/// nothing alike from one to the next. What comes after them is the same every
+/// time, and is three chances to be quietly wrong:
+///
+/// * `total` has to be the count of what *matched*, taken before the cut. The
+///   length of what survives it is the size of one page, and a pager fed that
+///   shows one page and stops.
+/// * A page past the end comes back as the last page, not as nothing. That is
+///   `clamped_to`, and it is the difference between "you have scrolled too far"
+///   and "the rows are gone".
+/// * `offset` and `limit` are `u64` on a `Vec` that indexes with `usize`.
+///
+/// The conversion happens here rather than before, so only the rows actually
+/// being returned are built - the whole list is walked, but a wire type is
+/// allocated once per row on the page.
+pub fn cut<T, R>(matching: Vec<T>, request: &PageRequest, convert: impl Fn(T) -> R) -> Page<R> {
+    let total = matching.len() as u64;
+    let request = request.clamped_to(total);
+
+    // Saturating rather than wrapping. On a target where this could overflow,
+    // an offset past `usize::MAX` describes a page beyond every row there is,
+    // and skipping everything is exactly that page.
+    let offset = usize::try_from(request.offset()).unwrap_or(usize::MAX);
+    let limit = usize::try_from(request.limit()).unwrap_or(usize::MAX);
+
+    let rows = matching
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(convert)
+        .collect();
+
+    Page::new(rows, total, &request)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cut_reports_what_matched_rather_than_what_fitted() {
+        // The distinction the whole envelope rests on. `total` is what a pager
+        // divides to decide how many pages there are, so reporting the length
+        // of the page would make every list exactly one page long.
+        let page = cut(
+            (0..40).collect::<Vec<u32>>(),
+            &PageRequest::first(10),
+            |n| n,
+        );
+
+        assert_eq!(page.rows.len(), 10);
+        assert_eq!(page.total, 40);
+        assert_eq!(page.page_count(), 4);
+    }
+
+    #[test]
+    fn cut_answers_a_page_past_the_end_with_the_last_one() {
+        let request = PageRequest {
+            page: 99,
+            ..PageRequest::first(10)
+        };
+
+        let page = cut((0..40).collect::<Vec<u32>>(), &request.sanitised(), |n| n);
+
+        // Not an empty page. A pager that has fallen behind its own data needs
+        // to be told where the end is, and rows are what tell it.
+        assert_eq!(page.page, 4);
+        assert_eq!(page.rows, vec![30, 31, 32, 33, 34, 35, 36, 37, 38, 39]);
+    }
+
+    #[test]
+    fn cut_converts_only_the_rows_it_returns() {
+        use std::cell::Cell;
+
+        // The conversion allocates - a wire type per row - and doing it before
+        // the cut would build one for every row in the workspace to hand back
+        // twenty-five.
+        let built = Cell::new(0u32);
+        let page = cut((0..40).collect::<Vec<u32>>(), &PageRequest::first(5), |n| {
+            built.set(built.get() + 1);
+            n
+        });
+
+        assert_eq!(page.rows.len(), 5);
+        assert_eq!(built.get(), 5);
+    }
 
     #[test]
     fn the_ordinary_query_maps_across() {

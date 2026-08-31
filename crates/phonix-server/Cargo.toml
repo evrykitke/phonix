@@ -50,6 +50,10 @@ utoipa-axum = { workspace = true }
 utoipa-scalar = { workspace = true }
 
 anyhow = { workspace = true }
+# Timestamps on the API's wire types. `utoipa`'s chrono feature is what turns a
+# `DateTime<Utc>` into `string`/`date-time` in the document, but the type still
+# has to be nameable here.
+chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v7"] }

@@ -49,6 +49,7 @@ pub mod paging;
 pub mod problem;
 pub mod scalar_bundle;
 pub mod session;
+pub mod users;
 
 use problem::Problem;
 
@@ -73,6 +74,7 @@ use problem::Problem;
     tags(
         (name = "auth", description = "Signing a person in, and what their session may do."),
         (name = "currencies", description = "The currencies a workspace transacts in."),
+        (name = "users", description = "The people with an account on this workspace."),
     ),
     modifiers(&BearerSecurity),
 )]
@@ -113,13 +115,15 @@ impl Modify for BearerSecurity {
     }
 }
 
-/// The whole of `/api/v1`, ready to be nested.
+/// Every route, and the document they build between them.
 ///
-/// Every route is registered through `routes!`, which registers the handler and
-/// its documentation together - so an endpoint that is not in the specification
-/// is not something anybody can write by accident.
-pub fn routes() -> Router<AppState> {
-    let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
+/// Separate from [`routes`] only so the tests below can hold the `OpenApi` on
+/// its own. Nothing else builds a document: this is the single list, and
+/// `routes!` registers a handler and its documentation together - so an
+/// endpoint outside the specification is not something anybody can write by
+/// accident.
+fn parts() -> (Router<AppState>, utoipa::openapi::OpenApi) {
+    OpenApiRouter::with_openapi(ApiDoc::openapi())
         // Authentication first, because it is what a client reads first: the
         // documentation page lists tags in registration order, and "how do I
         // sign in" before "what can I read" is the order somebody integrating
@@ -130,7 +134,18 @@ pub fn routes() -> Router<AppState> {
         .routes(routes!(session::sign_out))
         .routes(routes!(currencies::list))
         .routes(routes!(currencies::get, currencies::save))
-        .split_for_parts();
+        .routes(routes!(users::list))
+        .routes(routes!(users::get))
+        .split_for_parts()
+}
+
+/// The whole of `/api/v1`, ready to be nested.
+///
+/// Every route is registered through `routes!`, which registers the handler and
+/// its documentation together - so an endpoint that is not in the specification
+/// is not something anybody can write by accident.
+pub fn routes() -> Router<AppState> {
+    let (router, api) = parts();
 
     // Serialised once, at startup, rather than per request: the document is
     // the same bytes for every caller and every workspace, and generating it
@@ -177,3 +192,86 @@ async fn unknown_route() -> Problem {
         "There is no such endpoint in v1. The specification is at /api/v1/openapi.json.",
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn document() -> utoipa::openapi::OpenApi {
+        parts().1
+    }
+
+    #[test]
+    fn the_document_serialises() {
+        // `routes` logs and serves an empty body when this fails, because a
+        // panic inside a request is the wrong answer to it. That makes an
+        // unserialisable document a silent 200 with nothing in it, and this
+        // is the only thing that turns it back into a failure somebody sees.
+        let json = document().to_pretty_json().expect("the document serialises");
+
+        assert!(json.contains("\"openapi\""));
+    }
+
+    #[test]
+    fn every_operation_id_is_unique() {
+        // A generated client turns these into method names. Two the same is
+        // either a compile error in somebody's SDK or, worse, one endpoint
+        // silently shadowing the other - and `routes!` will not notice,
+        // because each attribute is written on its own.
+        // Walked as JSON rather than through `PathItem`'s eight typed verb
+        // fields: this is the document as a client receives it, and a verb
+        // added to the crate cannot quietly fall outside the check.
+        let json: serde_json::Value =
+            serde_json::from_str(&document().to_pretty_json().expect("the document serialises"))
+                .expect("the document is json");
+
+        let mut seen: Vec<String> = json["paths"]
+            .as_object()
+            .expect("the document has paths")
+            .values()
+            .filter_map(|item| item.as_object())
+            .flat_map(|item| item.values())
+            .filter_map(|operation| operation.get("operationId"))
+            .filter_map(|id| id.as_str().map(str::to_owned))
+            .collect();
+
+        let count = seen.len();
+        seen.sort();
+        seen.dedup();
+
+        assert_eq!(count, seen.len(), "two operations share an operationId: {seen:?}");
+        assert!(count >= 8, "every registered handler should carry one, got {count}");
+    }
+
+    #[test]
+    fn the_paths_are_relative_to_the_nesting() {
+        // The router is nested at `/api/v1` in `startup`, and the `servers`
+        // entry is what carries that. A path that spelled the prefix itself
+        // would send every generated client to `/api/v1/api/v1/...`.
+        let document = document();
+
+        for path in document.paths.paths.keys() {
+            assert!(
+                !path.starts_with("/api/"),
+                "{path} repeats the prefix that `servers` already carries"
+            );
+        }
+    }
+
+    #[test]
+    fn users_is_in_the_document_under_its_own_schema_name() {
+        let json = document().to_pretty_json().expect("the document serialises");
+
+        assert!(json.contains("\"/users\""));
+        assert!(json.contains("\"/users/{id}\""));
+        // `UserResource` is where the code lives; `User` is the contract. The
+        // schema name is the half a client sees, and renaming the Rust type
+        // must not move it.
+        assert!(json.contains("\"User\""), "the schema is named for the contract");
+        assert!(
+            !json.contains("UserResource"),
+            "an internal type name reached the published document"
+        );
+    }
+}
+
