@@ -19,6 +19,14 @@
 //! The last two are the grid's own and carry no permission: they act on what
 //! the viewer is already looking at. Hiding a column the viewer can see, or
 //! saving rows they have already been sent, protects nothing.
+//!
+//! # The gated ones sit behind a boundary
+//!
+//! Only the configured actions read the viewer, and what that read decides is
+//! whether a button *exists*. That makes it one of the reads that must wait for
+//! the session rather than correct itself when it arrives - so it has a
+//! `<Suspense>` of its own, and the export and column buttons beside it do not
+//! sit inside it. See the note at the read.
 
 use leptos::prelude::*;
 use leptos_router::components::A;
@@ -114,19 +122,40 @@ pub fn grid_toolbar(
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
-                {move || {
-                    let user = user.get();
+                // The viewer is a `Signal` over the shell's *blocking*
+                // resource, and this read decides how many buttons exist.
+                // Outside a boundary that is fatal rather than cosmetic: on
+                // the server `initial` is `None`, so every gated action is
+                // filtered out and nothing is drawn, while the browser has the
+                // answer already serialized into the document and draws them.
+                // The two sides then disagree about the node count, which is
+                // an unrecoverable hydration error, and a wasm panic takes the
+                // whole page with it.
+                //
+                // It only ever showed on a *fresh load* of a list screen,
+                // because navigating to one inside the app renders rather than
+                // hydrates - which is why eight grids carried it for as long
+                // as they did.
+                //
+                // Blocking resources resolve before the first paint, so
+                // waiting here costs no flash. Fixed in the kit rather than in
+                // a configuration, for the reason the same fix to
+                // `ui/form/mod.rs` was: every grid has this bar.
+                <Suspense fallback=|| ()>
+                    {move || {
+                        let user = user.get();
 
-                    actions
-                        .with_value(|actions| {
-                            actions
-                                .iter()
-                                .filter(|action| action.permitted(user.as_ref()))
-                                .cloned()
-                                .map(|action| view! { <ToolbarButton action=action /> })
-                                .collect::<Vec<_>>()
-                        })
-                }}
+                        actions
+                            .with_value(|actions| {
+                                actions
+                                    .iter()
+                                    .filter(|action| action.permitted(user.as_ref()))
+                                    .cloned()
+                                    .map(|action| view! { <ToolbarButton action=action /> })
+                                    .collect::<Vec<_>>()
+                            })
+                    }}
+                </Suspense>
 
                 {on_export
                     .map(|on_export| {
