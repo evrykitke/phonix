@@ -329,23 +329,12 @@ async fn client_facts() -> (Option<String>, Option<String>) {
         return (None, None);
     };
 
-    // `x-forwarded-for` first: behind a proxy the socket address is the proxy.
-    // Only the first entry is read - the rest are appended by intermediaries,
-    // and the client controls whatever it sent.
-    let ip = headers
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .map(|value| value.trim().to_owned());
+    // Read through the shared helper rather than here, so a browser's sign-in
+    // and the API's describe the same client identically. See
+    // `crate::server::client`.
+    let facts = crate::server::client::facts_of(&headers);
 
-    let user_agent = headers
-        .get(http::header::USER_AGENT)
-        .and_then(|value| value.to_str().ok())
-        // Bounded: this is stored, and an unbounded header should not decide
-        // how wide a column has to be.
-        .map(|value| value.chars().take(256).collect());
-
-    (ip, user_agent)
+    (facts.ip, facts.user_agent)
 }
 
 /// Percent-encode a token for a query string.

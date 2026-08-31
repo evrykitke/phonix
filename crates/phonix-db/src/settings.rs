@@ -185,6 +185,56 @@ where
     Ok(())
 }
 
+/// Whether this workspace has the API at all.
+///
+/// Not part of [`WorkspaceSecuritySettings`], and the distinction is the point:
+/// that value is a *policy* the organization chose for itself, and this is a
+/// **licence** - what the workspace was sold. They live in one row because they
+/// are both facts about one workspace, and they are read and written
+/// separately because an administrator may change one and not the other.
+///
+/// Read on every `/api/v1` request. One indexed single-row lookup, for the
+/// reason the rest of this module gives: caching it would mean a workspace's
+/// API going on or off at some unpredictable later moment.
+pub async fn api_enabled<'e, E>(executor: E) -> Result<bool, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    let enabled: Option<bool> =
+        sqlx::query_scalar("SELECT api_enabled FROM workspace_settings WHERE id")
+            .fetch_optional(executor)
+            .await
+            .map_err(DbError::Query)?;
+
+    // A workspace with no settings row cannot have been sold anything. The
+    // missing row is a real fault - see `load` - but the safe reading of it
+    // here is "no API", not "all of it".
+    Ok(enabled.unwrap_or(false))
+}
+
+/// Turn the API on or off for this workspace.
+pub async fn set_api_enabled<'e, E>(
+    executor: E,
+    enabled: bool,
+    updated_by: Option<UserId>,
+) -> Result<(), DbError>
+where
+    E: PgExecutor<'e>,
+{
+    sqlx::query(
+        "UPDATE workspace_settings
+            SET api_enabled = $1, updated_at = now(), updated_by = $2
+          WHERE id",
+    )
+    .bind(enabled)
+    .bind(updated_by)
+    .execute(executor)
+    .await
+    .map_err(DbError::Query)?;
+
+    Ok(())
+}
+
 /// Write the deployment's defaults into a workspace that has just been created.
 ///
 /// Identical to [`save`] apart from the intent, which is worth a separate name:

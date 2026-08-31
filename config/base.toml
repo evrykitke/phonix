@@ -324,6 +324,19 @@ handoff_ttl_secs = 120
 # Sweep expired sessions and consumed tokens this often. 0 disables the sweeper.
 purge_interval_mins = 60
 
+# A session opened from a mobile application. Same table, same revocation, same
+# second factor - only the deadlines differ, because a phone people are signed
+# out of weekly is a phone application people stop opening. There is no cookie
+# here, so none of the cookie settings above are repeated.
+# See docs/adr/0003-mobile-authentication.md.
+[security.session.mobile]
+# Sliding, as the browser's is. 30 days: a phone that is used at all keeps
+# itself signed in, and one left in a drawer does not.
+idle_timeout_mins = 43200
+# Hard ceiling activity cannot extend. After this the person signs in again
+# with their password and their second factor.
+absolute_timeout_days = 90
+
 [security.lockout]
 # Consecutive failures before an account is temporarily locked. A lockout is
 # itself a denial-of-service vector - anyone who knows an address can trigger
@@ -409,6 +422,13 @@ action_window_secs = 60
 # before lunch.
 signup_requests = 3
 signup_window_secs = 3600
+
+# Calls to the public API. Its own tier, and keyed on the API key rather than
+# the address: a mobile fleet shares an address and a datacentre client changes
+# one, so the credential is the thing whose behaviour this means to bound.
+# Generous, because an integration syncing a catalogue makes real bursts.
+api_requests = 600
+api_window_secs = 60
 
 # Which header carries the client's address. GETTING THIS WRONG MAKES THE WHOLE
 # LIMITER DECORATIVE: a limiter keyed on something the caller chooses is not a

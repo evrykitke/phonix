@@ -33,6 +33,7 @@
 //! searchable, what may be done to a row - and having them in one place is what
 //! makes it obvious when two modules describe the same thing two ways.
 
+pub mod api_keys;
 pub mod audit;
 pub mod changes;
 pub mod currencies;

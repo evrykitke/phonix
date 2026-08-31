@@ -27,6 +27,7 @@ use crate::icons::{Icon, IconSize};
 use crate::l;
 use crate::lp;
 use crate::server_fns::admin_fns::assignable_roles;
+use crate::ui::clipboard;
 use crate::ui::form::EntityForm;
 use crate::ui::form::config::invitations::invite_form;
 
@@ -140,7 +141,7 @@ fn issued(issued: InvitationIssued) -> impl IntoView {
                         type="button"
                         class="inline-flex h-7 items-center gap-1.5 rounded-control border border-edge px-2.5 text-xs text-content-muted hover:bg-surface-hover hover:text-content"
                         on:click=move |_| {
-                            copy_to_clipboard(&to_copy);
+                            clipboard::copy(&to_copy);
                             copied.set(true);
                         }
                     >
@@ -156,27 +157,4 @@ fn issued(issued: InvitationIssued) -> impl IntoView {
             </div>
         </Panel>
     }
-}
-
-/// Put `text` on the clipboard.
-///
-/// The same shape as [`export::download`](crate::ui::table::export::download),
-/// and for the same reason: this is a browser action, `web-sys` is a
-/// hydrate-only dependency, and the server build needs a body that compiles and
-/// does nothing rather than a `cfg` at every call site.
-///
-/// Failure is silent by design. The link is already on screen and selectable,
-/// so a clipboard the browser refuses costs nothing - and an error message
-/// about it would be noise next to the thing it failed to copy.
-#[cfg(feature = "hydrate")]
-fn copy_to_clipboard(text: &str) {
-    let _ = leptos::prelude::window()
-        .navigator()
-        .clipboard()
-        .write_text(text);
-}
-
-#[cfg(not(feature = "hydrate"))]
-fn copy_to_clipboard(_text: &str) {
-    // Unreachable on the server: nothing renders a click there.
 }

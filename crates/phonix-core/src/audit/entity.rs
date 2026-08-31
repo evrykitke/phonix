@@ -241,6 +241,19 @@ pub mod kinds {
         href: Some("/admin/apps"),
         singleton: false,
     };
+    /// A bearer credential for the API. Its history is the answer to "who
+    /// could reach this workspace from outside, and when did that start".
+    ///
+    /// Issuing and revoking are recorded; using one is not. A row per request
+    /// would drown the trail this exists to keep readable - what a key *did*
+    /// shows up as the ordinary history of whatever it changed.
+    pub const API_KEY: EntityKind = EntityKind {
+        name: "api_key",
+        singular_key: "entity.api_key.singular",
+        plural_key: "entity.api_key.plural",
+        href: Some("/admin/api-keys"),
+        singleton: false,
+    };
 }
 
 /// The declared set, in the order a filter should offer them.
@@ -253,6 +266,7 @@ pub const ENTITY_KINDS: &[EntityKind] = &[
     kinds::CURRENCIES,
     kinds::NUMBER_SEQUENCE,
     kinds::APP,
+    kinds::API_KEY,
     kinds::PARTY,
     kinds::TAX_CODE,
     kinds::TAX_GROUP,

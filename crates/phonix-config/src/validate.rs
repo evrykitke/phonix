@@ -513,6 +513,30 @@ fn check_security(security: &SecurityConfig) -> Result<(), ConfigError> {
             session.absolute_timeout_hours * 60
         )));
     }
+    // The mobile deadlines are the same two rules, asked of the other block.
+    // Not folded into a loop over both: the messages have to name the setting a
+    // person would edit, and "security.session.idle_timeout_mins" sends
+    // somebody to the wrong line.
+    let mobile = &session.mobile;
+    if mobile.idle_timeout_mins == 0 {
+        return Err(ConfigError::invalid(
+            "security.session.mobile.idle_timeout_mins must be greater than 0",
+        ));
+    }
+    if mobile.absolute_timeout_days == 0 {
+        return Err(ConfigError::invalid(
+            "security.session.mobile.absolute_timeout_days must be greater than 0",
+        ));
+    }
+    if mobile.idle_timeout_mins > mobile.absolute_timeout_hours() * 60 {
+        return Err(ConfigError::invalid(format!(
+            "security.session.mobile.idle_timeout_mins ({}) exceeds              absolute_timeout_days ({} d = {} min); the idle window would never              be reached",
+            mobile.idle_timeout_mins,
+            mobile.absolute_timeout_days,
+            mobile.absolute_timeout_hours() * 60
+        )));
+    }
+
     if session.handoff_ttl_secs == 0 {
         return Err(ConfigError::invalid(
             "security.session.handoff_ttl_secs must be greater than 0",

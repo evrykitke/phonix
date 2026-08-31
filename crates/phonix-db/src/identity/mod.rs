@@ -8,6 +8,7 @@
 //! | Module              | Table it owns                                       |
 //! | ------------------- | --------------------------------------------------- |
 //! | [`user`]            | `users`                                             |
+//! | [`api_key`]         | `api_keys`                                          |
 //! | [`session`]         | `sessions`                                          |
 //! | [`one_time_token`]  | `user_tokens`                                       |
 //! | [`password_history`]| `password_history`                                  |
@@ -18,6 +19,7 @@
 //! the order the five tables are touched in all live in
 //! `phonix_services::identity`; these modules turn rows into values and back.
 
+pub mod api_key;
 pub mod audit;
 pub mod mfa;
 pub mod one_time_token;
@@ -25,6 +27,7 @@ pub mod password_history;
 pub mod session;
 pub mod user;
 
+pub use api_key::{ApiKeyListing, ApiKeyRecord, NewApiKey};
 pub use audit::{AuditEntry, AuditRecord, IdentityEvent};
 pub use mfa::StoredFactor;
 pub use one_time_token::{TokenPurpose, TokenRecord};

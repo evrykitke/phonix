@@ -99,6 +99,10 @@ mod tests {
             same_site: SameSitePolicy::Lax,
             handoff_ttl_secs: 120,
             purge_interval_mins: 60,
+            mobile: phonix_config::MobileSessionConfig {
+                idle_timeout_mins: 43_200,
+                absolute_timeout_days: 90,
+            },
         }
     }
 

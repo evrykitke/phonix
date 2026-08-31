@@ -13,6 +13,7 @@
 //!   "who you are" and "what you may do" are separate questions and conflating
 //!   them is how role checks end up hard-coded.
 
+pub mod api_key;
 pub mod audit;
 pub mod card;
 pub mod directory;
@@ -21,6 +22,7 @@ pub mod invitation;
 pub mod login;
 pub mod mfa;
 pub mod password;
+pub mod session;
 pub mod signup;
 pub mod user;
 pub mod validation;
@@ -28,6 +30,7 @@ pub mod validation;
 pub use audit::{
     AuditEvent, AuditEventDetail, Change, ChangeKind, Fact, FieldChange, NOTABLE_EVENTS,
 };
+pub use api_key::{ApiKeyDraft, ApiKeyIssued, ApiKeySummary, KeyState};
 pub use card::UserCard;
 pub use directory::UserListing;
 pub use edit::UserEdit;
@@ -45,6 +48,7 @@ pub use password::{
     ABSOLUTE_MIN_LENGTH, DEFAULT_MIN_LENGTH, MAX_PASSWORD_LEN, PasswordPolicy, PasswordStrength,
     password_strength, password_strength_for, validate_password,
 };
+pub use session::{SessionKind, UnknownSessionKind};
 pub use signup::{SignupInput, SignupOutcome, SignupResult, SlugAvailability, ValidSignup};
 pub use user::{AuthUser, UserId, UserStatus};
 pub use validation::{

@@ -9,6 +9,8 @@ use crate::components::layout::Layout;
 use crate::components::user_link::{OpenCard, UserCardLayer};
 use crate::i18n::{self, Locale};
 use crate::pages::account::AccountPage;
+use crate::pages::admin::api_key_new::ApiKeyNewPage;
+use crate::pages::admin::api_keys::ApiKeysPage;
 use crate::pages::admin::apps::AppsPage;
 use crate::pages::admin::audit_event::AuditEventPage;
 use crate::pages::admin::audit_logs::AuditLogsPage;
@@ -209,6 +211,10 @@ pub fn app() -> impl IntoView {
                     <Route path=path!("/admin/audit-logs") view=AuditLogsPage />
                     <Route path=path!("/admin/audit-logs/:id") view=AuditEventPage />
                     <Route path=path!("/admin/changes/:id") view=EntityChangePage />
+                    <Route path=path!("/admin/api-keys") view=ApiKeysPage />
+                    // Before the list would ever grow a parameter, and for the
+                    // same reason `roles/new` sits above `roles/:id`.
+                    <Route path=path!("/admin/api-keys/new") view=ApiKeyNewPage />
                     <Route path=path!("/admin/apps") view=AppsPage />
                     <Route path=path!("/admin/ui") view=UiLibraryPage />
                 </ParentRoute>

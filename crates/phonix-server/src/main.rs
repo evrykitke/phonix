@@ -7,6 +7,7 @@
 // not ours.
 #![recursion_limit = "512"]
 
+mod api;
 mod auth;
 mod files;
 mod google;

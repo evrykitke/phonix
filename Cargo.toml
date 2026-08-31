@@ -59,6 +59,20 @@ http = "1.5"
 # extractor.
 cookie = "0.18"
 
+# --- the public API (see docs/adr/0002-public-api.md) ---
+# The OpenAPI document is generated from the handlers, so it cannot drift from
+# what the code does - a hand-written spec is wrong within a month and nobody
+# finds out until a customer does. `utoipa-axum` registers a route and its
+# documentation in one call, which is what makes "an endpoint that is not in
+# the spec" unrepresentable rather than merely discouraged.
+#
+# Only `phonix-server` depends on these. The wire types live beside the
+# handlers precisely so that `utoipa` never reaches `phonix-core`, which
+# compiles to WebAssembly and ships to every browser.
+utoipa = { version = "5.5", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-axum = { version = "0.2" }
+utoipa-scalar = { version = "0.3", features = ["axum"] }
+
 # --- federated sign-in ---
 # One POST to Google's token endpoint, and nothing else in the workspace makes
 # an outbound HTTP request. rustls rather than native-tls so the binary does not

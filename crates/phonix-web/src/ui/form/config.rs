@@ -41,6 +41,7 @@
 //! same one - so a test can assert that every field of a form names a real
 //! column, which is the cheap way to catch a rename that only went halfway.
 
+pub mod api_keys;
 pub mod invitations;
 pub mod mail;
 pub mod organization;

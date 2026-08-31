@@ -67,6 +67,12 @@ pub enum Tier {
     Action,
     /// Creating a workspace - a database, a schema and a permission tree.
     Signup,
+    /// A call to the public API.
+    ///
+    /// Its own tier because the reasoning that leaves the rest of `/api/`
+    /// uncounted does not hold here: those are a browser holding a session
+    /// cookie, and this is a key a script can hold in a loop all night.
+    Api,
 }
 
 impl Tier {
@@ -85,6 +91,10 @@ impl Tier {
                 config.signup_requests,
                 Duration::from_secs(config.signup_window_secs),
             ),
+            Self::Api => (
+                config.api_requests,
+                Duration::from_secs(config.api_window_secs),
+            ),
         }
     }
 
@@ -94,6 +104,7 @@ impl Tier {
             Self::Page => "page",
             Self::Action => "action",
             Self::Signup => "signup",
+            Self::Api => "api",
         }
     }
 }
@@ -114,7 +125,28 @@ impl Tier {
 /// **Health probes.** An orchestrator polls them on a schedule and must never
 /// be told to come back later.
 pub fn classify(method: &Method, path: &str) -> Option<Tier> {
-    // Assets first: cheapest test, largest volume.
+    // The public API first, and above the asset test on purpose: the
+    // specification is served at a path ending in `.json`, which
+    // `looks_like_a_file` would otherwise wave through uncounted. Everything
+    // under `/api/v1` is counted, documentation included - it is
+    // unauthenticated, and serving it is not free.
+    if path.starts_with("/api/v1") {
+        // Signing in is a password being guessed at, not an API call, so it is
+        // counted in the credential tier the browser's own sign-in uses -
+        // above the `Tier::Api` line, because that one would otherwise swallow
+        // it. Keyed by address, like every other credential endpoint: this
+        // layer runs before the body is read, so it cannot key on the email
+        // being tried, and buying that would mean buffering every request body
+        // in middleware to narrow a defence that account lockout already
+        // covers per account. See docs/adr/0003-mobile-authentication.md.
+        if path == "/api/v1/auth/token" || path == "/api/v1/auth/mfa" {
+            return Some(Tier::Action);
+        }
+
+        return Some(Tier::Api);
+    }
+
+    // Assets: cheapest test, largest volume.
     if path.starts_with("/pkg/") || path.starts_with("/health/") || looks_like_a_file(path) {
         return None;
     }
@@ -311,7 +343,16 @@ pub async fn enforce(
         return next.run(request).await;
     };
 
-    let key = client_key(config, request.headers(), &request);
+    let key = match tier {
+        // Keyed on the credential, not the address: a mobile fleet shares an
+        // address and a datacentre client changes one, so the key is the thing
+        // whose behaviour this means to bound. A request with no usable
+        // credential falls back to the address, so an unauthenticated flood is
+        // still counted.
+        Tier::Api => api_key_of(request.headers())
+            .unwrap_or_else(|| client_key(config, request.headers(), &request)),
+        _ => client_key(config, request.headers(), &request),
+    };
 
     match state.limiter.check(tier, &key, config) {
         Decision::Allow => next.run(request).await,
@@ -325,16 +366,65 @@ pub async fn enforce(
                 "rate limit exceeded"
             );
 
-            (
-                StatusCode::TOO_MANY_REQUESTS,
-                [(header::RETRY_AFTER, retry_after_secs.to_string())],
-                // Plain text, not a rendered page: rendering one would spend
-                // more of this server than the request being refused.
-                "Too many requests. Try again shortly.",
-            )
-                .into_response()
+            // A client of the API parses bodies; a browser reads them. Both
+            // get `Retry-After`, and neither gets a rendered page - rendering
+            // one would spend more of this server than the request being
+            // refused.
+            let body = match tier {
+                Tier::Api => crate::api::problem::Problem::from(
+                    phonix_core::Error::RateLimited,
+                )
+                .into_response(),
+                _ => "Too many requests. Try again shortly.".into_response(),
+            };
+
+            let mut response = body;
+            *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+            response.headers_mut().insert(
+                header::RETRY_AFTER,
+                header::HeaderValue::from_str(&retry_after_secs.to_string())
+                    .unwrap_or(header::HeaderValue::from_static("1")),
+            );
+            response
         }
     }
+}
+
+/// A stable, non-reversible name for the credential a request presented.
+///
+/// Hashed rather than used verbatim, and that is not decoration: this string
+/// becomes a key in a map that lives for the life of the process, and a heap
+/// dump holding live API tokens would be a worse leak than anything this
+/// module protects against. Collisions between two tokens would merely share
+/// an allowance, so a cryptographic hash is not needed - only a one-way one.
+///
+/// `None` when nothing usable was presented, which sends the request back to
+/// the address key.
+fn api_key_of(headers: &HeaderMap) -> Option<String> {
+    use std::hash::{Hash, Hasher};
+
+    let presented = headers
+        .get(header::AUTHORIZATION)?
+        .to_str()
+        .ok()?
+        .trim();
+
+    // Case-insensitive on the scheme, as RFC 7235 requires and as the
+    // extractor that will later read this same header does.
+    let (scheme, raw) = presented.split_once(' ')?;
+    if !scheme.eq_ignore_ascii_case("bearer") {
+        return None;
+    }
+
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    raw.hash(&mut hasher);
+
+    Some(format!("key:{:016x}", hasher.finish()))
 }
 
 /// What to count this request against.
@@ -386,8 +476,63 @@ mod tests {
             action_window_secs: 60,
             signup_requests: 1,
             signup_window_secs: 3600,
+            api_requests: 4,
+            api_window_secs: 60,
             client_ip_header: String::new(),
         }
+    }
+
+    #[test]
+    fn the_public_api_is_counted_and_the_server_functions_are_not() {
+        // The rest of `/api/` is a browser holding a session cookie, where
+        // `Caller::require` is the better control. `/api/v1` is a key a script
+        // can hold in a loop.
+        assert_eq!(classify(&Method::GET, "/api/v1/currencies"), Some(Tier::Api));
+        assert_eq!(classify(&Method::PUT, "/api/v1/currencies/EUR"), Some(Tier::Api));
+        assert_eq!(classify(&Method::GET, "/api/v1/docs"), Some(Tier::Api));
+        // Ends in `.json`, and would be waved through as a static file if the
+        // API were classified after the asset test rather than before it.
+        assert_eq!(
+            classify(&Method::GET, "/api/v1/openapi.json"),
+            Some(Tier::Api)
+        );
+
+        assert_eq!(classify(&Method::POST, "/api/currencies/save"), None);
+        assert_eq!(classify(&Method::POST, "/api/sign-in"), Some(Tier::Action));
+    }
+
+    #[test]
+    fn an_api_call_is_counted_against_its_key_rather_than_its_address() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            "Bearer phx_abcdefghijklmnop".parse().expect("a header"),
+        );
+
+        let keyed = api_key_of(&headers).expect("a key was presented");
+
+        // Never the token itself: this string outlives the request in a map,
+        // and a heap dump holding live keys would be its own incident.
+        assert!(!keyed.contains("phx_abcdefghijklmnop"));
+
+        // The same credential counts against the same allowance every time.
+        assert_eq!(api_key_of(&headers).as_deref(), Some(keyed.as_str()));
+
+        let mut other = HeaderMap::new();
+        other.insert(
+            header::AUTHORIZATION,
+            "Bearer phx_zyxwvutsrqponml".parse().expect("a header"),
+        );
+        assert_ne!(api_key_of(&other), Some(keyed));
+
+        // Nothing usable, so the request falls back to the address key.
+        assert_eq!(api_key_of(&HeaderMap::new()), None);
+        let mut basic = HeaderMap::new();
+        basic.insert(
+            header::AUTHORIZATION,
+            "Basic dXNlcjpwYXNz".parse().expect("a header"),
+        );
+        assert_eq!(api_key_of(&basic), None);
     }
 
     #[test]
@@ -539,8 +684,28 @@ mod tests {
             "/auth/handoff",
             "/auth/google/start",
             "/auth/google/callback",
+            // The public API's two. They live under `/api/v1`, which is
+            // otherwise `Tier::Api` wholesale, so they are the pair most
+            // likely to be swallowed by a later edit to `classify`.
+            "/api/v1/auth/token",
+            "/api/v1/auth/mfa",
         ] {
             assert_eq!(classify(&Method::POST, path), Some(Tier::Action), "{path}");
+        }
+    }
+
+    #[test]
+    fn the_rest_of_the_public_api_is_still_counted_as_api() {
+        // The other half of the statement above: carving the credential
+        // endpoints out must not have carved out their neighbours. `/auth/me`
+        // in particular sits under the same prefix and is an ordinary call.
+        for path in [
+            "/api/v1/currencies",
+            "/api/v1/auth/me",
+            "/api/v1/auth/sign-out",
+            "/api/v1/openapi.json",
+        ] {
+            assert_eq!(classify(&Method::GET, path), Some(Tier::Api), "{path}");
         }
     }
 

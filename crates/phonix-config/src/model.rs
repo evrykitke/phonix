@@ -575,6 +575,14 @@ pub struct RateLimitConfig {
     pub signup_requests: u32,
     pub signup_window_secs: u64,
 
+    /// Calls to the public API, `/api/v1`.
+    ///
+    /// Its own tier because the rest of `/api/` is a browser holding a session
+    /// cookie, where `Caller::require` is the better control. A key is held by
+    /// a script, which can make the same call in a loop all night.
+    pub api_requests: u32,
+    pub api_window_secs: u64,
+
     /// Which header carries the client's address, or empty for the socket.
     ///
     /// **Getting this wrong makes the whole limiter decorative.** A limiter
@@ -607,6 +615,11 @@ impl Default for RateLimitConfig {
             action_window_secs: 60,
             signup_requests: 3,
             signup_window_secs: 3600,
+            // Generous per minute: an integration syncing a catalogue makes
+            // real bursts, and this is a paying customer's key rather than an
+            // anonymous visitor.
+            api_requests: 600,
+            api_window_secs: 60,
             client_ip_header: String::new(),
         }
     }
@@ -808,6 +821,38 @@ pub struct SessionConfig {
     pub handoff_ttl_secs: u64,
     /// Delete expired rows this often. 0 disables the sweeper.
     pub purge_interval_mins: u64,
+    /// Deadlines for a session held by a phone rather than a browser.
+    pub mobile: MobileSessionConfig,
+}
+
+/// How long a session opened from a mobile application lives.
+///
+/// Only the two deadlines. Everything else in [`SessionConfig`] - the cookie
+/// name, `Secure`, `SameSite`, the handoff TTL - is a property of a *cookie*,
+/// and a mobile session does not travel in one; repeating them here would be
+/// four more settings that can be set and cannot matter. See
+/// `docs/adr/0003-mobile-authentication.md`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MobileSessionConfig {
+    /// Sign-out after this long without a request, sliding forward on use.
+    ///
+    /// Much longer than a browser's, deliberately: a phone application people
+    /// are signed out of every week is one they stop opening, and the phone
+    /// itself is behind a lock screen.
+    pub idle_timeout_mins: u64,
+    /// Hard ceiling that activity cannot extend, after which the person signs
+    /// in again with their password and their second factor.
+    ///
+    /// Days rather than hours because that is the unit the decision is made in.
+    pub absolute_timeout_days: u64,
+}
+
+impl MobileSessionConfig {
+    /// The absolute ceiling in hours, so both kinds of session are computed
+    /// from the same unit rather than from two that have to be kept in step.
+    pub const fn absolute_timeout_hours(&self) -> u64 {
+        self.absolute_timeout_days * 24
+    }
 }
 
 impl SessionConfig {

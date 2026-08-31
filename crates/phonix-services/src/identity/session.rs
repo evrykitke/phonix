@@ -6,7 +6,7 @@
 //! would present.
 
 use phonix_config::SessionConfig;
-use phonix_core::identity::UserId;
+use phonix_core::identity::{SessionKind, UserId};
 use phonix_db::identity::session::{self, ClientFacts, SessionRecord};
 use phonix_db::sqlx::PgExecutor;
 use secrecy::SecretString;
@@ -24,9 +24,7 @@ pub struct OpenedSession {
 impl OpenedSession {
     /// Seconds the cookie should live, matching the immovable deadline.
     pub fn max_age_secs(&self) -> i64 {
-        (self.record.absolute_expires_at - chrono::Utc::now())
-            .num_seconds()
-            .max(0)
+        self.record.remaining_secs()
     }
 }
 
@@ -35,10 +33,18 @@ impl OpenedSession {
 /// `mfa_satisfied` is false when a second factor is still outstanding: the
 /// session exists so the challenge page has something to attach to, and the
 /// resolved `AuthUser` reports nothing as permitted until it flips.
+///
+/// `kind` decides the deadlines and nothing else. A mobile session is the same
+/// row with the same revocation and the same second factor; what differs is
+/// that its token goes back in a response body instead of a `Set-Cookie`
+/// header, and that it lives for months rather than days. See
+/// `docs/adr/0003-mobile-authentication.md`.
+#[allow(clippy::too_many_arguments)]
 pub async fn open<'e, E>(
     executor: E,
     user_id: UserId,
     cfg: &SessionConfig,
+    kind: SessionKind,
     remember_me: bool,
     mfa_satisfied: bool,
     facts: ClientFacts<'_>,
@@ -53,6 +59,7 @@ where
         user_id,
         &issued.digest,
         cfg,
+        kind,
         remember_me,
         mfa_satisfied,
         facts,

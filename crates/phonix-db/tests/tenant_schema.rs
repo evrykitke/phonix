@@ -55,6 +55,7 @@ const CORE_TABLES: &[&str] = &[
     "currencies",
     "exchange_rates",
     "number_sequences",
+    "api_keys",
 ];
 
 fn database_config() -> DatabaseConfig {

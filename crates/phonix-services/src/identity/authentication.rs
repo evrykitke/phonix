@@ -55,6 +55,38 @@ pub enum Delivery {
     /// [`redeem_handoff`] on the workspace host. For the bare domain, and for
     /// the end of signup.
     Handoff,
+    /// Open a session now and hand its token back in the response body, for a
+    /// client that has no cookie jar - an application on somebody's phone
+    /// calling `/api/v1/auth/token`.
+    ///
+    /// Everything else about the sign-in is identical, and deliberately so: the
+    /// lockout check, the timing-equalised dummy verify, the audit entry and
+    /// every [`LoginResult`] outcome are reached by the same code whichever
+    /// envelope was asked for. A second sign-in path is a second place for a
+    /// control to be forgotten. See `docs/adr/0003-mobile-authentication.md`.
+    Bearer,
+}
+
+impl Delivery {
+    /// Which kind of session this envelope opens.
+    const fn session_kind(self) -> phonix_core::identity::SessionKind {
+        match self {
+            // Handoff opens no session here at all; the one that matters is
+            // opened by `redeem_handoff` on the workspace host, and it is a
+            // browser's.
+            Self::Cookie | Self::Handoff => phonix_core::identity::SessionKind::Browser,
+            Self::Bearer => phonix_core::identity::SessionKind::Mobile,
+        }
+    }
+
+    /// What the audit trail calls it.
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Cookie => "cookie",
+            Self::Handoff => "handoff",
+            Self::Bearer => "bearer",
+        }
+    }
 }
 
 /// A completed sign-in.
@@ -253,10 +285,7 @@ pub(super) async fn finish_sign_in(
             .client(facts.ip, facts.user_agent)
             .detail(serde_json::json!({
                 "outcome": outcome.label(),
-                "delivery": match delivery {
-                    Delivery::Cookie => "cookie",
-                    Delivery::Handoff => "handoff",
-                },
+                "delivery": delivery.label(),
                 // Absent for a password, which is what "how did they sign in"
                 // reads as when there is nothing else to say.
                 "provider": provider,
@@ -265,9 +294,21 @@ pub(super) async fn finish_sign_in(
     .await;
 
     match delivery {
-        Delivery::Cookie => {
-            let opened =
-                open_session(pool, security, &account, remember_me, outcome, facts).await?;
+        // One arm, two envelopes. The session is opened the same way and the
+        // token comes back the same way; what differs is that the caller puts
+        // one in a `Set-Cookie` header and the other in a JSON body, and that
+        // `session_kind` gave them different deadlines.
+        Delivery::Cookie | Delivery::Bearer => {
+            let opened = open_session(
+                pool,
+                security,
+                &account,
+                delivery.session_kind(),
+                remember_me,
+                outcome,
+                facts,
+            )
+            .await?;
 
             Ok(SignedIn {
                 result,
@@ -338,7 +379,18 @@ pub async fn redeem_handoff(
 
     // Never "remember me": the flag belonged to a form on another host, and a
     // token in a URL is not the thing to extend a session ceiling on.
-    let opened = open_session(pool, security, &account, false, outcome, facts.clone()).await?;
+    // A browser's session, and always: this endpoint exists to set a cookie on
+    // the workspace host, which is the one thing a phone never needs.
+    let opened = open_session(
+        pool,
+        security,
+        &account,
+        phonix_core::identity::SessionKind::Browser,
+        false,
+        outcome,
+        facts.clone(),
+    )
+    .await?;
 
     audit::record_best_effort(
         pool,
@@ -363,10 +415,12 @@ pub async fn redeem_handoff(
 
 /// Open the session an outcome calls for, and start the challenge clock if it
 /// needs one.
+#[allow(clippy::too_many_arguments)]
 async fn open_session(
     pool: &PgPool,
     security: &Security<'_>,
     account: &UserRecord,
+    kind: phonix_core::identity::SessionKind,
     remember_me: bool,
     outcome: Outcome,
     facts: ClientFacts<'_>,
@@ -375,6 +429,7 @@ async fn open_session(
         pool,
         account.id,
         &security.config.session,
+        kind,
         remember_me,
         outcome.mfa_satisfied(),
         facts,

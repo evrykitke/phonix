@@ -83,6 +83,10 @@ pub mod names {
 
     pub const APPS: &str = "Pages.Administration.Apps";
     pub const APPS_INSTALL: &str = "Pages.Administration.Apps.Install";
+
+    pub const API_KEYS: &str = "Pages.Administration.ApiKeys";
+    pub const API_KEYS_CREATE: &str = "Pages.Administration.ApiKeys.Create";
+    pub const API_KEYS_REVOKE: &str = "Pages.Administration.ApiKeys.Revoke";
 }
 
 /// One node of the permission tree.
@@ -412,6 +416,39 @@ pub const DEFINITIONS: &[PermissionDefinition] = &[
         parent: Some(names::APPS),
         default_for_user: false,
     },
+    // -- API keys ---------------------------------------------------------
+    //
+    // Its own subtree rather than a corner of Settings, because issuing a
+    // credential is not configuration: a key acts as its owner for as long as
+    // it lives, inside software we do not control. Seeing which keys exist is
+    // what an auditor needs; minting one and revoking one are separate acts,
+    // and revoking must never require the power to issue - whoever cleans up
+    // after somebody leaves should not have to be trusted with a new key.
+    //
+    // Whether the API answers this workspace at all is not here: it is
+    // `workspace_settings.api_enabled`, a licence rather than a grant. See
+    // docs/adr/0002-public-api.md.
+    PermissionDefinition {
+        name: names::API_KEYS,
+        display_name: "API keys",
+        description: Some("See the keys that can reach this workspace through the API."),
+        parent: Some(names::ADMINISTRATION),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::API_KEYS_CREATE,
+        display_name: "Create",
+        description: Some("Issue a key, narrowed to scopes the issuer already holds."),
+        parent: Some(names::API_KEYS),
+        default_for_user: false,
+    },
+    PermissionDefinition {
+        name: names::API_KEYS_REVOKE,
+        display_name: "Revoke",
+        description: Some("Stop a key, immediately and for good."),
+        parent: Some(names::API_KEYS),
+        default_for_user: false,
+    },
 ];
 
 /// Look up a definition by name. `None` means the name is not one this build
@@ -588,7 +625,8 @@ mod tests {
                 names::SETTINGS,
                 names::AUDIT_LOGS,
                 names::UI_LIBRARY,
-                names::APPS
+                names::APPS,
+                names::API_KEYS
             ]
         );
 

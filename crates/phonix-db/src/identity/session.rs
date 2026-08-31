@@ -20,7 +20,7 @@
 
 use chrono::{DateTime, Duration, Utc};
 use phonix_config::SessionConfig;
-use phonix_core::identity::UserId;
+use phonix_core::identity::{SessionKind, UserId};
 use sqlx::{FromRow, PgExecutor, Row};
 use uuid::Uuid;
 
@@ -31,6 +31,11 @@ use crate::error::DbError;
 pub struct SessionRecord {
     pub id: Uuid,
     pub user_id: UserId,
+    /// Whether this session was opened by a browser or by a phone.
+    ///
+    /// Read on every request rather than only at sign-in, because it decides
+    /// which idle window `touch` slides the deadline by.
+    pub kind: SessionKind,
     /// Whether this session cleared the second factor.
     pub mfa_satisfied: bool,
     pub ip: Option<String>,
@@ -41,11 +46,37 @@ pub struct SessionRecord {
     pub absolute_expires_at: DateTime<Utc>,
 }
 
+impl SessionRecord {
+    /// Seconds until the deadline activity cannot extend.
+    ///
+    /// The absolute one, not the sliding one: the idle deadline moves on every
+    /// request, so a number derived from it is stale before the response is
+    /// written. This is the moment a real sign-in becomes necessary, which is
+    /// the only expiry worth telling a client about. Floored at zero, because
+    /// a negative "expires in" is a number no client handles well.
+    pub fn remaining_secs(&self) -> i64 {
+        (self.absolute_expires_at - Utc::now()).num_seconds().max(0)
+    }
+}
+
 impl<'r> FromRow<'r, sqlx::postgres::PgRow> for SessionRecord {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         Ok(Self {
             id: row.try_get("id")?,
             user_id: row.try_get("user_id")?,
+            // A stored kind this build does not know is a decode error, not a
+            // default: guessing 'browser' would sign a phone out on a
+            // browser's schedule, which reads as an application that randomly
+            // forgets people.
+            kind: row
+                .try_get::<String, _>("kind")?
+                .parse()
+                .map_err(|err: phonix_core::identity::UnknownSessionKind| {
+                    sqlx::Error::ColumnDecode {
+                        index: "kind".to_owned(),
+                        source: Box::new(std::io::Error::other(err.to_string())),
+                    }
+                })?,
             mfa_satisfied: row.try_get("mfa_satisfied")?,
             ip: row.try_get("ip")?,
             user_agent: row.try_get("user_agent")?,
@@ -65,10 +96,31 @@ pub struct ClientFacts<'a> {
 }
 
 const INSERT_SESSION: &str = "INSERT INTO sessions \
-     (user_id, token_hash, mfa_satisfied, ip, user_agent, expires_at, absolute_expires_at) \
-     VALUES ($1, $2, $3, $4, $5, $6, $7) \
-     RETURNING id, user_id, mfa_satisfied, ip, user_agent, created_at, last_seen_at, \
+     (user_id, token_hash, kind, mfa_satisfied, ip, user_agent, expires_at, absolute_expires_at) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
+     RETURNING id, user_id, kind, mfa_satisfied, ip, user_agent, created_at, last_seen_at, \
      expires_at, absolute_expires_at";
+
+/// The two deadlines a session of this kind lives by, in minutes and hours.
+///
+/// One place, because `create` picks them once and `touch` has to keep picking
+/// the same idle window on every request afterwards. Two copies of this choice
+/// is how a phone ends up opened on a 90-day ceiling and slid on a browser's
+/// 12-hour window.
+///
+/// `remember_me` is a checkbox on a sign-in form and a mobile application has
+/// no such form, so it is ignored for [`SessionKind::Mobile`] rather than
+/// making its ceiling depend on something no client can send.
+fn windows(cfg: &SessionConfig, kind: SessionKind, remember_me: bool) -> (u64, u64) {
+    match kind {
+        SessionKind::Browser if remember_me => (cfg.idle_timeout_mins, cfg.remember_me_days * 24),
+        SessionKind::Browser => (cfg.idle_timeout_mins, cfg.absolute_timeout_hours),
+        SessionKind::Mobile => (
+            cfg.mobile.idle_timeout_mins,
+            cfg.mobile.absolute_timeout_hours(),
+        ),
+    }
+}
 
 /// Open a session for a user.
 ///
@@ -76,11 +128,13 @@ const INSERT_SESSION: &str = "INSERT INTO sessions \
 /// `mfa_satisfied` is false when a second factor is still outstanding - the
 /// session exists so the challenge page has something to attach to, but until
 /// the flag is set the caller is not really signed in.
+#[allow(clippy::too_many_arguments)]
 pub async fn create<'e, E>(
     executor: E,
     user_id: UserId,
     token_hash: &[u8],
     cfg: &SessionConfig,
+    kind: SessionKind,
     remember_me: bool,
     mfa_satisfied: bool,
     facts: ClientFacts<'_>,
@@ -89,22 +143,19 @@ where
     E: PgExecutor<'e>,
 {
     let now = Utc::now();
+    let (idle_mins, absolute_hours) = windows(cfg, kind, remember_me);
 
-    let absolute_expires_at = if remember_me {
-        now + Duration::days(cfg.remember_me_days as i64)
-    } else {
-        now + Duration::hours(cfg.absolute_timeout_hours as i64)
-    };
+    let absolute_expires_at = now + Duration::hours(absolute_hours as i64);
 
     // Clamped, because the idle window may be configured longer than the
     // absolute one for a non-remembered session, and the schema constraint
     // `absolute_expires_at >= expires_at` would reject the insert.
-    let expires_at =
-        (now + Duration::minutes(cfg.idle_timeout_mins as i64)).min(absolute_expires_at);
+    let expires_at = (now + Duration::minutes(idle_mins as i64)).min(absolute_expires_at);
 
     sqlx::query_as::<_, SessionRecord>(INSERT_SESSION)
         .bind(user_id)
         .bind(token_hash)
+        .bind(kind.as_str())
         .bind(mfa_satisfied)
         .bind(facts.ip)
         .bind(facts.user_agent)
@@ -136,19 +187,32 @@ where
             SET last_seen_at = now(),
                 -- Never past the absolute ceiling: activity extends a session,
                 -- it does not make one immortal.
+                --
+                -- The window is chosen from the row's own kind rather than
+                -- passed in, because this statement is reached from a request
+                -- that has only a token: whoever is calling does not yet know
+                -- whether it came from a phone or a browser, and asking first
+                -- would be a second round trip to answer a question this row
+                -- already holds.
                 expires_at = least(
-                    now() + ($2::bigint * interval '1 minute'),
+                    now() + (
+                        CASE kind
+                            WHEN 'mobile' THEN $3::bigint
+                            ELSE $2::bigint
+                        END * interval '1 minute'
+                    ),
                     absolute_expires_at
                 )
           WHERE token_hash = $1
             AND revoked_at IS NULL
             AND expires_at > now()
             AND absolute_expires_at > now()
-      RETURNING id, user_id, mfa_satisfied, ip, user_agent, created_at, last_seen_at,
+      RETURNING id, user_id, kind, mfa_satisfied, ip, user_agent, created_at, last_seen_at,
                 expires_at, absolute_expires_at",
     )
     .bind(token_hash)
     .bind(cfg.idle_timeout_mins as i64)
+    .bind(cfg.mobile.idle_timeout_mins as i64)
     .fetch_optional(executor)
     .await
     .map_err(DbError::Query)
@@ -160,7 +224,7 @@ where
     E: PgExecutor<'e>,
 {
     sqlx::query_as::<_, SessionRecord>(
-        "SELECT id, user_id, mfa_satisfied, ip, user_agent, created_at, last_seen_at,
+        "SELECT id, user_id, kind, mfa_satisfied, ip, user_agent, created_at, last_seen_at,
                 expires_at, absolute_expires_at
            FROM sessions
           WHERE token_hash = $1
@@ -431,19 +495,28 @@ mod tests {
             same_site: phonix_config::SameSitePolicy::Lax,
             handoff_ttl_secs: 120,
             purge_interval_mins: 60,
+            mobile: phonix_config::MobileSessionConfig {
+                idle_timeout_mins: 43_200,
+                absolute_timeout_days: 90,
+            },
         }
     }
 
-    /// Mirrors the deadline arithmetic in `create`, which is the part worth
-    /// testing without a database.
-    fn deadlines(cfg: &SessionConfig, remember_me: bool) -> (DateTime<Utc>, DateTime<Utc>) {
+    /// The deadlines `create` would compute, from the same `windows` it uses.
+    ///
+    /// Deliberately not a second copy of the arithmetic: a helper that mirrored
+    /// it would keep passing on the day the real one changed, which is the only
+    /// day this test matters.
+    fn deadlines(
+        cfg: &SessionConfig,
+        kind: SessionKind,
+        remember_me: bool,
+    ) -> (DateTime<Utc>, DateTime<Utc>) {
         let now = Utc::now();
-        let absolute = if remember_me {
-            now + Duration::days(cfg.remember_me_days as i64)
-        } else {
-            now + Duration::hours(cfg.absolute_timeout_hours as i64)
-        };
-        let idle = (now + Duration::minutes(cfg.idle_timeout_mins as i64)).min(absolute);
+        let (idle_mins, absolute_hours) = windows(cfg, kind, remember_me);
+
+        let absolute = now + Duration::hours(absolute_hours as i64);
+        let idle = (now + Duration::minutes(idle_mins as i64)).min(absolute);
         (idle, absolute)
     }
 
@@ -451,8 +524,8 @@ mod tests {
     fn remember_me_extends_only_the_absolute_deadline() {
         let cfg = config();
 
-        let (idle, absolute) = deadlines(&cfg, false);
-        let (remembered_idle, remembered_absolute) = deadlines(&cfg, true);
+        let (idle, absolute) = deadlines(&cfg, SessionKind::Browser, false);
+        let (remembered_idle, remembered_absolute) = deadlines(&cfg, SessionKind::Browser, true);
 
         // The idle window is the same either way - "remember me" is about how
         // long you may stay away, not how long a single visit lasts.
@@ -468,13 +541,54 @@ mod tests {
         cfg.idle_timeout_mins = 60 * 24 * 30;
         cfg.absolute_timeout_hours = 1;
 
-        let (idle, absolute) = deadlines(&cfg, false);
+        let (idle, absolute) = deadlines(&cfg, SessionKind::Browser, false);
 
         // Unclamped this would violate `absolute_expires_at >= expires_at` and
         // the insert would be rejected by the schema.
         assert!(
             idle <= absolute,
             "idle {idle} must not exceed absolute {absolute}"
+        );
+    }
+
+    #[test]
+    fn a_phone_lives_by_its_own_deadlines_and_they_are_longer() {
+        let cfg = config();
+
+        let (browser_idle, browser_absolute) = deadlines(&cfg, SessionKind::Browser, false);
+        let (mobile_idle, mobile_absolute) = deadlines(&cfg, SessionKind::Mobile, false);
+
+        // The whole reason the column exists. A phone signed out on a
+        // browser's schedule is an application people stop opening.
+        assert!(mobile_idle > browser_idle);
+        assert!(mobile_absolute > browser_absolute);
+        assert!((mobile_absolute - Utc::now()).num_days() >= 89);
+    }
+
+    #[test]
+    fn remember_me_is_ignored_for_a_phone() {
+        // It is a checkbox on a sign-in form and a mobile application has no
+        // such form, so honouring it would make a phone's ceiling depend on
+        // something no client can send - and on a *browser's* setting at that.
+        let cfg = config();
+
+        assert_eq!(
+            windows(&cfg, SessionKind::Mobile, false),
+            windows(&cfg, SessionKind::Mobile, true),
+        );
+    }
+
+    #[test]
+    fn the_mobile_deadlines_come_from_the_mobile_block() {
+        let mut cfg = config();
+        cfg.mobile.idle_timeout_mins = 111;
+        cfg.mobile.absolute_timeout_days = 7;
+
+        assert_eq!(windows(&cfg, SessionKind::Mobile, false), (111, 7 * 24));
+        // And changing them leaves a browser alone.
+        assert_eq!(
+            windows(&cfg, SessionKind::Browser, false),
+            (cfg.idle_timeout_mins, cfg.absolute_timeout_hours),
         );
     }
 }

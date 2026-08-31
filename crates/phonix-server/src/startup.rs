@@ -20,7 +20,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 
-use crate::{auth, files, google, health, jobs, middleware, rate_limit};
+use crate::{api, auth, files, google, health, jobs, middleware, rate_limit};
 
 /// Build everything and serve until shutdown.
 pub async fn run(config: AppConfig) -> Result<()> {
@@ -220,6 +220,15 @@ pub async fn run(config: AppConfig) -> Result<()> {
         // inside on any connection a person is likely to have. `files::routes`
         // carries its own of both, sized from `[storage]`.
         .merge(files::routes(&state))
+        // The public API. `nest`, not `merge`, and that is load-bearing: a
+        // nested router keeps its own fallback, so an unknown `/api/v1/...`
+        // path answers a problem document instead of the Leptos error page
+        // that this router falls back to - which no API client can parse.
+        //
+        // Above `with_state` for the same reason the file routes are, and
+        // below the tenant middleware, so a call resolves its workspace from
+        // the host exactly as a page does.
+        .nest("/api/v1", api::routes())
         .with_state(state.clone())
         // Layers below here apply to everything, files included. They apply
         // bottom-up: the tenant is resolved first, then tracing wraps it, so
