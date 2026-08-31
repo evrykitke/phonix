@@ -1,7 +1,14 @@
 # ADR 0001 — The core boundary, and the foundation entities
 
-Status: proposed
+Status: accepted, built 2026-08-24 onwards
 Date: 2026-08-24
+
+The record was revised as it was implemented rather than rewritten afterwards:
+each `### Revised:` section below is a decision the build changed, kept in place
+next to the decision it replaced so the reasoning survives. One thing here is
+deliberately **not** built and says so - §5's `mode` column, because a column
+whose only legal value is `'strict'` says nothing, and adding it later is
+additive.
 
 The tenant database is about to stop being one flat namespace. This record draws
 the line between what is *infrastructure* and what is *an app*, and specifies the
