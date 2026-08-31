@@ -445,6 +445,46 @@ Still not here, and still for the reasons above: writes to users (roles and
 status move together, and a key must not be able to hand itself a role),
 exchange rates, webhooks, and cursor pagination.
 
+### Amended 2026-08-31 — roles, and the resource that closes the loop
+
+**Roles** is the third, read-only:
+
+```
+GET    /api/v1/roles                 list, paged            (Roles)
+GET    /api/v1/roles/{id}            one, with its grants   (Roles)
+```
+
+It is not here because it was easy. §2 says a scope **is a permission name**,
+and until this resource existed nothing on the published surface said which
+names exist or which of them a role confers — so building a correctly-scoped
+key meant reading them off the administration screen by eye, and `User.roles`
+was a list of names with nowhere to resolve them. `GET /roles/{id}` answers
+both.
+
+* **Two shapes, not one.** The list carries `permission_count`; the detail
+  carries the set. That is the split `RoleSummary`/`RoleDetail` already draws,
+  and collapsing it would make every row of every list drag a whole permission
+  set along.
+* **The detail nests `Role` rather than merging it.** A client that already
+  holds one from the list reads it into the same type, and a field added to
+  either cannot collide with the other. Merging is additive-safe only until two
+  names meet.
+* **A two-valued filter has no third answer.** `filter[static]` and
+  `filter[default]` narrow the other way on anything that is not `true`, rather
+  than refusing. This is not in tension with the users rule above: there, a
+  *status* names one of four sets and a fifth name matches none of them; here
+  there are exactly two, so "not true" and "false" are the same set.
+
+**One thing the first two resources hid**, and worth stating as a rule: a
+tie-break must sort the same way the default does. Roles' first draft compared
+raw names while the default lowercased, so `Bookkeeper` sorted before `auditor`
+on a tie and after it by default — the same two rows swapping places depending
+on which column was sorted. `roles.name` is matched case-insensitively, so the
+lowercased name is both consistent and still unique. **Every in-memory
+paginator here must end in a tie-break that is total and agrees with its own
+default**, or paging shows one row twice and another never.
+
+
 ## Consequences
 
 * A published spec cannot be walked back. Every endpoint added to `v1` is
