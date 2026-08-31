@@ -123,6 +123,10 @@ pub async fn issue(
 /// is not in the tree is a typo or a screen from an older build; a name the
 /// issuer does not hold is an attempt - deliberate or not - to mint a
 /// credential more powerful than the person minting it.
+#[allow(
+    clippy::result_large_err,
+    reason = "the Err is a Submission, which is what the caller returns unchanged -               boxing it here would only move the allocation to the one call site, on a               path that issues a credential once and is nowhere near hot"
+)]
 fn validated_scopes(
     caller: &Caller,
     draft: &ApiKeyDraft,

@@ -220,7 +220,6 @@ mod tests {
             name: "contractor".to_owned(),
             scopes: Vec::new(),
             expires_in_days: Some(0),
-            ..ApiKeyDraft::blank()
         };
 
         assert_eq!(

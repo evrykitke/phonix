@@ -130,7 +130,7 @@ pub struct ViewerResource {
 impl From<&AuthUser> for ViewerResource {
     fn from(user: &AuthUser) -> Self {
         Self {
-            id: user.id.into(),
+            id: user.id,
             email: user.email.clone(),
             display_name: user.display_name.clone(),
             roles: user.roles.clone(),
