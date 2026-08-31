@@ -237,7 +237,7 @@ fn paginate(rows: Vec<RoleSummary>, request: &PageRequest) -> Page<RoleResource>
         Some("user_count") => {
             matching.sort_by(|a, b| a.user_count.cmp(&b.user_count).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
         }
-        _ => matching.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+        _ => matching.sort_by_key(|role| role.name.to_lowercase()),
     }
     if descending {
         matching.reverse();
