@@ -280,6 +280,41 @@ lto = true
 codegen-units = 1
 panic = "abort"
 
+# The server binary as built for development ON A BUILD BOX, where a full
+# `target` under [profile.dev] is more disk than the machine has to spare.
+#
+# It inherits release and then gives back the three things release takes away
+# that development needs:
+#
+# * `debug`/`strip` - the development profiler resolves the call stack behind
+#   every SQL statement out of debug info. Release strips it, and the result is
+#   not an error: `backtrace::resolve` finds no filename, the frames are
+#   dropped, and the "which of your files ran this" panel is simply empty. See
+#   docs/adr/0004-development-profiler.md. Line tables are all that is needed -
+#   full DWARF would put back most of what building this way is meant to save.
+# * `panic = "unwind"` - `CatchPanicLayer` cannot catch an abort. Under release
+#   a panic in one handler takes the whole process down instead of returning
+#   500 for that request, which on a development box costs the session.
+# * `opt-level`/`lto` - release optimises for the deploy and pays for it on
+#   every rebuild. Dependencies stay at 3 because they are built once; only our
+#   own crates recompile, and they do it at 1.
+#
+# `incremental` is deliberately left off. It is the fastest single knob for
+# rebuild time and also the one that grows `target` most, which is the reason
+# this profile exists. Turn it on here if the loop is too slow and the disk
+# allows.
+[profile.server-dev]
+inherits = "release"
+opt-level = 1
+lto = false
+codegen-units = 16
+panic = "unwind"
+debug = "line-tables-only"
+strip = "none"
+
+[profile.server-dev.package."*"]
+opt-level = 3
+
 # ---------------------------------------------------------------------------
 # cargo-leptos project definition (workspace mode: separate bin + lib packages)
 # ---------------------------------------------------------------------------
@@ -322,3 +357,8 @@ bin-default-features = false
 lib-features = ["hydrate"]
 lib-default-features = false
 lib-profile-release = "wasm-release"
+
+# The binary for `cargo leptos watch` without `-r`, and only that. `-r` still
+# builds `[profile.release]`, so `phonix-deploy` is untouched by this - the key
+# that would change it is `bin-profile-release`, and it is deliberately unset.
+bin-profile-dev = "server-dev"
