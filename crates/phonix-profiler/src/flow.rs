@@ -54,6 +54,17 @@ pub struct Layer {
     /// What it is, which decides how it is drawn and whether a file list is
     /// meaningful for it.
     pub kind: LayerKind,
+    /// The glyph drawn in the box, as SVG children in a 16x16 space.
+    ///
+    /// A compile-time constant written here and never anything a request
+    /// supplied, which is why the diagram emits it without escaping - see
+    /// [`crate::diagram`]. Stroked rather than filled so `currentColor` carries
+    /// the box's own state into it and a grey layer's icon greys with it.
+    ///
+    /// Deliberately generic shapes rather than the projects' real marks: a
+    /// cylinder is a database, not Postgres' elephant. Nobody's logo is
+    /// redrawn here.
+    pub icon: &'static str,
     pub row: usize,
     pub column: usize,
 }
@@ -66,6 +77,60 @@ pub enum LayerKind {
     /// Something outside the process. Has no files and never will.
     External,
 }
+
+/// Glyphs, drawn once in a 16x16 box.
+///
+/// Stroked paths with no `fill` and no colour of their own: the diagram sets
+/// `fill="none" stroke="currentColor"` on the group, so each icon inherits the
+/// state of the layer it sits in.
+///
+/// `concat!` rather than a wrapped string literal, because a `\` continuation
+/// inside one of these is a line that later edits keep eating.
+const ICON_HTTP: &str = concat!(
+    "<path d='M2.5 6h8M7.5 3.2 10.5 6l-3 2.8'/>",
+    "<path d='M13.5 10h-8M8.5 12.8 5.5 10l3-2.8'/>",
+);
+const ICON_WINDOW: &str = concat!(
+    "<rect x='2.5' y='3' width='11' height='10' rx='1.6'/>",
+    "<path d='M2.5 6.4h11'/>",
+);
+const ICON_LAYERS: &str = concat!(
+    "<path d='M8 2.6 13.6 5.7 8 8.8 2.4 5.7z'/>",
+    "<path d='m2.4 9 5.6 3.1L13.6 9'/>",
+);
+const ICON_HEX: &str = "<path d='M8 2.4 13.2 5.2v5.6L8 13.6 2.8 10.8V5.2z'/>";
+const ICON_TABLE: &str = concat!(
+    "<rect x='2.5' y='3' width='11' height='10' rx='1.6'/>",
+    "<path d='M2.5 6.4h11M6.2 6.4V13'/>",
+);
+const ICON_BOLT: &str = "<path d='M9.2 2.2 4.4 9h3.4l-1 4.8L12.6 7H8.6z'/>";
+const ICON_FOLDER: &str = concat!(
+    "<path d='M2.5 5.4a1.4 1.4 0 0 1 1.4-1.4h2.5L7.8 5.4h4.3a1.4 1.4 0 0 1 1.4 ",
+    "1.4v4.8a1.4 1.4 0 0 1-1.4 1.4H3.9a1.4 1.4 0 0 1-1.4-1.4z'/>",
+);
+const ICON_ENVELOPE: &str = concat!(
+    "<rect x='2.5' y='4' width='11' height='8' rx='1.4'/>",
+    "<path d='m3 4.9 5 3.7 5-3.7'/>",
+);
+const ICON_CYLINDER: &str = concat!(
+    "<ellipse cx='8' cy='4.3' rx='5' ry='1.9'/>",
+    "<path d='M3 4.3v7.2c0 1 2.2 1.9 5 1.9s5-.9 5-1.9V4.3'/>",
+    "<path d='M3 7.9c0 1 2.2 1.9 5 1.9s5-.9 5-1.9'/>",
+);
+const ICON_STACK: &str = concat!(
+    "<ellipse cx='8' cy='3.9' rx='4.8' ry='1.7'/>",
+    "<path d='M3.2 3.9v2.6c0 .9 2.2 1.7 4.8 1.7s4.8-.8 4.8-1.7V3.9'/>",
+    "<path d='M3.2 8.6v2.7c0 .9 2.2 1.7 4.8 1.7s4.8-.8 4.8-1.7V8.6'/>",
+);
+const ICON_BUCKET: &str = concat!(
+    "<path d='M3 5.2h10l-.9 7.5a1.1 1.1 0 0 1-1.1 1H5a1.1 1.1 0 0 1-1.1-1z'/>",
+    "<path d='M2.4 5.2h11.2'/>",
+);
+const ICON_QUEUE: &str = concat!(
+    "<rect x='2.4' y='3' width='3.8' height='3.8' rx='1'/>",
+    "<rect x='2.4' y='9.2' width='3.8' height='3.8' rx='1'/>",
+    "<path d='M6.2 4.9h3.4a2 2 0 0 1 2 2v2.2a2 2 0 0 1-2 2H6.2'/>",
+);
 
 /// The declared shape of this workspace, top to bottom.
 ///
@@ -80,6 +145,7 @@ pub const SPINE: &[Layer] = &[
     Layer {
         id: "phonix-server",
         label: "HTTP",
+        icon: ICON_HTTP,
         kind: LayerKind::Crate,
         row: 0,
         column: 0,
@@ -87,92 +153,81 @@ pub const SPINE: &[Layer] = &[
     Layer {
         id: "phonix-web",
         label: "Web / server fns",
+        icon: ICON_WINDOW,
         kind: LayerKind::Crate,
         row: 1,
         column: 0,
     },
     Layer {
-        id: "app-books",
-        label: "Books",
-        kind: LayerKind::Crate,
-        row: 2,
-        column: 0,
-    },
-    Layer {
-        id: "phonix-master",
-        label: "Master",
-        kind: LayerKind::Crate,
-        row: 2,
-        column: 1,
-    },
-    Layer {
-        id: "phonix-tax",
-        label: "Tax",
-        kind: LayerKind::Crate,
-        row: 2,
-        column: 2,
-    },
-    Layer {
         id: "phonix-services",
         label: "Application",
+        icon: ICON_LAYERS,
         kind: LayerKind::Crate,
-        row: 3,
+        row: 2,
         column: 0,
     },
     Layer {
         id: "phonix-db",
         label: "Data access",
+        icon: ICON_TABLE,
         kind: LayerKind::Crate,
-        row: 4,
+        row: 3,
         column: 0,
     },
     Layer {
         id: "phonix-cache",
         label: "Cache",
+        icon: ICON_BOLT,
         kind: LayerKind::Crate,
-        row: 4,
+        row: 3,
         column: 1,
     },
     Layer {
         id: "phonix-storage",
         label: "Storage",
+        icon: ICON_FOLDER,
         kind: LayerKind::Crate,
-        row: 4,
+        row: 3,
         column: 2,
     },
     Layer {
         id: "phonix-messaging",
         label: "Messaging",
+        icon: ICON_ENVELOPE,
         kind: LayerKind::Crate,
-        row: 4,
+        row: 3,
         column: 3,
     },
     Layer {
         id: "postgres",
         label: "Postgres",
+        icon: ICON_CYLINDER,
         kind: LayerKind::External,
-        row: 5,
+        row: 4,
         column: 0,
     },
     Layer {
         id: "redis",
         label: "Redis",
+        icon: ICON_STACK,
         kind: LayerKind::External,
-        row: 5,
+        row: 4,
         column: 1,
     },
     Layer {
         id: "object-store",
         label: "Object store",
+        icon: ICON_BUCKET,
         kind: LayerKind::External,
-        row: 5,
+        row: 4,
         column: 2,
     },
     Layer {
         id: "rabbitmq",
         label: "RabbitMQ",
+        icon: ICON_QUEUE,
         kind: LayerKind::External,
-        row: 5,
+        row: 4,
         column: 3,
     },
 ];
@@ -180,14 +235,18 @@ pub const SPINE: &[Layer] = &[
 /// Where a workspace crate that is not on the spine is filed.
 ///
 /// `phonix-core`, `phonix-config` and `phonix-telemetry` are real frames on
-/// real stacks and they belong to no band. Putting them in a named box is
-/// honest; dropping them would quietly break the chain and draw an edge
-/// between two layers that do not call each other directly.
+/// real stacks and belong to no band. So are the app crates - `app-books`,
+/// `phonix-master`, `phonix-tax` - which had boxes of their own until
+/// 2026-09-01 and spent a whole row grey on every request that did not touch
+/// them. Putting them all in one named box is honest; dropping them would
+/// quietly break the chain and draw an edge between two layers that do not
+/// call each other directly.
 pub const OTHER: Layer = Layer {
     id: "other",
     label: "Shared",
+    icon: ICON_HEX,
     kind: LayerKind::Crate,
-    row: 3,
+    row: 2,
     column: 1,
 };
 
@@ -205,6 +264,9 @@ pub struct Node {
     pub id: String,
     pub label: String,
     pub kind: LayerKind,
+    /// Copied from the spine so the renderer needs nothing but the node.
+    #[serde(skip)]
+    pub icon: &'static str,
     pub row: usize,
     pub column: usize,
     /// Whether anything put this layer on a stack. Everything else is drawn
@@ -529,6 +591,7 @@ impl Builder {
                 id: layer.id.to_owned(),
                 label: layer.label.to_owned(),
                 kind: layer.kind,
+                icon: layer.icon,
                 row: layer.row,
                 column: layer.column,
                 observed: hits > 0,
@@ -593,6 +656,21 @@ mod tests {
     fn a_crate_off_the_spine_lands_in_shared() {
         assert_eq!(layer_of("phonix-core/src/error.rs").id, "other");
         assert_eq!(layer_of("phonix-telemetry/src/lib.rs").id, "other");
+    }
+
+    /// The app crates lost their own boxes on 2026-09-01 - a whole row grey on
+    /// every request that did not touch them. They must still be filed, not
+    /// dropped, or a stack through one of them joins two layers that never
+    /// call each other directly.
+    #[test]
+    fn an_app_crate_is_filed_rather_than_dropped() {
+        for file in [
+            "app-books/src/lib.rs",
+            "phonix-master/src/lib.rs",
+            "phonix-tax/src/lib.rs",
+        ] {
+            assert_eq!(layer_of(file).id, "other", "{file}");
+        }
     }
 
     #[test]

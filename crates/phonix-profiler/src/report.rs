@@ -134,10 +134,10 @@ pub fn index(profiles: &[Arc<Profile>], show_all: bool, held: usize) -> String {
     metrics(
         &mut body,
         &[
-            Metric::plain("shown", &profiles.len().to_string()),
-            Metric::plain("slowest", &millis(slowest)),
-            Metric::plain("statements", &statements.to_string()),
-            Metric::flagged("failed", &failed.to_string(), failed > 0),
+            Metric::plain("shown", profiles.len().to_string()),
+            Metric::timed("slowest", slowest),
+            Metric::plain("statements", statements.to_string()),
+            Metric::flagged("failed", failed.to_string(), failed > 0),
         ],
     );
 
@@ -171,11 +171,11 @@ pub fn index(profiles: &[Arc<Profile>], show_all: bool, held: usize) -> String {
             status = status_chip(profile.status),
             method = escape(&profile.method),
             route = escape(profile.route_or_path()),
-            time = millis(profile.duration),
+            time = timing(profile.duration),
             sql = if profile.queries.is_empty() {
                 "-".to_owned()
             } else {
-                millis(profile.query_time())
+                timing(profile.query_time())
             },
             queries = if profile.queries.is_empty() {
                 "-".to_owned()
@@ -226,10 +226,10 @@ pub fn detail(profile: &Profile) -> String {
     metrics(
         &mut body,
         &[
-            Metric::plain("took", &millis(profile.duration)),
-            Metric::plain("sql", &millis(profile.query_time())),
-            Metric::plain("statements", &profile.queries.len().to_string()),
-            Metric::flagged("repeated", &repeats.to_string(), repeats > 0),
+            Metric::timed("took", profile.duration),
+            Metric::timed("sql", profile.query_time()),
+            Metric::plain("statements", profile.queries.len().to_string()),
+            Metric::flagged("repeated", repeats.to_string(), repeats > 0),
         ],
     );
 
@@ -353,10 +353,10 @@ pub fn page_load(summary: &PageSummary, flow: &PageFlow, phase: Option<Token>) -
     metrics(
         &mut body,
         &[
-            Metric::plain("requests", &summary.requests.to_string()),
-            Metric::plain("server time", &millis(summary.duration)),
-            Metric::plain("sql", &millis(summary.sql)),
-            Metric::flagged("failed", &summary.errors.to_string(), summary.errors > 0),
+            Metric::plain("requests", summary.requests.to_string()),
+            Metric::timed("server time", summary.duration),
+            Metric::timed("sql", summary.sql),
+            Metric::flagged("failed", summary.errors.to_string(), summary.errors > 0),
         ],
     );
 
@@ -427,7 +427,7 @@ pub fn page_load(summary: &PageSummary, flow: &PageFlow, phase: Option<Token>) -
             token = entry.token,
             method = escape(&entry.method),
             route = escape(entry.route.as_deref().unwrap_or(&entry.path)),
-            time = millis(entry.duration),
+            time = timing(entry.duration),
             queries = entry.queries,
         );
     }
@@ -546,7 +546,7 @@ fn queries(body: &mut String, profile: &Profile) {
              <td class=\"num dim\">{rows}</td>\
              <td><code class=\"sql\">{sql}</code>{stack}</td></tr>",
             n = index + 1,
-            time = query.elapsed.map(millis).unwrap_or_else(|| "-".to_owned()),
+            time = query.elapsed.map(timing).unwrap_or_else(|| "-".to_owned()),
             sql = highlight::block(Lang::Sql, &query.sql),
             stack = stack(query),
         );
@@ -650,24 +650,60 @@ fn logs(body: &mut String, profile: &Profile) {
 /// One figure and what it is.
 struct Metric<'a> {
     label: &'a str,
-    value: &'a str,
-    /// Drawn in the warning colour. For a count that is only interesting when
-    /// it is not zero.
-    flag: bool,
+    value: String,
+    /// The class on the value, or nothing.
+    tone: &'static str,
 }
 
 impl<'a> Metric<'a> {
-    fn plain(label: &'a str, value: &'a str) -> Self {
+    fn plain(label: &'a str, value: impl Into<String>) -> Self {
         Self {
             label,
-            value,
-            flag: false,
+            value: value.into(),
+            tone: "",
         }
     }
 
-    fn flagged(label: &'a str, value: &'a str, flag: bool) -> Self {
-        Self { label, value, flag }
+    /// Drawn in the warning colour. For a count that is only interesting when
+    /// it is not zero.
+    fn flagged(label: &'a str, value: impl Into<String>, flag: bool) -> Self {
+        Self {
+            label,
+            value: value.into(),
+            tone: if flag { " warn" } else { "" },
+        }
     }
+
+    /// A measured duration, coloured against [`SLOW`].
+    fn timed(label: &'a str, duration: Duration) -> Self {
+        Self {
+            label,
+            value: millis(duration),
+            tone: tone_of(duration),
+        }
+    }
+}
+
+/// Above this, a duration is drawn as a problem; below it, as fine.
+///
+/// One threshold for every timing on every panel rather than one per kind of
+/// measurement. A page load, a request and a single statement are very
+/// different things to be spending half a second on, and a per-panel threshold
+/// would be three numbers to keep in your head instead of one. If this ever
+/// needs splitting, split it here.
+const SLOW: Duration = Duration::from_millis(500);
+
+pub(crate) fn tone_of(duration: Duration) -> &'static str {
+    if duration >= SLOW { " bad" } else { " ok" }
+}
+
+/// A duration for a table cell, coloured the same way as a metric tile.
+fn timing(duration: Duration) -> String {
+    format!(
+        "<span class=\"t{tone}\">{value}</span>",
+        tone = tone_of(duration),
+        value = escape(&millis(duration)),
+    )
 }
 
 fn metrics(body: &mut String, tiles: &[Metric<'_>]) {
@@ -678,8 +714,8 @@ fn metrics(body: &mut String, tiles: &[Metric<'_>]) {
             body,
             "<div class=\"metric\"><span class=\"value{flag}\">{value}</span>\
              <span class=\"label\">{label}</span></div>",
-            flag = if tile.flag { " warn" } else { "" },
-            value = escape(tile.value),
+            flag = tile.tone,
+            value = escape(&tile.value),
             label = escape(tile.label),
         );
     }
@@ -919,19 +955,22 @@ border-radius:6px;color:var(--dim);font-size:12px;background:var(--panel)}\
 .tab.on{color:var(--text);border-bottom-color:var(--brand)}\
 .tab .count{color:var(--faint);font-size:11px}\
 \
-/* modal: a file without losing the request behind it */\
-html.modal-open{overflow:hidden}\
-.modal{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:1.6rem}\
-.modal-back{position:absolute;inset:0;background:rgba(6,8,11,.72)}\
-.modal-box{position:relative;display:flex;flex-direction:column;width:min(960px,100%);max-height:100%;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.5)}\
-.modal-top{display:flex;align-items:center;gap:.8rem;padding:.6rem .9rem;border-bottom:1px solid var(--line-soft)}\
-.modal-title{font-family:var(--mono);font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}\
-.modal-open{font-size:11px;color:var(--dim);white-space:nowrap}\
-.modal-x{background:none;border:0;color:var(--dim);font-size:20px;line-height:1;cursor:pointer;padding:0 .2rem}\
-.modal-x:hover{color:var(--text)}\
-.modal-body{overflow:auto;padding:0}\
-.modal-body .title{padding:.7rem .95rem 0}\
-.modal-body .card{border-radius:0;border-left:0;border-right:0;border-top:0}\
+/* drawer: the code slides in beside the request, never over it */\
+html.drawer-open{overflow:hidden}\
+.drawer{position:fixed;inset:0;z-index:50;display:flex;justify-content:flex-end}\
+.drawer-back{position:absolute;inset:0;background:rgba(6,8,11,.55)}\
+.drawer-box{position:relative;display:flex;flex-direction:column;width:min(720px,100%);height:100%;background:var(--panel);border-left:1px solid var(--line);overflow:hidden;box-shadow:-16px 0 44px rgba(0,0,0,.45);animation:slide-in .16s ease-out}\
+@keyframes slide-in{from{transform:translateX(2rem);opacity:.4}to{transform:none;opacity:1}}\
+@media (prefers-reduced-motion:reduce){.drawer-box{animation:none}}\
+.drawer-top{display:flex;align-items:center;gap:.8rem;padding:.6rem .9rem;border-bottom:1px solid var(--line-soft)}\
+.drawer-title{font-family:var(--mono);font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}\
+.drawer-open{font-size:11px;color:var(--dim);white-space:nowrap}\
+.drawer-x{background:none;border:0;color:var(--dim);font-size:20px;line-height:1;cursor:pointer;padding:0 .2rem}\
+.drawer-x:hover{color:var(--text)}\
+.drawer-body{overflow:auto;padding:0;flex:1 1 auto}\
+.drawer-body .title{padding:.7rem .95rem 0}\
+.drawer-body .card{border-radius:0;border-left:0;border-right:0;border-top:0}\
+.drawer-body .card>h2{display:none}\
 \
 /* syntax colouring, emitted by crate::highlight */\
 .k{color:#c792ea}\
@@ -975,6 +1014,22 @@ display:flex;align-items:center;gap:.5rem}\
 \
 table{width:100%;border-collapse:collapse;display:block;overflow-x:auto}\
 \
+/* timings: one threshold, everywhere - crate::report::SLOW */\
+.t{font-variant-numeric:tabular-nums}\
+.t.ok,.value.ok{color:var(--ok)}\
+.t.bad,.value.bad{color:var(--bad);font-weight:600}\
+.edge-label.ok{fill:var(--ok)}\
+.edge-label.bad{fill:var(--bad);font-weight:600}\
+\
+/* layer glyphs: stroked, so they take the box's own colour */\
+.ic{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}\
+.lay{color:var(--faint)}\
+.lay.on{color:var(--brand)}\
+.lay.on.ext{color:var(--info)}\
+.about{border-top:1px solid var(--line-soft);margin-top:.2rem}\
+.about>summary{cursor:pointer;padding:.5rem .95rem;color:var(--faint);font-size:11px;letter-spacing:.04em;text-transform:uppercase}\
+.about>summary:hover{color:var(--dim)}\
+.about .note{padding:0 .95rem .6rem}\
 /* the flow diagram */\
 .phases{display:flex;flex-wrap:wrap;gap:.35rem;padding:.7rem .95rem 0}\
 .phases .button{font-size:11px}\
@@ -1070,8 +1125,7 @@ dl.facts dd{margin:0;font-size:12px;word-break:break-all}\
 .shell{grid-template-columns:minmax(0,1fr)}\
 .side{display:none;position:static;max-height:none;border-right:0;border-bottom:1px solid var(--line-soft)}\
 .shell.side-open .side{display:block}\
-.modal{padding:0}\
-.modal-box{width:100%;height:100%;max-height:100%;border:0;border-radius:0}\
+.drawer-box{width:100%;border-left:0}\
 .metrics{grid-template-columns:repeat(2,1fr)}\
 dl.facts{grid-template-columns:1fr;gap:0}\
 dl.facts dt{margin-top:.5rem}}\

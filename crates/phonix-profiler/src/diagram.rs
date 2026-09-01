@@ -22,28 +22,58 @@ use crate::flow::{Flow, LayerKind, Node, PageFlow, Phase};
 use crate::profile::Token;
 use crate::report::{escape, millis};
 
-const BOX_W: usize = 170;
-const BOX_H: usize = 48;
-const GAP_X: usize = 16;
-const GAP_Y: usize = 58;
-const PAD: usize = 14;
+const BOX_W: usize = 148;
+const BOX_H: usize = 40;
+/// A row nothing touched, drawn as a band rather than as four empty boxes.
+///
+/// The spine stays whole - a layer that is missing from the picture is worse
+/// than one drawn faintly - but a request that used three layers should not
+/// spend half the panel saying so.
+const SLIM_H: usize = 20;
+const GAP_X: usize = 12;
+const GAP_Y: usize = 34;
+const SLIM_GAP: usize = 16;
+const PAD: usize = 10;
 const COLUMNS: usize = 4;
-const ROWS: usize = 6;
+const ROWS: usize = 5;
+
+/// Where each row sits and how tall it is, once the empty ones are squeezed.
+#[derive(Debug, Clone, Copy)]
+struct Row {
+    y: usize,
+    height: usize,
+    live: bool,
+}
+
+fn rows_of(flow: &Flow) -> Vec<Row> {
+    let mut rows = Vec::with_capacity(ROWS);
+    let mut y = PAD;
+
+    for row in 0..ROWS {
+        let live = flow
+            .nodes
+            .iter()
+            .any(|node| node.row == row && node.observed);
+        let height = if live { BOX_H } else { SLIM_H };
+
+        rows.push(Row { y, height, live });
+
+        y += height + if live { GAP_Y } else { SLIM_GAP };
+    }
+
+    rows
+}
 
 fn width() -> usize {
     PAD * 2 + COLUMNS * BOX_W + (COLUMNS - 1) * GAP_X
 }
 
-fn height() -> usize {
-    PAD * 2 + ROWS * BOX_H + (ROWS - 1) * GAP_Y
+fn height(rows: &[Row]) -> usize {
+    rows.last().map(|row| row.y + row.height).unwrap_or(0) + PAD
 }
 
 fn x_of(column: usize) -> usize {
     PAD + column * (BOX_W + GAP_X)
-}
-
-fn y_of(row: usize) -> usize {
-    PAD + row * (BOX_H + GAP_Y)
 }
 
 /// The whole section: phase strip, diagram, layer panels.
@@ -63,13 +93,6 @@ pub fn section(page: &str, flow: &PageFlow, active: Option<Token>) -> String {
     let mut html = String::new();
 
     html.push_str("<section class=\"card\"><h2>How this page load ran</h2>");
-    html.push_str(
-        "<p class=\"note\">Boxes are this workspace's layers, always drawn so the \
-         shape is the same every time. A box is lit only when a captured stack \
-         put a frame in it, and an arrow exists only where two frames crossed \
-         between layers - nothing here assumes a layer ran because the one \
-         below it did.</p>",
-    );
 
     phases(&mut html, page, flow, active);
 
@@ -144,12 +167,14 @@ fn short_route(route: &str) -> &str {
 }
 
 fn svg(html: &mut String, flow: &Flow) {
+    let rows = rows_of(flow);
+
     let _ = write!(
         html,
         "<div class=\"diagram\"><svg viewBox=\"0 0 {w} {h}\" width=\"{w}\" height=\"{h}\" \
          role=\"img\" aria-label=\"Layers this page load passed through\">",
         w = width(),
-        h = height(),
+        h = height(&rows),
     );
 
     // One marker, referenced by every edge. Two, because an unobserved edge
@@ -167,9 +192,9 @@ fn svg(html: &mut String, flow: &Flow) {
         };
 
         let x1 = x_of(from.column) + BOX_W / 2;
-        let y1 = y_of(from.row) + BOX_H;
+        let y1 = rows[from.row].y + rows[from.row].height;
         let x2 = x_of(to.column) + BOX_W / 2;
-        let y2 = y_of(to.row);
+        let y2 = rows[to.row].y;
 
         // A gentle S rather than a straight line: several edges often share a
         // start or an end, and straight ones overlap into a single thick stem.
@@ -186,14 +211,17 @@ fn svg(html: &mut String, flow: &Flow) {
 
         // The count sits at the midpoint. Only the edge into the database
         // carries a time, because it is the only one measured.
-        let label = match edge.elapsed {
-            Some(elapsed) => format!("{} · {}", edge.hits, millis(elapsed)),
-            None => edge.hits.to_string(),
+        let (label, tone) = match edge.elapsed {
+            Some(elapsed) => (
+                format!("{} · {}", edge.hits, millis(elapsed)),
+                crate::report::tone_of(elapsed),
+            ),
+            None => (edge.hits.to_string(), ""),
         };
 
         let _ = write!(
             html,
-            "<text class=\"edge-label\" x=\"{x}\" y=\"{y}\">{label}</text>",
+            "<text class=\"edge-label{tone}\" x=\"{x}\" y=\"{y}\">{label}</text>",
             x = x1.midpoint(x2),
             y = y1.midpoint(y2),
             label = escape(&label),
@@ -201,15 +229,15 @@ fn svg(html: &mut String, flow: &Flow) {
     }
 
     for node in &flow.nodes {
-        box_of(html, node);
+        box_of(html, node, rows[node.row]);
     }
 
     html.push_str("</svg></div>");
 }
 
-fn box_of(html: &mut String, node: &Node) {
+fn box_of(html: &mut String, node: &Node, row: Row) {
     let x = x_of(node.column);
-    let y = y_of(node.row);
+    let y = row.y;
 
     let class = match (node.observed, node.kind) {
         (true, LayerKind::External) => "lay on ext",
@@ -226,34 +254,57 @@ fn box_of(html: &mut String, node: &Node) {
         let _ = write!(html, "<a href=\"#layer-{}\">", escape(&node.id));
     }
 
+    // The icon is a compile-time constant from `flow::SPINE` - markup this
+    // file wrote, never anything a request supplied - so it is emitted as it
+    // stands. Escaping it would print the path data instead of drawing it.
+    let icon = if row.live { 15 } else { 11 };
+
     let _ = write!(
         html,
-        "<g class=\"{class}\"><rect x=\"{x}\" y=\"{y}\" width=\"{BOX_W}\" height=\"{BOX_H}\" \
-         rx=\"7\"/><text class=\"name\" x=\"{tx}\" y=\"{ty}\">{label}</text>",
-        tx = x + 12,
-        ty = y + 20,
+        "<g class=\"{class}\"><rect x=\"{x}\" y=\"{y}\" width=\"{BOX_W}\" height=\"{h}\" \
+         rx=\"6\"/>\
+         <g class=\"ic\" transform=\"translate({ix} {iy}) scale({scale:.3})\">{glyph}</g>\
+         <text class=\"name\" x=\"{tx}\" y=\"{ty}\">{label}</text>",
+        h = row.height,
+        ix = x + 9,
+        iy = y + (row.height - icon) / 2,
+        scale = f64::from(icon as u32) / 16.0,
+        glyph = node.icon,
+        tx = x + 9 + icon + 7,
+        ty = y + if row.live { 17 } else { 14 },
         label = escape(&node.label),
     );
 
-    let detail = if node.observed {
-        format!("{} frames", node.hits)
-    } else {
-        "not seen".to_owned()
-    };
+    // A squeezed row has no space for a second line, and "not seen" repeated
+    // four times across a band says less than the band already does.
+    if row.live {
+        let detail = if node.observed {
+            format!("{} frames", node.hits)
+        } else {
+            "not seen".to_owned()
+        };
 
-    let _ = write!(
-        html,
-        "<text class=\"sub\" x=\"{tx}\" y=\"{ty}\">{detail}</text></g>",
-        tx = x + 12,
-        ty = y + 37,
-        detail = escape(&detail),
-    );
+        let _ = write!(
+            html,
+            "<text class=\"sub\" x=\"{tx}\" y=\"{ty}\">{detail}</text>",
+            tx = x + 9 + icon + 7,
+            ty = y + 31,
+            detail = escape(&detail),
+        );
+    }
+
+    html.push_str("</g>");
 
     if clickable {
         html.push_str("</a>");
     }
 }
 
+/// The one line worth having always visible, and the rest folded away.
+///
+/// The explanation matters - a reader who mistakes grey for "not used" draws
+/// the wrong conclusion - but it is read once and then never again, and three
+/// paragraphs above a diagram is most of a panel spent on prose.
 fn legend(html: &mut String, flow: &Flow) {
     let unlit_externals: Vec<&str> = flow
         .nodes
@@ -263,8 +314,23 @@ fn legend(html: &mut String, flow: &Flow) {
         .collect();
 
     html.push_str(
-        "<p class=\"note\">Click a lit layer to see the files behind it. \
-         A number on an arrow is how many stacks crossed there.</p>",
+        "<p class=\"note\">Click a lit layer for the files behind it. A number on \
+         an arrow is how many stacks crossed there.</p>",
+    );
+
+    html.push_str(
+        "<details class=\"about\"><summary>How to read this</summary>\
+         <p class=\"note\">Boxes are this workspace's layers, always drawn in the \
+         same places so the shape is the same every time. A box is lit only when \
+         a captured stack put a frame in it, and an arrow exists only where two \
+         frames crossed between layers - nothing here assumes a layer ran because \
+         the one below it did. A row nothing touched is squeezed to a band.</p>",
+    );
+
+    html.push_str(
+        "<p class=\"note\">Only the arrow into the database carries a time. sqlx \
+         measures its own round trip; nothing measures how long a request spent \
+         inside a layer, and a number there would be invented.</p>",
     );
 
     if !unlit_externals.is_empty() {
@@ -277,6 +343,8 @@ fn legend(html: &mut String, flow: &Flow) {
             escape(&unlit_externals.join(", ")),
         );
     }
+
+    html.push_str("</details>");
 }
 
 /// One panel per layer, revealed by `:target`.
@@ -305,7 +373,7 @@ fn panels(html: &mut String, page: &str, flow: &Flow) {
                 let _ = write!(
                     html,
                     "<tr><td class=\"mono\">{file}</td><td class=\"mono dim\">{function}</td>\
-                     <td class=\"num\"><a data-modal=\"{modal}\" \
+                     <td class=\"num\"><a data-drawer=\"{modal}\" \
                      href=\"/_profiler/source/page/{page}?file={qfile}\
                      &amp;line={line}\">{line}</a></td>\
                      <td class=\"num dim\">{hits}</td></tr>",
@@ -441,6 +509,23 @@ mod tests {
         assert!(html.contains("&lt;script&gt;"));
     }
 
+    /// The glyphs are constants this file wrote, so they must reach the page as
+    /// drawing instructions rather than as escaped text.
+    #[test]
+    fn a_layer_draws_its_icon() {
+        let profiles = vec![profile_with(
+            vec![log_at("phonix-services/src/billing.rs", 88)],
+            Vec::new(),
+        )];
+        let html = section("p1", &PageFlow::of(&profiles), None);
+
+        assert!(html.contains("class=\"ic\""), "every box carries a glyph");
+        assert!(
+            !html.contains("&lt;path"),
+            "an escaped icon prints its path data instead of drawing it"
+        );
+    }
+
     #[test]
     fn a_query_string_cannot_be_split_by_a_path() {
         assert_eq!(urlencode("phonix-db/src/a.rs"), "phonix-db/src/a.rs");
@@ -499,7 +584,37 @@ mod tests {
 
     #[test]
     fn the_boxes_fit_inside_the_canvas() {
+        let profiles = vec![profile_with(
+            vec![log_at("phonix-services/src/billing.rs", 88)],
+            Vec::new(),
+        )];
+        let rows = rows_of(&Flow::of(&profiles));
+
         assert!(x_of(COLUMNS - 1) + BOX_W + PAD <= width());
-        assert!(y_of(ROWS - 1) + BOX_H + PAD <= height());
+        assert!(rows[ROWS - 1].y + rows[ROWS - 1].height + PAD <= height(&rows));
+    }
+
+    /// The compaction that makes the panel worth looking at: a page load that
+    /// touched two layers must not spend six full rows saying so.
+    #[test]
+    fn rows_nothing_touched_are_squeezed() {
+        let profiles = vec![profile_with(
+            vec![log_at("phonix-services/src/billing.rs", 88)],
+            Vec::new(),
+        )];
+        let flow = Flow::of(&profiles);
+        let rows = rows_of(&flow);
+
+        let services = flow.node("phonix-services").expect("on the spine").row;
+
+        assert!(rows[services].live, "the layer that ran keeps its full row");
+        assert!(
+            rows.iter().filter(|row| !row.live).count() >= 4,
+            "the rows nothing touched should be bands"
+        );
+        assert!(
+            height(&rows) < PAD * 2 + ROWS * BOX_H + (ROWS - 1) * GAP_Y,
+            "a squeezed diagram must be shorter than a full one"
+        );
     }
 }

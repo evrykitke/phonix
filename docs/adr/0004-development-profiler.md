@@ -479,6 +479,21 @@ selection lives in the URL, so it survives a reload and can be pasted to
 somebody else, and there is no endpoint that returns file contents to whatever
 asks.
 
+**The spine is shorter than the workspace, on purpose.** The app crates
+(`app-books`, `phonix-master`, `phonix-tax`) had boxes of their own and spent a
+whole row grey on every request that did not touch them. They are filed under
+`Shared` instead - filed, never dropped, because a frame that vanishes joins two
+layers that do not call each other directly. A row nothing touched is squeezed
+to a band rather than four empty boxes, which is what makes the panel worth
+having open.
+
+**One threshold colours every timing: 500ms.** Above it a duration is drawn as a
+problem, below it as fine, and the same rule applies to a page load, a request
+and a single statement. Those are very different things to spend half a second
+on, and a per-panel threshold would be three numbers to hold in your head rather
+than one. `report::SLOW` is the single place to change it if that stops being
+the right trade.
+
 ### There is a script now, and what it is allowed to be
 
 Added later the same day, at the user's request: `report.js`, alongside

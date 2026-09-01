@@ -169,13 +169,13 @@
     show(known ? wanted : panels[0].id, false);
   }
 
-  /* --------------------------------------------------------------- modal */
+  /* -------------------------------------------------------------- drawer */
 
   /*
    * The point of this, and the reason the user asked for it: opening a file
    * should not throw away the request you were reading. So a link marked
-   * data-modal is fetched and shown over the page, and the page underneath is
-   * untouched - same scroll position, same open tab, same expanded panels.
+   * data-drawer is fetched into a panel that slides in beside the page, and
+   * the page underneath is untouched - same scroll position, same open tab, same expanded panels.
    *
    * The fetched document is a whole report page. Its <main> is what we want;
    * taking it by id rather than by position means the source page can grow a
@@ -190,15 +190,15 @@
     }
 
     modal = document.createElement("div");
-    modal.className = "modal";
+    modal.className = "drawer";
     modal.hidden = true;
     modal.innerHTML =
-      '<div class="modal-back" data-close></div>' +
-      '<div class="modal-box" role="dialog" aria-modal="true" aria-label="Source">' +
-      '<div class="modal-top"><span class="modal-title"></span>' +
-      '<a class="modal-open" target="_blank" rel="noopener">open full page</a>' +
-      '<button class="modal-x" data-close aria-label="Close">&times;</button></div>' +
-      '<div class="modal-body"></div></div>';
+      '<div class="drawer-back" data-close></div>' +
+      '<div class="drawer-box" role="dialog" aria-modal="true" aria-label="Source">' +
+      '<div class="drawer-top"><span class="drawer-title"></span>' +
+      '<a class="drawer-open" target="_blank" rel="noopener">open full page</a>' +
+      '<button class="drawer-x" data-close aria-label="Close">&times;</button></div>' +
+      '<div class="drawer-body"></div></div>';
 
     modal.addEventListener("click", function (event) {
       if (event.target.closest("[data-close]")) {
@@ -217,7 +217,7 @@
     }
 
     modal.hidden = true;
-    document.documentElement.classList.remove("modal-open");
+    document.documentElement.classList.remove("drawer-open");
 
     // Put the caret back where the reader left it, or a keyboard user is
     // returned to the top of the document with no idea what happened.
@@ -230,16 +230,16 @@
 
   function open(href, title) {
     var box = ensureModal();
-    var body = box.querySelector(".modal-body");
-    var full = box.querySelector(".modal-open");
+    var body = box.querySelector(".drawer-body");
+    var full = box.querySelector(".drawer-open");
 
     lastFocus = document.activeElement;
-    box.querySelector(".modal-title").textContent = title || "";
+    box.querySelector(".drawer-title").textContent = title || "";
     full.setAttribute("href", href);
     body.innerHTML = '<p class="note">Loading...</p>';
     box.hidden = false;
-    document.documentElement.classList.add("modal-open");
-    box.querySelector(".modal-x").focus();
+    document.documentElement.classList.add("drawer-open");
+    box.querySelector(".drawer-x").focus();
 
     fetch(href, { headers: { Accept: "text/html" } })
       .then(function (response) {
@@ -276,7 +276,7 @@
   }
 
   document.addEventListener("click", function (event) {
-    var link = event.target.closest("a[data-modal]");
+    var link = event.target.closest("a[data-drawer]");
 
     if (!link) {
       return;
@@ -288,7 +288,7 @@
     }
 
     event.preventDefault();
-    open(link.getAttribute("href"), link.getAttribute("data-modal"));
+    open(link.getAttribute("href"), link.getAttribute("data-drawer"));
   });
 
   document.addEventListener("keydown", function (event) {
