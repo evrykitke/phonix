@@ -260,6 +260,20 @@ js-sys = "0.3"
 [profile.dev]
 opt-level = 0
 debug = 1
+# Debug info sits beside the object files instead of being copied into the
+# linked binary. Without this the phonix-server and phonix-web TEST binaries
+# fail to link on Linux - they pull in the whole workspace, and the combined
+# .debug_info/.debug_macro sections pass 4 GB, which is more than a 32-bit
+# relocation can address:
+#
+#     rust-lld: relocation R_X86_64_32 out of range: 7506069082 is not in
+#     [0, 4294967295]
+#
+# `cargo leptos build` links fine; only the test binaries are large enough to
+# overflow. Windows never meets it because MSVC keeps debug info in a PDB.
+# profile.test inherits from here, so this one line is what makes
+# `cargo test --workspace` link at all on Linux.
+split-debuginfo = "unpacked"
 
 # Dependencies stay optimised in dev; only our own crates rebuild often.
 [profile.dev.package."*"]
