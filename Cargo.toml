@@ -283,6 +283,11 @@ panic = "abort"
 # The server binary as built for development ON A BUILD BOX, where a full
 # `target` under [profile.dev] is more disk than the machine has to spare.
 #
+# Opt in per build with `--profile server-dev`. It is deliberately NOT wired to
+# `bin-profile-dev`: that key would apply to every `cargo leptos watch`,
+# including the ones on a laptop that has the disk and wants [profile.dev]'s
+# opt-level 0 and incremental rebuilds instead.
+#
 # It inherits release and then gives back the three things release takes away
 # that development needs:
 #
@@ -357,8 +362,3 @@ bin-default-features = false
 lib-features = ["hydrate"]
 lib-default-features = false
 lib-profile-release = "wasm-release"
-
-# The binary for `cargo leptos watch` without `-r`, and only that. `-r` still
-# builds `[profile.release]`, so `phonix-deploy` is untouched by this - the key
-# that would change it is `bin-profile-release`, and it is deliberately unset.
-bin-profile-dev = "server-dev"
