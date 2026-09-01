@@ -162,7 +162,14 @@ where
         // stack that ran the statement is still on the stack. A frame later -
         // in `push_query`, or anywhere the profile is assembled - and it is
         // gone. Nothing is resolved yet; see `crate::caller`.
-        let caller = if self.backtraces && metadata.target().starts_with("sqlx::query") {
+        //
+        // Every event, not only sqlx's. A stack taken at a log line is what
+        // lets the flow diagram show a path that ends somewhere other than
+        // Postgres - a cache read, a queue publish, a service that only logged
+        // - and those are most of what an application does. The cost is the
+        // same 756ns walk, now paid per recorded event rather than per
+        // statement, which is why `backtraces` stays a switch.
+        let caller = if self.backtraces {
             Caller::capture()
         } else {
             Caller::none()
@@ -185,6 +192,7 @@ where
                 metadata.level().as_str(),
                 metadata.target(),
                 (metadata.file(), metadata.line()),
+                caller,
             ));
         }
     }
@@ -290,12 +298,23 @@ impl Fields {
 
     /// Build a log line, keeping where in the workspace it was written.
     ///
-    /// `at` is the event's own `file` and `line`. Unlike a query's caller this
-    /// costs nothing to know: the application is what emitted the line, so its
-    /// metadata already names the right file. A dependency's path is dropped
-    /// rather than shown - it is a path on whoever built it, and
-    /// `crate::caller` makes the same cut for the same reason.
-    fn into_log(self, level: &str, target: &str, at: (Option<&str>, Option<u32>)) -> LogLine {
+    /// `at` is the event's own `file` and `line`, which costs nothing to know:
+    /// the application is what emitted the line, so its metadata already names
+    /// the right file. A dependency's path is dropped rather than shown - it
+    /// is a path on whoever built it, and `crate::caller` makes the same cut
+    /// for the same reason.
+    ///
+    /// `caller` is the rest of the answer, and it is not free. `at` says where
+    /// the line was written; the stack says how the request got there, which
+    /// is what the flow diagram draws. A line with a source but no caller is
+    /// an ordinary state - `profiler.backtraces` is off.
+    fn into_log(
+        self,
+        level: &str,
+        target: &str,
+        at: (Option<&str>, Option<u32>),
+        caller: Caller,
+    ) -> LogLine {
         let source = at.0.and_then(crate::caller::workspace_relative);
 
         LogLine {
@@ -305,6 +324,7 @@ impl Fields {
             fields: self.named,
             line: source.as_ref().and(at.1),
             source,
+            caller,
         }
     }
 
@@ -406,6 +426,7 @@ mod tests {
             "INFO",
             "phonix_server::middleware",
             (Some("D:/p/crates/phonix-server/src/middleware.rs"), Some(27)),
+            Caller::none(),
         );
 
         assert_eq!(line.message, "request carries no tenant");
@@ -451,6 +472,7 @@ mod tests {
                     fields: Vec::new(),
                     source: None,
                     line: None,
+                    caller: Caller::none(),
                 });
             }
 

@@ -933,6 +933,7 @@ mod tests {
             fields: Vec::new(),
             source: None,
             line: None,
+            caller: crate::Caller::none(),
         });
 
         assert!(detail(&profile).contains("<td class=\"at nowrap\">-</td>"));
@@ -948,6 +949,7 @@ mod tests {
             fields: Vec::new(),
             source: Some("phonix-server/src/middleware.rs".into()),
             line: Some(51),
+            caller: crate::Caller::none(),
         });
 
         assert!(detail(&profile).contains("phonix-server/src/middleware.rs:51"));

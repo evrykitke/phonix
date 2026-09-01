@@ -23,6 +23,7 @@
 
 pub mod caller;
 mod collect;
+pub mod flow;
 mod inject;
 pub mod middleware;
 pub mod page;
@@ -39,6 +40,7 @@ use tracing_subscriber::{EnvFilter, Registry};
 
 pub use caller::{Caller, Frame};
 pub use collect::EventLayer;
+pub use flow::{Flow, PageFlow};
 pub use middleware::{DEBUG_TOKEN, PAGE_HEADER};
 pub use page::{PageEntry, PageSummary};
 pub use profile::{Kind, LogLine, Profile, Query, Token};

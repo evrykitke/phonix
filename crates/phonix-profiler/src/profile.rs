@@ -233,6 +233,14 @@ pub struct LogLine {
     /// repository and would only be a path on somebody's disk.
     pub source: Option<String>,
     pub line: Option<u32>,
+    /// The stack that reached this line.
+    ///
+    /// Empty when `profiler.backtraces` is off. Unlike [`Self::source`], which
+    /// is one point, this is the path taken to get there - and it is the only
+    /// evidence the flow diagram has for anything that does not end in a
+    /// statement, which is most of what an application does.
+    #[serde(skip_serializing_if = "Caller::is_empty")]
+    pub caller: Caller,
 }
 
 impl LogLine {
