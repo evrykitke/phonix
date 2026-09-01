@@ -109,6 +109,15 @@ impl Caller {
     ///
     /// The profiler's own frames go too. They are on every stack, they are
     /// always at the top, and they are never the answer.
+    ///
+    /// A run of identical frames collapses to one. An `async fn` puts two
+    /// frames on the stack at the same source position - the function and the
+    /// poll the compiler generated for it - and once [`trim`] has taken the
+    /// machinery segment off, the two are the same function, file and line.
+    /// Printing both says nothing and costs a line of the panel. Only
+    /// *consecutive* repeats go: the same function appearing twice with
+    /// something else between them is a real recursion, and that is worth
+    /// seeing.
     pub fn resolve(&self) -> Vec<Frame> {
         let mut frames = Vec::new();
 
@@ -124,19 +133,35 @@ impl Caller {
                     return;
                 };
 
-                frames.push(Frame {
+                let frame = Frame {
                     function: symbol
                         .name()
                         .map(|name| trim(&name.to_string()))
                         .unwrap_or_else(|| "<unknown>".to_owned()),
                     file,
                     line,
-                });
+                };
+
+                push_unless_repeated(&mut frames, frame);
             });
         }
 
         frames
     }
+}
+
+/// Add a frame unless it repeats the one before it.
+///
+/// See [`Caller::resolve`] for why the repeats are there. Kept as a function
+/// rather than written into the walk so the rule can be tested without a real
+/// stack - the profiler's own frames are filtered out of every stack it can
+/// capture from inside its own tests.
+fn push_unless_repeated(frames: &mut Vec<Frame>, frame: Frame) {
+    if frames.last() == Some(&frame) {
+        return;
+    }
+
+    frames.push(frame);
 }
 
 /// The part of a build path that names a file in this repository.
@@ -469,5 +494,70 @@ mod tests {
     #[test]
     fn a_short_hex_looking_name_is_not_mistaken_for_a_hash() {
         assert_eq!(trim("phonix_db::hash::hab12"), "phonix_db::hash::hab12");
+    }
+
+    fn frame(function: &str, file: &str, line: u32) -> Frame {
+        Frame {
+            function: function.to_owned(),
+            file: file.to_owned(),
+            line,
+        }
+    }
+
+    /// Taken from a real panel: an `async fn` is on the stack twice, as itself
+    /// and as the poll the compiler generated for it, at one source position.
+    /// Before this the first two rows under the statement were identical.
+    #[test]
+    fn an_async_functions_two_frames_are_reported_once() {
+        let mut frames = Vec::new();
+
+        for _ in 0..2 {
+            push_unless_repeated(
+                &mut frames,
+                frame(
+                    "phonix_db::tenancy::catalog::find_by_slug",
+                    "phonix-db/src/tenancy/catalog.rs",
+                    156,
+                ),
+            );
+        }
+
+        assert_eq!(frames.len(), 1);
+    }
+
+    /// Only a *run* collapses. A function that calls into something and is
+    /// reached again is a real cycle, and losing the middle of it would make
+    /// the stack lie about how the query was reached.
+    #[test]
+    fn a_repeat_with_a_frame_between_is_kept() {
+        let mut frames = Vec::new();
+        let outer = frame("phonix_db::walk", "phonix-db/src/tree.rs", 12);
+
+        push_unless_repeated(&mut frames, outer.clone());
+        push_unless_repeated(
+            &mut frames,
+            frame("phonix_db::step", "phonix-db/src/tree.rs", 40),
+        );
+        push_unless_repeated(&mut frames, outer);
+
+        assert_eq!(frames.len(), 3);
+    }
+
+    /// Two calls to the same function from different lines are two different
+    /// places, and the line is the whole reason the panel is useful.
+    #[test]
+    fn the_same_function_at_a_different_line_is_a_different_frame() {
+        let mut frames = Vec::new();
+
+        push_unless_repeated(
+            &mut frames,
+            frame("phonix_db::run", "phonix-db/src/a.rs", 10),
+        );
+        push_unless_repeated(
+            &mut frames,
+            frame("phonix_db::run", "phonix-db/src/a.rs", 11),
+        );
+
+        assert_eq!(frames.len(), 2);
     }
 }

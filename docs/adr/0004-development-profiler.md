@@ -161,6 +161,13 @@ Only this workspace's frames are kept — a stack that is ninety per cent tokio
 is not a stack anybody reads — and the profiler's own frames are dropped,
 because they are on every capture, at the top, always.
 
+A run of identical frames collapses to one. An `async fn` is on the stack
+twice, as itself and as the poll the compiler generated for it, at a single
+source position; once the machinery segment is trimmed off the name the two
+rows are the same function, file and line. Only *consecutive* repeats go — the
+same position reached again with something between is a real cycle, and that is
+worth seeing.
+
 `profiler.backtraces` switches it off. It is the only part of the profiler that
 does work per *statement* rather than per request, which is the only reason it
 gets a switch of its own.
