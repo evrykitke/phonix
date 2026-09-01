@@ -1,5 +1,14 @@
 [toolchain]
-channel = "stable"
+# Pinned rather than "stable". Two machines both on "stable" drift the moment
+# one of them runs `rustup update`: rustfmt changes how it orders `pub use`
+# between releases, so `cargo fmt --all -- --check` starts reporting twenty
+# files on whichever machine is ahead while the code is untouched. That is what
+# happened between the Windows laptop on 1.96.1 and WSL on 1.98.0.
+#
+# A version here makes every machine - laptop, WSL, VPS - agree on rustc,
+# rustfmt and clippy. Bump it deliberately, and run `cargo fmt --all` in the
+# same commit if the new rustfmt reformats anything.
+channel = "1.98.0"
 targets = ["wasm32-unknown-unknown"]
 components = ["rustfmt", "clippy"]
 profile = "default"
