@@ -336,6 +336,15 @@ impl Flow {
     pub fn node(&self, id: &str) -> Option<&Node> {
         self.nodes.iter().find(|node| node.id == id)
     }
+
+    /// Nothing at all was seen: no statement, no log line, no frame.
+    ///
+    /// A real and common answer rather than a failure - a document that
+    /// rendered from memory and queried nothing looks exactly like this - so
+    /// the report distinguishes it from "the profiler is off".
+    pub fn nothing_observed(&self) -> bool {
+        !self.nodes.iter().any(|node| node.observed)
+    }
 }
 
 /// Which layer a workspace-relative path belongs to.

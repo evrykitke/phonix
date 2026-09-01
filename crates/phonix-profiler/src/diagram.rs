@@ -73,7 +73,18 @@ pub fn section(page: &str, flow: &PageFlow, active: Option<Token>) -> String {
 
     phases(&mut html, page, flow, active);
 
-    if shown.without_stacks {
+    // An all-grey diagram is the correct answer often enough that it has to
+    // say so. Without this it reads as a broken feature, and whoever is looking
+    // goes hunting for the bug rather than accepting the answer.
+    if shown.nothing_observed() {
+        html.push_str(
+            "<p class=\"note warn\">Nothing was recorded for this scope - no \
+             statements, and no log lines at or above the profiler's own filter. \
+             That is a request which did no work this tool can see, not a gap in \
+             the recording. Widen <code>profiler.filter</code> to follow code \
+             that only logs at debug.</p>",
+        );
+    } else if shown.without_stacks {
         html.push_str(
             "<p class=\"note warn\">No stacks were captured, so the layers below are \
              lit from log positions only and there are no arrows. That is \
@@ -467,6 +478,20 @@ mod tests {
         assert!(
             !html.contains("whole load"),
             "one request is not a choice worth offering"
+        );
+    }
+
+    /// The commonest empty case, and the one that reads as a bug if it says
+    /// nothing: a document that queried nothing and logged nothing.
+    #[test]
+    fn a_diagram_with_nothing_in_it_says_why() {
+        let profiles = vec![profile_with(Vec::new(), Vec::new())];
+        let html = section("p1", &PageFlow::of(&profiles), None);
+
+        assert!(html.contains("Nothing was recorded for this scope"));
+        assert!(
+            html.contains("not a gap in"),
+            "an all-grey diagram has to say it is an answer, not a failure"
         );
     }
 
