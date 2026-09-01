@@ -32,12 +32,23 @@ pub fn router() -> Router<Profiler> {
         // axum prefers the static path either way; the order is for whoever
         // reads this next.
         .route("/_profiler/toolbar.js", get(toolbar_js))
+        .route("/_profiler/report.js", get(report_js))
         .route("/_profiler/page/{page}", get(page_report))
         .route("/_profiler/source/page/{page}", get(source_view))
         .route("/_profiler/{token}", get(detail))
         .route("/_profiler/api/recent", get(recent_json))
         .route("/_profiler/api/page/{page}", get(page_json))
         .route("/_profiler/api/{token}", get(detail_json))
+}
+
+/// The report's own interactivity, compiled into the binary.
+///
+/// Same arrangement as the toolbar below and for the same reasons. Everything
+/// it does is an enhancement - tabs, the modal, the sidebar toggle - so a
+/// failure to load leaves the report exactly as it was before there was a
+/// script, which is a page that still works.
+async fn report_js() -> Response {
+    javascript(include_str!("report.js"))
 }
 
 /// The toolbar, compiled into the binary.
@@ -49,15 +60,18 @@ pub fn router() -> Router<Profiler> {
 /// Never cached. It changes whenever the binary does, and a developer holding
 /// a stale toolbar would be debugging the wrong tool.
 async fn toolbar_js() -> Response {
+    javascript(include_str!("toolbar.js"))
+}
+
+/// Never cached: it changes whenever the binary does, and a developer holding a
+/// stale script would be debugging the wrong tool.
+fn javascript(source: &'static str) -> Response {
     (
         [
-            (
-                http::header::CONTENT_TYPE,
-                "text/javascript; charset=utf-8",
-            ),
+            (http::header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
             (http::header::CACHE_CONTROL, "no-store"),
         ],
-        include_str!("toolbar.js"),
+        source,
     )
         .into_response()
 }

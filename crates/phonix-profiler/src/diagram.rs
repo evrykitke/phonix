@@ -305,10 +305,12 @@ fn panels(html: &mut String, page: &str, flow: &Flow) {
                 let _ = write!(
                     html,
                     "<tr><td class=\"mono\">{file}</td><td class=\"mono dim\">{function}</td>\
-                     <td class=\"num\"><a href=\"/_profiler/source/page/{page}?file={qfile}\
+                     <td class=\"num\"><a data-modal=\"{modal}\" \
+                     href=\"/_profiler/source/page/{page}?file={qfile}\
                      &amp;line={line}\">{line}</a></td>\
                      <td class=\"num dim\">{hits}</td></tr>",
                     file = escape(&file.file),
+                    modal = escape(&format!("{}:{}", file.file, function.line)),
                     function = escape(&function.function),
                     page = escape(page),
                     qfile = escape(&urlencode(&file.file)),

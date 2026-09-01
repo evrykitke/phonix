@@ -472,13 +472,42 @@ crate that talks to them appeared on a stack would be a guess wearing a
 measurement's clothes. The report says this in as many words rather than
 leaving a developer to infer it.
 
-**No JavaScript, still.** Section 6's rule was not relaxed for this. A layer is
-an `<a href="#layer-...">` inside the SVG and its panel is revealed by
-`:target`; a phase is a link with `?phase=`; a file opens a page rather than
-fetching into a panel. Two things fall out of that beyond the rule itself: the
+**The diagram itself needs no script.** A layer is an `<a href="#layer-...">`
+inside the SVG and its panel is revealed by `:target`; a phase is a link with
+`?phase=`; a file is a link to a page. Two things fall out of that: the
 selection lives in the URL, so it survives a reload and can be pasted to
 somebody else, and there is no endpoint that returns file contents to whatever
 asks.
+
+### There is a script now, and what it is allowed to be
+
+Added later the same day, at the user's request: `report.js`, alongside
+`toolbar.js`, giving the report a tab strip, a source modal and a sidebar
+toggle. The modal is the one that mattered to them - opening a file should not
+throw away the request you were reading.
+
+**This is not a reversal of section 6.** That section is about the *application*
+being a dependency of the tool: a Leptos component cannot render when wasm has
+panicked, which is exactly when the profiler is wanted. `report.js` is compiled
+into this binary with `include_str!` and served from `/_profiler/report.js`, so
+it depends on nothing outside this process and cannot be stale against the
+server that served it. `toolbar.js` has always worked this way.
+
+**The rule that replaces "no JavaScript" is stricter and easier to check: every
+page must be complete without it.** Tabs are cards that are otherwise stacked in
+order. A modal link is an ordinary `<a href>` to a page that really exists. The
+diagram's layer panels are `:target`, not handlers. Collapsing is `<details>`.
+If the script fails to parse, the report is the page it was before it existed -
+never a blank one. Anything that cannot degrade that way belongs on the server,
+and the code colouring is the worked example: it would have been a natural thing
+to hand to a library in the browser, and it is done in Rust instead
+(`crate::highlight`) so that there is no bundle, no second pass and no flash of
+uncoloured code.
+
+That last choice also honours what `tools/vendor-scalar.mjs` already says about
+third-party JavaScript: a page that is blank without internet is not acceptable,
+and whatever a CDN answers with today should not execute in our origin. The
+report ships no third-party script at all.
 
 ### Reading source is the first thing here that touches the disk
 

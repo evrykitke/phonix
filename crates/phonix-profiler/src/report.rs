@@ -1,4 +1,4 @@
-//! The report: plain HTML, no JavaScript, no framework, no build step.
+//! The report: server-rendered HTML, no framework, no build step.
 //!
 //! Drawn on the server for a reason worth keeping even after there is a
 //! bundle: the profiler has to work on a page whose application has panicked,
@@ -6,6 +6,19 @@
 //! resolution is broken. Every dependency it takes on is another way to be
 //! unavailable at the moment it is wanted. Expanding a stack is `<details>`,
 //! not a click handler, for exactly that reason.
+//!
+//! # There is a script now, and it changes none of that
+//!
+//! `report.js` adds the tab strip, the source modal and the sidebar toggle. It
+//! is compiled into this binary and served from `/_profiler/report.js`, like
+//! `toolbar.js` beside it - so it is not a dependency on anything outside this
+//! process, which is what the paragraph above is actually about.
+//!
+//! **Every page here must still be complete without it.** Tabs are cards that
+//! are otherwise stacked, the modal link is an ordinary `<a href>` to a page
+//! that exists, and the diagram's layer panels are `:target`, not a handler. If
+//! the script fails to parse, the report is the page it was before it existed.
+//! Anything added here that cannot degrade that way belongs on the server.
 //!
 //! The styling is inline and deliberately unlike the application's. This is a
 //! tool, not a screen, and it should never be mistaken for one in a
@@ -16,6 +29,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::flow::PageFlow;
+use crate::highlight::{self, Lang};
 use crate::page::PageSummary;
 use crate::profile::{Kind, Profile, Query, Token};
 use crate::source::Snippet;
@@ -23,8 +37,13 @@ use crate::source::Snippet;
 /// Wrap a body in the shell.
 ///
 /// `crumb` is what this page is, shown after the brand; `actions` is the
-/// right-hand side of the header.
-pub fn page(title: &str, crumb: &str, actions: &str, body: &str) -> String {
+/// right-hand side of the header; `nav` is the context-specific half of the
+/// sidebar, already rendered, and may be empty.
+///
+/// The `<main>` carries `data-tabs`: `report.js` turns the cards inside it into
+/// a tab strip if there is more than one. Without the script they stay stacked,
+/// which is what this page has always been.
+pub fn page(title: &str, crumb: &str, actions: &str, nav: &str, body: &str) -> String {
     format!(
         "<!doctype html>\n\
          <html lang=\"en\">\n\
@@ -36,18 +55,40 @@ pub fn page(title: &str, crumb: &str, actions: &str, body: &str) -> String {
          </head>\n\
          <body>\n\
          <header class=\"top\">\n\
+         <button class=\"side-toggle\" data-side-toggle aria-expanded=\"false\" \
+         aria-label=\"Menu\">≡</button>\n\
          <a class=\"brand\" href=\"/_profiler\"><span class=\"mark\">◆</span> \
          phonix <b>profiler</b></a>\n\
          <span class=\"crumb\">{crumb}</span>\n\
          <span class=\"grow\"></span>\n\
          {actions}\n\
          </header>\n\
-         <main class=\"wrap\">{body}</main>\n\
+         <div class=\"shell\">\n\
+         <aside class=\"side\"><nav>\n\
+         <a class=\"side-link\" href=\"/_profiler\">All requests</a>\n\
+         {nav}\n\
+         </nav></aside>\n\
+         <main class=\"wrap\" data-tabs>{body}</main>\n\
+         </div>\n\
+         <script src=\"/_profiler/report.js\" defer></script>\n\
          </body>\n\
          </html>\n",
         title = escape(title),
         crumb = escape(crumb),
     )
+}
+
+/// One link in the sidebar.
+///
+/// `current` draws it as where you already are rather than somewhere to go.
+pub(crate) fn side_link(nav: &mut String, href: &str, label: &str, current: bool) {
+    let _ = write!(
+        nav,
+        "<a class=\"side-link{on}\" href=\"{href}\">{label}</a>",
+        on = if current { " on" } else { "" },
+        href = escape(href),
+        label = escape(label),
+    );
 }
 
 /// The index: what this process has seen, newest first.
@@ -74,7 +115,7 @@ pub fn index(profiles: &[Arc<Profile>], show_all: bool, held: usize) -> String {
              watcher restarts on every save.",
         ));
 
-        return page("Requests", "requests", &actions, &body);
+        return page("Requests", "requests", &actions, "", &body);
     }
 
     // Read off the rows on screen rather than the whole ring: these have to
@@ -164,7 +205,7 @@ pub fn index(profiles: &[Arc<Profile>], show_all: bool, held: usize) -> String {
 
     body.push_str("</tbody>\n</table>\n</section>\n");
 
-    page("Requests", "requests", &actions, &body)
+    page("Requests", "requests", &actions, "", &body)
 }
 
 /// One request, in full.
@@ -250,10 +291,35 @@ pub fn detail(profile: &Profile) -> String {
     queries(&mut body, profile);
     logs(&mut body, profile);
 
+    let mut nav = String::new();
+
+    if let Some(group) = &profile.page {
+        side_link(
+            &mut nav,
+            &format!("/_profiler/page/{group}"),
+            "This page load",
+            false,
+        );
+    }
+
+    side_link(
+        &mut nav,
+        &format!("/_profiler/{}", profile.token),
+        "This request",
+        true,
+    );
+    side_link(
+        &mut nav,
+        &format!("/_profiler/api/{}", profile.token),
+        "As JSON",
+        false,
+    );
+
     page(
         &format!("{} {}", profile.method, profile.path),
         "request",
         "<a class=\"button\" href=\"/_profiler\">all requests</a>",
+        &nav,
         &body,
     )
 }
@@ -281,7 +347,7 @@ pub fn page_load(summary: &PageSummary, flow: &PageFlow, phase: Option<Token>) -
              do not survive it.",
         ));
 
-        return page("Page load", "page load", actions, &body);
+        return page("Page load", "page load", actions, "", &body);
     }
 
     metrics(
@@ -327,7 +393,7 @@ pub fn page_load(summary: &PageSummary, flow: &PageFlow, phase: Option<Token>) -
                 body,
                 "<tr><td class=\"num warn strong\">{count}</td>\
                  <td><code class=\"sql\">{}</code></td></tr>",
-                escape(shape)
+                highlight::block(Lang::Sql, shape)
             );
         }
 
@@ -368,7 +434,31 @@ pub fn page_load(summary: &PageSummary, flow: &PageFlow, phase: Option<Token>) -
 
     body.push_str("</tbody></table></section>");
 
-    page("Page load", "page load", actions, &body)
+    // The sidebar is the group itself: every request in this page load, so
+    // moving between them never goes back through the index.
+    let mut nav = String::new();
+
+    side_link(
+        &mut nav,
+        &format!("/_profiler/page/{}", summary.page),
+        "This page load",
+        true,
+    );
+
+    for entry in &summary.profiles {
+        side_link(
+            &mut nav,
+            &format!("/_profiler/{}", entry.token),
+            &format!(
+                "{} {}",
+                entry.method,
+                entry.route.as_deref().unwrap_or(&entry.path)
+            ),
+            false,
+        );
+    }
+
+    page("Page load", "page load", actions, &nav, &body)
 }
 
 /// The token resolved to nothing.
@@ -381,6 +471,7 @@ pub fn missing(token: &str) -> String {
         "Not found",
         "not found",
         "<a class=\"button\" href=\"/_profiler\">all requests</a>",
+        "",
         &empty(
             &format!("No profile {}", escape(token)),
             "Profiles live in memory and only for this process. A restart - which \
@@ -412,7 +503,7 @@ fn repeated(body: &mut String, profile: &Profile) {
             body,
             "<tr><td class=\"num warn strong\">{count}</td>\
              <td><code class=\"sql\">{}</code></td></tr>",
-            escape(&shape)
+            highlight::block(Lang::Sql, &shape)
         );
     }
 
@@ -456,7 +547,7 @@ fn queries(body: &mut String, profile: &Profile) {
              <td><code class=\"sql\">{sql}</code>{stack}</td></tr>",
             n = index + 1,
             time = query.elapsed.map(millis).unwrap_or_else(|| "-".to_owned()),
-            sql = escape(&query.sql),
+            sql = highlight::block(Lang::Sql, &query.sql),
             stack = stack(query),
         );
     }
@@ -694,16 +785,21 @@ pub fn source(page_id: &str, snippet: &Snippet) -> String {
         line = snippet.line,
     );
 
-    body.push_str("<section class=\"card\"><pre class=\"src\">");
+    body.push_str("<section class=\"card\"><h2>Source</h2><pre class=\"src\">");
 
-    for (offset, text) in snippet.lines.iter().enumerate() {
+    // Coloured across the whole window rather than line by line: a block
+    // comment or a multi-line string starts on one line and ends on another,
+    // and a lexer restarted at every newline gets both wrong. `per_line` closes
+    // and reopens the span at each boundary instead - see `crate::highlight`.
+    let coloured = highlight::per_line(lang_of(&snippet.file), &snippet.lines.join("\n"));
+
+    for (offset, text) in coloured.iter().enumerate() {
         let number = snippet.start + offset as u32;
         let marked = if number == snippet.line { " here" } else { "" };
 
         let _ = writeln!(
             body,
             "<span class=\"row{marked}\"><span class=\"ln\">{number}</span>{text}</span>",
-            text = escape(text),
         );
     }
 
@@ -714,7 +810,20 @@ pub fn source(page_id: &str, snippet: &Snippet) -> String {
         page = escape(page_id),
     );
 
-    page("Source", "source", &actions, &body)
+    page("Source", "source", &actions, "", &body)
+}
+
+/// Which colouring a file gets.
+///
+/// Everything under `crates/` is Rust, so this is one `if` and a default rather
+/// than a table. `.sql` is here because the migrations are real files a frame
+/// could one day name.
+fn lang_of(file: &str) -> Lang {
+    if file.ends_with(".sql") {
+        Lang::Sql
+    } else {
+        Lang::Rust
+    }
 }
 
 /// The source view could not show what was asked for.
@@ -732,6 +841,7 @@ pub fn no_source(page_id: &str) -> String {
         "Not found",
         "source",
         &actions,
+        "",
         &empty(
             "No source for that",
             "The report only shows files this page load actually recorded a frame              in, read from this checkout. A file that was not on one of these              stacks is not readable here, and neither is anything outside              crates/.",
@@ -791,7 +901,50 @@ border-radius:6px;color:var(--dim);font-size:12px;background:var(--panel)}\
 .button:hover{border-color:var(--brand);color:var(--text);text-decoration:none}\
 .button.on{border-color:var(--brand);color:var(--brand)}\
 \
-.wrap{max-width:1500px;margin:0 auto;padding:1.4rem 1.1rem 4rem}\
+.wrap{min-width:0;padding:1.4rem 1.1rem 4rem}\
+\
+/* shell: sidebar beside the report */\
+.shell{display:grid;grid-template-columns:216px minmax(0,1fr);max-width:1600px;margin:0 auto;align-items:start}\
+.side{position:sticky;top:49px;align-self:start;max-height:calc(100vh - 49px);overflow-y:auto;padding:1.1rem .6rem;border-right:1px solid var(--line-soft)}\
+.side nav{display:flex;flex-direction:column;gap:1px}\
+.side-link{display:block;padding:.4rem .6rem;border-radius:6px;color:var(--dim);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\
+.side-link:hover{background:var(--raised);color:var(--text);text-decoration:none}\
+.side-link.on{background:var(--raised);color:var(--text);box-shadow:inset 2px 0 0 var(--brand)}\
+.side-toggle{display:none;background:none;border:0;color:var(--dim);font-size:18px;line-height:1;cursor:pointer;padding:0 .2rem}\
+\
+/* tabs: built from the cards by report.js, absent without it */\
+.tabs{display:flex;flex-wrap:wrap;gap:.2rem;margin:0 0 .9rem;border-bottom:1px solid var(--line-soft)}\
+.tab{background:none;border:0;border-bottom:2px solid transparent;color:var(--dim);font:inherit;font-size:12px;padding:.45rem .7rem;cursor:pointer;display:flex;align-items:center;gap:.35rem}\
+.tab:hover{color:var(--text)}\
+.tab.on{color:var(--text);border-bottom-color:var(--brand)}\
+.tab .count{color:var(--faint);font-size:11px}\
+\
+/* modal: a file without losing the request behind it */\
+html.modal-open{overflow:hidden}\
+.modal{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:1.6rem}\
+.modal-back{position:absolute;inset:0;background:rgba(6,8,11,.72)}\
+.modal-box{position:relative;display:flex;flex-direction:column;width:min(960px,100%);max-height:100%;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.5)}\
+.modal-top{display:flex;align-items:center;gap:.8rem;padding:.6rem .9rem;border-bottom:1px solid var(--line-soft)}\
+.modal-title{font-family:var(--mono);font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}\
+.modal-open{font-size:11px;color:var(--dim);white-space:nowrap}\
+.modal-x{background:none;border:0;color:var(--dim);font-size:20px;line-height:1;cursor:pointer;padding:0 .2rem}\
+.modal-x:hover{color:var(--text)}\
+.modal-body{overflow:auto;padding:0}\
+.modal-body .title{padding:.7rem .95rem 0}\
+.modal-body .card{border-radius:0;border-left:0;border-right:0;border-top:0}\
+\
+/* syntax colouring, emitted by crate::highlight */\
+.k{color:#c792ea}\
+.s{color:#a5d6a7}\
+.n{color:#f5c77e}\
+.c{color:var(--faint);font-style:italic}\
+.t{color:#7fd1de}\
+.f{color:#82aaff}\
+.a{color:#8b94a7}\
+.l{color:#e5b567}\
+.m{color:#82aaff}\
+.v{color:#f77f8e}\
+code.sql .k{color:#7aa2f7}\
 .title{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:1.1rem}\
 h1{font-size:1.05rem;font-weight:600;margin:0;letter-spacing:-.01em;word-break:break-all}\
 .method.big{font-size:.8rem}\
@@ -913,6 +1066,12 @@ dl.facts dd{margin:0;font-size:12px;word-break:break-all}\
 @media (max-width:640px){\
 .wrap{padding:1rem .7rem 3rem}\
 .crumb{display:none}\
+.side-toggle{display:block}\
+.shell{grid-template-columns:minmax(0,1fr)}\
+.side{display:none;position:static;max-height:none;border-right:0;border-bottom:1px solid var(--line-soft)}\
+.shell.side-open .side{display:block}\
+.modal{padding:0}\
+.modal-box{width:100%;height:100%;max-height:100%;border:0;border-radius:0}\
 .metrics{grid-template-columns:repeat(2,1fr)}\
 dl.facts{grid-template-columns:1fr;gap:0}\
 dl.facts dt{margin-top:.5rem}}\
@@ -1013,7 +1172,12 @@ mod tests {
 
         let html = detail(&profile);
 
-        assert!(html.contains("SELECT 1"));
+        // The statement is coloured now, so it reaches the page as spans rather
+        // than as one string - `crate::highlight`. What matters to this test is
+        // unchanged: the statement is drawn, and nothing draws an empty
+        // disclosure widget beneath it.
+        assert!(html.contains(">SELECT</span>"), "the statement is drawn");
+        assert!(html.contains(">1</span>"));
         assert!(!html.contains("<details"));
     }
 

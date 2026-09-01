@@ -25,6 +25,7 @@ pub mod caller;
 mod collect;
 pub mod diagram;
 pub mod flow;
+pub mod highlight;
 mod inject;
 pub mod middleware;
 pub mod page;

@@ -273,6 +273,20 @@ mod tests {
             );
         }
 
+        /// The report's script is part of the report, so it is mounted with
+        /// it rather than being a file somebody has to deploy.
+        #[tokio::test]
+        async fn the_reports_script_is_served_by_the_profiler() {
+            let profiling = Profiling {
+                handle: Some(phonix_profiler::Profiler::new(8)),
+            };
+
+            assert_eq!(
+                status_of(&profiling, "/_profiler/report.js").await,
+                StatusCode::OK
+            );
+        }
+
         #[tokio::test]
         async fn a_profiler_that_is_off_mounts_nothing() {
             let profiling = Profiling::default();
