@@ -23,6 +23,7 @@
 
 pub mod caller;
 mod collect;
+pub mod diagram;
 pub mod flow;
 mod inject;
 pub mod middleware;
@@ -31,8 +32,10 @@ pub mod profile;
 mod report;
 mod routes;
 mod rss;
+pub mod source;
 mod store;
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tracing_subscriber::layer::Layer;
@@ -66,6 +69,13 @@ pub const DEFAULT_FILTER: &str = "info,sqlx::query=debug";
 #[derive(Debug, Clone)]
 pub struct Profiler {
     store: Arc<Store>,
+    /// The directory holding `crates/`, when the caller knows it.
+    ///
+    /// Only the source view needs this, and it is `None` unless something set
+    /// it - a profiler that has not been told where the workspace is simply
+    /// does not offer to show source, rather than guessing from
+    /// `current_exe()` and reading whatever it finds.
+    source_root: Option<Arc<PathBuf>>,
 }
 
 impl Profiler {
@@ -73,7 +83,25 @@ impl Profiler {
     pub fn new(capacity: usize) -> Self {
         Self {
             store: Arc::new(Store::new(capacity)),
+            source_root: None,
         }
+    }
+
+    /// Where this checkout lives, so the report can show the files a stack
+    /// named.
+    ///
+    /// Passed in rather than discovered here: this crate depends on nothing
+    /// and knows nothing about the workspace, and `phonix-config` already owns
+    /// the question of where the root is. See [`source`] for what is done with
+    /// it, which is deliberately very little.
+    #[must_use]
+    pub fn with_source_root(mut self, root: PathBuf) -> Self {
+        self.source_root = Some(Arc::new(root));
+        self
+    }
+
+    pub(crate) fn source_root(&self) -> Option<&Path> {
+        self.source_root.as_deref().map(PathBuf::as_path)
     }
 
     /// The ring of profiles.
@@ -136,6 +164,10 @@ mod tests {
     fn a_nonsense_filter_is_refused_rather_than_ignored() {
         let profiler = Profiler::new(4);
 
-        assert!(profiler.tracing_layer("=== not a filter ===", true).is_err());
+        assert!(
+            profiler
+                .tracing_layer("=== not a filter ===", true)
+                .is_err()
+        );
     }
 }

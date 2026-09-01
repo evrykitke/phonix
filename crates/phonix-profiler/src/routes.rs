@@ -12,9 +12,11 @@ use axum::routing::get;
 use serde::Deserialize;
 
 use crate::Profiler;
+use crate::flow::PageFlow;
 use crate::page::PageSummary;
 use crate::profile::Token;
 use crate::report;
+use crate::source::{self, Allowed};
 
 /// How many rows the index draws.
 ///
@@ -31,6 +33,7 @@ pub fn router() -> Router<Profiler> {
         // reads this next.
         .route("/_profiler/toolbar.js", get(toolbar_js))
         .route("/_profiler/page/{page}", get(page_report))
+        .route("/_profiler/source/page/{page}", get(source_view))
         .route("/_profiler/{token}", get(detail))
         .route("/_profiler/api/recent", get(recent_json))
         .route("/_profiler/api/page/{page}", get(page_json))
@@ -59,10 +62,59 @@ async fn toolbar_js() -> Response {
         .into_response()
 }
 
-async fn page_report(State(profiler): State<Profiler>, Path(page): Path<String>) -> Html<String> {
-    let profiles = profiler.store().page(&page);
+/// Which request within the page load to draw, if not the whole thing.
+#[derive(Debug, Deserialize)]
+struct PageParams {
+    phase: Option<String>,
+}
 
-    Html(report::page_load(&PageSummary::of(&page, &profiles)))
+async fn page_report(
+    State(profiler): State<Profiler>,
+    Path(page): Path<String>,
+    QueryParams(params): QueryParams<PageParams>,
+) -> Html<String> {
+    let profiles = profiler.store().page(&page);
+    // An unparseable or unknown phase falls back to the whole load rather than
+    // erroring: it is a view preference in a URL, and the page it belongs to is
+    // still perfectly renderable.
+    let phase = params.phase.as_deref().and_then(parse);
+
+    Html(report::page_load(
+        &PageSummary::of(&page, &profiles),
+        &PageFlow::of(&profiles),
+        phase,
+    ))
+}
+
+/// What a file the diagram named looks like.
+#[derive(Debug, Deserialize)]
+struct SourceParams {
+    file: String,
+    line: u32,
+}
+
+/// Show one file of this checkout, around one line.
+///
+/// Every refusal is the same 404 page. The two gates are in [`crate::source`];
+/// this only decides what is in scope, which is the profiles of one page load.
+async fn source_view(
+    State(profiler): State<Profiler>,
+    Path(page): Path<String>,
+    QueryParams(params): QueryParams<SourceParams>,
+) -> Response {
+    let refused = || (StatusCode::NOT_FOUND, Html(report::no_source(&page))).into_response();
+
+    let Some(root) = profiler.source_root() else {
+        return refused();
+    };
+
+    let profiles = profiler.store().page(&page);
+    let allowed = Allowed::of(&profiles);
+
+    match source::read(root, &allowed, &params.file, params.line) {
+        Some(snippet) => Html(report::source(&page, &snippet)).into_response(),
+        None => refused(),
+    }
 }
 
 async fn page_json(

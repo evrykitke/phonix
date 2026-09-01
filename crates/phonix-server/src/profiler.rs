@@ -40,7 +40,12 @@ impl Profiling {
             return Ok((Self::default(), Vec::new()));
         }
 
-        let profiler = phonix_profiler::Profiler::new(config.profiler.capacity);
+        // The source root is handed over rather than discovered: the profiler
+        // crate depends on nothing and has no business deciding where this
+        // checkout is, and `phonix-config` already owns that question. Without
+        // it the flow diagram simply does not offer to show a file.
+        let profiler = phonix_profiler::Profiler::new(config.profiler.capacity)
+            .with_source_root(phonix_config::workspace_root());
         let layer = profiler
             .tracing_layer(&config.profiler.filter, config.profiler.backtraces)
             .map_err(|err| format!("profiler.filter is not a valid tracing filter: {err}"))?;
@@ -247,6 +252,27 @@ mod tests {
 
         /// The half that `profiler.enabled = false` is supposed to buy. Not
         /// "the page is empty" - the routes are not there at all.
+        /// The source view is reachable, and refuses by default.
+        ///
+        /// Nothing has been recorded against this page, so the allowlist is
+        /// empty and every file is refused - which is the behaviour that
+        /// matters, because the alternative is an unauthenticated file read.
+        #[tokio::test]
+        async fn the_source_view_refuses_a_file_no_profile_recorded() {
+            let profiling = Profiling {
+                handle: Some(phonix_profiler::Profiler::new(8)),
+            };
+
+            assert_eq!(
+                status_of(
+                    &profiling,
+                    "/_profiler/source/page/nothing?file=phonix-db/src/lib.rs&line=1"
+                )
+                .await,
+                StatusCode::NOT_FOUND
+            );
+        }
+
         #[tokio::test]
         async fn a_profiler_that_is_off_mounts_nothing() {
             let profiling = Profiling::default();

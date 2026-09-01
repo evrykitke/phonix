@@ -15,8 +15,10 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::flow::PageFlow;
 use crate::page::PageSummary;
-use crate::profile::{Kind, Profile, Query};
+use crate::profile::{Kind, Profile, Query, Token};
+use crate::source::Snippet;
 
 /// Wrap a body in the shell.
 ///
@@ -57,7 +59,11 @@ pub fn index(profiles: &[Arc<Profile>], show_all: bool, held: usize) -> String {
          <a class=\"button{active}\" href=\"/_profiler{query}\">{label}</a>",
         active = if show_all { " on" } else { "" },
         query = if show_all { "" } else { "?all=1" },
-        label = if show_all { "assets shown" } else { "show assets" },
+        label = if show_all {
+            "assets shown"
+        } else {
+            "show assets"
+        },
     );
 
     if profiles.is_empty() {
@@ -257,7 +263,7 @@ pub fn detail(profile: &Profile) -> String {
 /// The report `docs/adr/0004-development-profiler.md` section 2 is really
 /// about. A per-request view cannot answer "why is this screen slow" when the
 /// answer is spread across nine server functions.
-pub fn page_load(summary: &PageSummary) -> String {
+pub fn page_load(summary: &PageSummary, flow: &PageFlow, phase: Option<Token>) -> String {
     let mut body = String::new();
     let actions = "<a class=\"button\" href=\"/_profiler\">all requests</a>";
 
@@ -301,6 +307,8 @@ pub fn page_load(summary: &PageSummary) -> String {
              page - and it is not a gap in the recording.</p>",
         );
     }
+
+    body.push_str(&crate::diagram::section(&summary.page, flow, phase));
 
     if !summary.repeated.is_empty() {
         body.push_str("<section class=\"card warnish\"><h2>Repeated across the page load</h2>");
@@ -447,10 +455,7 @@ fn queries(body: &mut String, profile: &Profile) {
              <td class=\"num dim\">{rows}</td>\
              <td><code class=\"sql\">{sql}</code>{stack}</td></tr>",
             n = index + 1,
-            time = query
-                .elapsed
-                .map(millis)
-                .unwrap_or_else(|| "-".to_owned()),
+            time = query.elapsed.map(millis).unwrap_or_else(|| "-".to_owned()),
             sql = escape(&query.sql),
             stack = stack(query),
         );
@@ -647,7 +652,7 @@ fn status_class(status: u16) -> &'static str {
 ///
 /// Milliseconds throughout, even for something that took eleven microseconds,
 /// so a column of numbers can be compared by eye without reading the units.
-fn millis(duration: Duration) -> String {
+pub(crate) fn millis(duration: Duration) -> String {
     format!("{:.1} ms", duration.as_secs_f64() * 1000.0)
 }
 
@@ -673,7 +678,68 @@ fn bytes(count: u64) -> String {
 /// attacker-influenced in the sense that matters - the developer reading it is
 /// the one being attacked - so nothing reaches the page without passing
 /// through this.
-fn escape(text: &str) -> String {
+/// One file, around one line, as a page of its own.
+///
+/// A page rather than a panel, because the report has no script - see
+/// [`crate::diagram`]. It also means the only thing that ever reads a file is
+/// a navigation a human made, which is a much smaller surface than an endpoint
+/// a page fetches from.
+pub fn source(page_id: &str, snippet: &Snippet) -> String {
+    let mut body = String::new();
+
+    let _ = write!(
+        body,
+        "<div class=\"title\"><h1 class=\"mono\">{file}</h1>         <code class=\"chip\">line {line}</code></div>",
+        file = escape(&snippet.file),
+        line = snippet.line,
+    );
+
+    body.push_str("<section class=\"card\"><pre class=\"src\">");
+
+    for (offset, text) in snippet.lines.iter().enumerate() {
+        let number = snippet.start + offset as u32;
+        let marked = if number == snippet.line { " here" } else { "" };
+
+        let _ = writeln!(
+            body,
+            "<span class=\"row{marked}\"><span class=\"ln\">{number}</span>{text}</span>",
+            text = escape(text),
+        );
+    }
+
+    body.push_str("</pre></section>");
+
+    let actions = format!(
+        "<a class=\"button\" href=\"/_profiler/page/{page}\">back to the page load</a>",
+        page = escape(page_id),
+    );
+
+    page("Source", "source", &actions, &body)
+}
+
+/// The source view could not show what was asked for.
+///
+/// One message for every refusal, on purpose. "Not recorded here" and "not on
+/// disk" are different to us and must not be different to whoever is asking -
+/// see [`crate::source`].
+pub fn no_source(page_id: &str) -> String {
+    let actions = format!(
+        "<a class=\"button\" href=\"/_profiler/page/{page}\">back to the page load</a>",
+        page = escape(page_id),
+    );
+
+    page(
+        "Not found",
+        "source",
+        &actions,
+        &empty(
+            "No source for that",
+            "The report only shows files this page load actually recorded a frame              in, read from this checkout. A file that was not on one of these              stacks is not readable here, and neither is anything outside              crates/.",
+        ),
+    )
+}
+
+pub(crate) fn escape(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
 
     for character in text.chars() {
@@ -755,6 +821,36 @@ display:flex;align-items:center;gap:.5rem}\
 .card.empty .note{max-width:52ch;margin:0 auto;padding:0}\
 \
 table{width:100%;border-collapse:collapse;display:block;overflow-x:auto}\
+\
+/* the flow diagram */\
+.phases{display:flex;flex-wrap:wrap;gap:.35rem;padding:.7rem .95rem 0}\
+.phases .button{font-size:11px}\
+.diagram{overflow-x:auto;padding:.8rem .95rem}\
+.diagram svg{display:block;max-width:100%;height:auto}\
+.lay rect{fill:var(--raised);stroke:var(--line);stroke-width:1}\
+.lay text{font-family:var(--ui);pointer-events:none}\
+.lay .name{font-size:13px;font-weight:600;fill:var(--faint)}\
+.lay .sub{font-size:11px;fill:var(--faint)}\
+.lay.on rect{fill:var(--panel);stroke:var(--brand);stroke-width:1.5}\
+.lay.on .name{fill:var(--text)}\
+.lay.on .sub{fill:var(--dim)}\
+.lay.ext rect{stroke-dasharray:4 3}\
+.lay.on.ext rect{stroke:var(--info)}\
+a:hover>.lay.on rect{stroke:var(--ok)}\
+a:focus-visible>.lay rect{stroke:var(--ok);stroke-width:2}\
+.edge{fill:none;stroke:var(--brand);opacity:.55}\
+.head{fill:var(--brand);opacity:.55}\
+.edge-label{font-family:var(--mono);font-size:10px;fill:var(--dim);text-anchor:middle}\
+.layer-files{display:none}\
+.layer-files:target{display:block;border-top:1px solid var(--line-soft)}\
+.layer-files h3{margin:0;padding:.7rem .95rem .2rem;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--dim)}\
+\
+/* one file, around one line */\
+pre.src{margin:0;padding:.8rem 0;overflow-x:auto;font-family:var(--mono);font-size:12px;line-height:1.55}\
+.src .row{display:block;padding:0 .95rem;white-space:pre}\
+.src .ln{display:inline-block;width:4ch;margin-right:1.2ch;text-align:right;color:var(--faint);user-select:none}\
+.src .row.here{background:var(--raised)}\
+.src .row.here .ln{color:var(--warn)}\
 thead th{position:sticky;top:0;text-align:left;font-weight:600;font-size:11px;\
 text-transform:uppercase;letter-spacing:.07em;color:var(--faint);\
 background:var(--raised);padding:.45rem .7rem;white-space:nowrap;\
@@ -971,6 +1067,6 @@ mod tests {
             profiles: Vec::new(),
         };
 
-        assert!(page_load(&summary).contains("in-app navigation"));
+        assert!(page_load(&summary, &PageFlow::of(&[]), None).contains("in-app navigation"));
     }
 }
