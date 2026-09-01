@@ -431,7 +431,84 @@ header that turns it on, and no allow-list of IPs — every one of those is a
 mechanism that can be wrong, and the answer here is for the code not to be
 present.
 
-## 9. Where it sits in the stack
+## 9. The flow diagram, and why the stack walk moved
+
+Added 2026-09-01. A page load is drawn as a diagram: the layers it passed
+through, the arrows between them, and a way into the files and the source
+behind each one.
+
+**The spine is declared, the fill is measured.** The layer boxes are this
+workspace's shape written down once in `flow::SPINE`, so the picture is the
+same shape every time and can be learned. What is drawn *on* it is evidence: a
+box lights only when a captured stack put a frame in it, and an arrow exists
+only where two adjacent frames crossed between layers. Nothing infers that a
+layer ran because the one below it did.
+
+Neither half works alone. A purely measured diagram changes shape on every
+request, and a screen that made two calls looks like a broken one. A purely
+declared diagram says the same thing whatever the application did, which is a
+drawing, not a profiler.
+
+**The stack is now walked on every recorded event, not only on sqlx's.** This
+is the change that stops the tool being a picture of SQL. Before it, the only
+stack the profiler held was the one under a statement, so a request that read a
+cache, published to a queue, or simply logged and returned had a file and a
+line but no path to it - and most of what an application does is not a query.
+`LogLine` now carries a `Caller` like `Query` always has. The cost is the same
+756ns walk, paid per recorded event rather than per statement, which is what
+`profiler.backtraces` has always been the switch for.
+
+**There is still no per-layer timing, and the diagram does not pretend.** sqlx
+measures its own round trip; nothing measures how long a request spent inside
+`phonix-services`. So an arrow carries a count, and only the arrow into
+Postgres carries a duration. Section 3's argument applies unchanged: the
+instrument to get the rest is `#[instrument]` on hundreds of functions, which
+section 4 rejects.
+
+**Grey means not measured, not unused.** Redis, the object store and RabbitMQ
+are on the spine and stay unlit however much traffic they carry, because no
+adapter reports its round trips the way sqlx does. Lighting them because the
+crate that talks to them appeared on a stack would be a guess wearing a
+measurement's clothes. The report says this in as many words rather than
+leaving a developer to infer it.
+
+**No JavaScript, still.** Section 6's rule was not relaxed for this. A layer is
+an `<a href="#layer-...">` inside the SVG and its panel is revealed by
+`:target`; a phase is a link with `?phase=`; a file opens a page rather than
+fetching into a panel. Two things fall out of that beyond the rule itself: the
+selection lives in the URL, so it survives a reload and can be pasted to
+somebody else, and there is no endpoint that returns file contents to whatever
+asks.
+
+### Reading source is the first thing here that touches the disk
+
+Everything else the report serves is data the process already chose to hold.
+Reading files is a different kind of surface, and the report is
+unauthenticated - so `source` is written to two independent gates.
+
+1. **The client never supplies a path.** It supplies a key, honoured only if
+   the page load being examined actually recorded a frame in that file. The
+   readable set is derived from evidence the process gathered itself, and no
+   request can widen it.
+2. **The resolved path must still be under `<workspace>/crates`**, canonicalised.
+   This does not trust the first gate. `..` is refused before the filesystem is
+   touched, so a symlink cannot make canonicalisation agree after the fact.
+
+Gate 2 alone is the conventional answer and is not enough: "anywhere under
+`crates/`" is still every file in the repository, and there is no reason to
+hand out a file that had nothing to do with the request being read.
+
+Every refusal is the same 404. "Not recorded here" and "not on disk" are
+different to us and must not be different to whoever is asking, or the report
+becomes a way to map the filesystem one request at a time.
+
+The workspace root is passed in from `phonix-server`. This crate depends on
+nothing and has no business deciding where the checkout is; `phonix-config`
+already owns that question. A profiler that was never told does not offer to
+show source, rather than guessing from `current_exe()` and reading whatever it
+finds.
+
+## 10. Where it sits in the stack
 
 Two pieces, in two places, for reasons the router's existing comments already
 establish.
@@ -462,7 +539,7 @@ resolving a tenant is the thing that is broken; it is not counted against a
 rate limit meant for the application; and it does not emit an `http` span of
 its own into the log it is displaying.
 
-## 10. Build order
+## 11. Build order
 
 Each phase is useful on its own and none of them assumes the next is coming.
 
@@ -473,7 +550,7 @@ Each phase is useful on its own and none of them assumes the next is coming.
 | 3 | A real bundle for the report, if phase 1 earns it | conditional |
 | 4 | Allocation counting behind its feature, if phase 2 has not already answered the question | deferred, section 3 |
 
-## 11. What was considered and not chosen
+## 12. What was considered and not chosen
 
 **OpenTelemetry into a local Jaeger.** One more layer in the same `Vec`, and it
 produces a span waterfall better than anything this will draw. It was not chosen

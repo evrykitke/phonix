@@ -6,7 +6,7 @@
 //! startup function is a gate somebody eventually gets half-right.
 //!
 //! See `docs/adr/0004-development-profiler.md`, section 8 for the two gates and
-//! section 9 for the placement.
+//! section 10 for the placement.
 
 use axum::Router;
 use phonix_config::AppConfig;
