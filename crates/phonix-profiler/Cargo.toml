@@ -1,0 +1,26 @@
+[package]
+name = "phonix-profiler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# Deliberately thin. This crate is read by `phonix-server` and by nothing else,
+# and it knows nothing about tenants, sessions or the domain - a profile is
+# built from what the HTTP request and the tracing registry already say. See
+# docs/adr/0004-development-profiler.md section 4.
+axum = { workspace = true }
+http = { workspace = true }
+# The toolbar is appended to the end of a streamed HTML response, which means
+# chaining one chunk onto a body that is still being produced. See `inject`.
+futures = { workspace = true }
+# The call stack behind a statement. Walked when the statement is logged and
+# resolved only when the report is opened - see `profile::Caller`.
+backtrace = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

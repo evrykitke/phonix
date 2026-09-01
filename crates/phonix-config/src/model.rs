@@ -19,6 +19,10 @@ pub struct AppConfig {
     pub security: SecurityConfig,
     pub smtp: SmtpConfig,
     pub storage: StorageConfig,
+    /// Absent from a deployment's configuration means off, which is the answer
+    /// that matters: see [`ProfilerConfig`].
+    #[serde(default)]
+    pub profiler: ProfilerConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1349,5 +1353,68 @@ mod tests {
             ..RateLimitConfig::default()
         };
         assert_eq!(config.ip_header(), None);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Development profiler
+// ---------------------------------------------------------------------------
+
+/// The development profiler - see `docs/adr/0004-development-profiler.md`.
+///
+/// # This is one of two gates, and the weaker one
+///
+/// A profile holds SQL, request paths, headers and log lines, so a profiler
+/// left on in production is a data breach with a URL and no symptom. The
+/// stronger gate is that `phonix-profiler` is not compiled into a build that
+/// did not pass `--features profiler`; this key is what stops a build that
+/// *did* from serving the surface anyway.
+///
+/// [`crate::validate`] refuses `enabled = true` under `PHONIX_ENV=production`,
+/// which is the same refusal already applied to `tenancy.auto_provision` and
+/// `telemetry.tracing.log_bodies`.
+///
+/// The whole section defaults, so a deployment that has never heard of the
+/// profiler gets one that is off.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct ProfilerConfig {
+    pub enabled: bool,
+    /// How many profiles are kept in memory at once.
+    ///
+    /// A hard cap and not a target: this is request detail held in RAM, and an
+    /// unbounded one would grow all day on the machine of whoever uses it
+    /// most.
+    pub capacity: usize,
+    /// The profiler's own tracing filter, independent of `[telemetry]`.
+    ///
+    /// `sqlx::query=debug` is the load-bearing part - sqlx logs statements at
+    /// DEBUG, and `[telemetry]` sets `sqlx::query=warn`, so without an
+    /// override here the query panel would be present, correct and always
+    /// empty. Separate filters so that turning the profiler on does not also
+    /// fill the terminal with every statement the application runs.
+    pub filter: String,
+    /// Record the call stack that led to each SQL statement.
+    ///
+    /// This is the panel that answers "which of my code ran this query", which
+    /// nothing else can: the application opens no spans of its own, and the
+    /// statement is logged from inside sqlx. The stack is walked when the
+    /// statement is logged and the addresses are only turned into file names
+    /// when somebody opens the report, so the cost on the request is a stack
+    /// walk and nothing else.
+    ///
+    /// Switchable because it is the one part of the profiler that does work
+    /// per query rather than per request.
+    pub backtraces: bool,
+}
+
+impl Default for ProfilerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            capacity: 250,
+            filter: "info,sqlx::query=debug".to_owned(),
+            backtraces: true,
+        }
     }
 }

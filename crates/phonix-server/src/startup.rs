@@ -20,10 +20,10 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 
-use crate::{api, auth, files, google, health, jobs, middleware, rate_limit};
+use crate::{api, auth, files, google, health, jobs, middleware, profiler, rate_limit};
 
 /// Build everything and serve until shutdown.
-pub async fn run(config: AppConfig) -> Result<()> {
+pub async fn run(config: AppConfig, profiling: profiler::Profiling) -> Result<()> {
     let config = Arc::new(config);
 
     tracing::info!(
@@ -228,7 +228,16 @@ pub async fn run(config: AppConfig) -> Result<()> {
         // Above `with_state` for the same reason the file routes are, and
         // below the tenant middleware, so a call resolves its workspace from
         // the host exactly as a page does.
-        .nest("/api/v1", api::routes())
+        .nest("/api/v1", api::routes());
+
+    // Everything registered above this line carries its route pattern into its
+    // profile; anything below it is profiled with no route. `route_layer`
+    // rather than `layer`, because `MatchedPath` only exists inside routing -
+    // see `profiler::Profiling::mark_routes`. A build without
+    // `--features profiler` adds nothing here at all.
+    let app = profiling.mark_routes(app);
+
+    let app = app
         .with_state(state.clone())
         // Layers below here apply to everything, files included. They apply
         // bottom-up: the tenant is resolved first, then tracing wraps it, so
@@ -237,7 +246,18 @@ pub async fn run(config: AppConfig) -> Result<()> {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             middleware::resolve_tenant,
-        ))
+        ));
+
+    // Between the two layers on purpose, and this is the placement the whole
+    // profiler depends on. Layers apply bottom-up, so a profile opened here
+    // is inside the `http` span - whose `tenant` field it reads - and outside
+    // `resolve_tenant`, so the tenant is recorded and the statement that
+    // resolved it runs while the collector is listening. Below
+    // `resolve_tenant` instead, every profile says "no tenant" on a request
+    // that resolved one.
+    let app = profiling.instrument(app);
+
+    let app = app
         .layer(TraceLayer::new_for_http().make_span_with(middleware::make_request_span))
         // Above tenant resolution, and that ordering is the point: layers apply
         // bottom-up, so this runs *first*. Resolving a tenant opens a database
@@ -250,10 +270,22 @@ pub async fn run(config: AppConfig) -> Result<()> {
         .layer(axum::middleware::from_fn_with_state(
             throttle,
             rate_limit::enforce,
-        ))
-        // A panic in one handler returns 500 for that request instead of
-        // killing the worker and every connection it was serving.
-        .layer(CatchPanicLayer::new());
+        ));
+
+    // The report is mounted here, and the position is the whole argument.
+    // Above `instrument`, so the profiler never profiles its own report or
+    // lists it. Outside every layer added since `with_state`, so it does not
+    // resolve a tenant - the report is most wanted on the afternoon tenant
+    // resolution is the thing that is broken - is not counted against a rate
+    // limit meant for the application, and does not emit an `http` span of
+    // its own into the very log it is displaying.
+    let app = profiling.mount(app);
+
+    // Below the merge, so a panic in the report is caught too.
+    //
+    // A panic in one handler returns 500 for that request instead of killing
+    // the worker and every connection it was serving.
+    let app = app.layer(CatchPanicLayer::new());
 
     let app = if config.server.compression {
         app.layer(CompressionLayer::new())
@@ -280,6 +312,17 @@ pub async fn run(config: AppConfig) -> Result<()> {
         tracing::info!(
             tenant = default,
             "a host without a subdomain will resolve to this tenant"
+        );
+    }
+    // Said out loud, because the profiler holds request detail in memory and
+    // serves it without asking who is looking. A developer should never have
+    // to wonder whether it is on.
+    if profiling.is_on() {
+        tracing::info!(
+            capacity = config.profiler.capacity,
+            filter = %config.profiler.filter,
+            backtraces = config.profiler.backtraces,
+            "profiler is collecting - the report is at /_profiler"
         );
     }
 

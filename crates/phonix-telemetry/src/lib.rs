@@ -57,10 +57,23 @@ pub struct TelemetryGuard {
 /// Install the global subscriber. Call exactly once, as early in `main` as
 /// possible so that startup failures are themselves logged.
 ///
+/// A layer supplied by a caller, to be added to the same registry.
+///
+/// The type is named here rather than left to the caller so that a crate
+/// wanting to contribute a layer - `phonix-profiler` does - needs no
+/// tracing-subscriber dependency of its own to describe one.
+///
+/// An extra layer must carry its own filter. Nothing here applies one.
+pub type ExtraLayer = Box<dyn Layer<Registry> + Send + Sync>;
+
 /// `environment` ("development" / "production") is substituted for `{env}` in
 /// `telemetry.file.directory` and `telemetry.file.file_name_prefix`, which is
 /// how the configured `var/{env}.log` resolves to `var/development.log`.
-pub fn init(cfg: &TelemetryConfig, environment: &str) -> Result<TelemetryGuard, TelemetryError> {
+pub fn init(
+    cfg: &TelemetryConfig,
+    environment: &str,
+    extra: Vec<ExtraLayer>,
+) -> Result<TelemetryGuard, TelemetryError> {
     // RUST_LOG wins outright: when someone sets it they are debugging and do
     // not want the file's opinion.
     let directives = std::env::var("RUST_LOG")
@@ -97,6 +110,12 @@ pub fn init(cfg: &TelemetryConfig, environment: &str) -> Result<TelemetryGuard, 
     } else {
         None
     };
+
+    // Appended last, and unfiltered by anything here: an extra layer carries
+    // its own filter or it would be governed by a decision made for the
+    // console. The development profiler is the only caller, and it deliberately
+    // records statements the console is configured not to print.
+    layers.extend(extra);
 
     Registry::default()
         .with(layers)

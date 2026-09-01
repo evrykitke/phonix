@@ -14,6 +14,7 @@ mod google;
 mod health;
 mod jobs;
 mod middleware;
+mod profiler;
 mod rate_limit;
 mod startup;
 
@@ -33,13 +34,25 @@ fn main() -> ExitCode {
         }
     };
 
-    let _telemetry = match phonix_telemetry::init(&config.telemetry, &config.app.environment) {
-        Ok(guard) => guard,
+    // Before telemetry, because the profiler contributes a layer and has to be
+    // in the registry from the first event - one that starts working on the
+    // second request never explains the first.
+    let (profiling, profiler_layers) = match profiler::Profiling::start(&config) {
+        Ok(started) => started,
         Err(err) => {
-            eprintln!("failed to initialise logging: {err}");
+            eprintln!("phonix-server could not start: {err}");
             return ExitCode::FAILURE;
         }
     };
+
+    let _telemetry =
+        match phonix_telemetry::init(&config.telemetry, &config.app.environment, profiler_layers) {
+            Ok(guard) => guard,
+            Err(err) => {
+                eprintln!("failed to initialise logging: {err}");
+                return ExitCode::FAILURE;
+            }
+        };
 
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -52,7 +65,7 @@ fn main() -> ExitCode {
         }
     };
 
-    match runtime.block_on(startup::run(config)) {
+    match runtime.block_on(startup::run(config, profiling)) {
         Ok(()) => {
             tracing::info!("phonix-server stopped cleanly");
             ExitCode::SUCCESS

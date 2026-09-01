@@ -60,6 +60,7 @@ pub fn check(cfg: &AppConfig, mode: RunMode) -> Result<(), ConfigError> {
     check_security(&cfg.security)?;
     check_smtp(&cfg.smtp)?;
     check_storage(&cfg.storage)?;
+    check_profiler(&cfg.profiler)?;
 
     if mode.is_production() {
         check_production_secrets(cfg)?;
@@ -418,6 +419,37 @@ fn check_telemetry(telemetry: &TelemetryConfig) -> Result<(), ConfigError> {
     Ok(())
 }
 
+/// Sanity for the development profiler.
+///
+/// Only reachable when it is on, because an off profiler with a nonsense
+/// capacity is not a reason to refuse to start.
+fn check_profiler(profiler: &ProfilerConfig) -> Result<(), ConfigError> {
+    if !profiler.enabled {
+        return Ok(());
+    }
+
+    // Not an arbitrary ceiling: this is request detail, SQL included, held in
+    // memory for as long as the process runs.
+    if profiler.capacity > 10_000 {
+        return Err(ConfigError::invalid(
+            "profiler.capacity must be at most 10000 - profiles hold request \
+             and query detail in memory",
+        ));
+    }
+
+    if profiler.filter.trim().is_empty() {
+        return Err(ConfigError::invalid(
+            "profiler.filter must not be empty - an empty filter records nothing, \
+             which is an off profiler that still serves a URL",
+        ));
+    }
+
+    // Whether the directives parse is not checked here: this crate has no
+    // tracing-subscriber, and the profiler's own layer refuses to build on a
+    // bad filter, which is fatal at the same point in startup that this is.
+    Ok(())
+}
+
 fn check_tenancy(tenancy: &TenancyConfig) -> Result<(), ConfigError> {
     if tenancy.base_domain.trim().is_empty() {
         return Err(ConfigError::invalid(
@@ -757,6 +789,15 @@ fn check_production_hardening(cfg: &AppConfig) -> Result<(), ConfigError> {
     if cfg.database.ssl_mode == SslMode::Disable {
         return Err(ConfigError::invalid(
             "database.ssl_mode must not be 'disable' in production",
+        ));
+    }
+    // A profiler holds SQL, paths and log lines in memory and serves them on
+    // an unauthenticated URL. There is no version of that which is acceptable
+    // here, and no symptom if it is left on - the surface simply exists.
+    if cfg.profiler.enabled {
+        return Err(ConfigError::invalid(
+            "profiler.enabled must be false in production - it serves request \
+             detail, SQL and log lines on an unauthenticated URL",
         ));
     }
     // Auto-provisioning lets an unrecognised Host header create a database.

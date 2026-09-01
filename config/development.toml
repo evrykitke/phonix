@@ -142,3 +142,8 @@ port = 2525
 from_address = "no-reply@phonix.local"
 from_name = "Phonix (development)"
 encryption = "start_tls"
+
+# The profiler. Also needs the binary to have been built with
+# `--features profiler`; see docs/adr/0004-development-profiler.md section 8.
+[profiler]
+enabled = true

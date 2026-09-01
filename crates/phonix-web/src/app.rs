@@ -35,6 +35,7 @@ use crate::pages::sales::home::SalesHomePage;
 use crate::pages::sales::invoice::{InvoiceNewPage, InvoicePage};
 use crate::pages::sales::invoices::InvoicesPage;
 use crate::pages::{dashboard::DashboardPage, not_found::NotFoundPage};
+use crate::profiler::ProfilerBridge;
 use crate::theme::{Theme, ThemePreference};
 use crate::ui::alert::{AlertLayer, Alerts};
 
@@ -138,6 +139,11 @@ pub fn app() -> impl IntoView {
         <UserCardLayer />
 
         <Router>
+            // Renders nothing. Inside the router because that is where the
+            // location is readable, and the development profiler's toolbar has
+            // no other way to know the route once hydration has taken over.
+            <ProfilerBridge />
+
             <Routes fallback=NotFoundPage>
                 // Every screen hangs off one parent route rather than being
                 // wrapped in `<Layout>`: see `components::layout` for what that

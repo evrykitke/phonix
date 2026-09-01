@@ -45,6 +45,7 @@ pub mod i18n;
 pub mod icons;
 pub mod navigation;
 pub mod pages;
+pub mod profiler;
 pub mod server_fns;
 pub mod theme;
 pub mod ui;

@@ -605,3 +605,35 @@ max_attempts = 5
 # offered to another worker. Longer than any verification could legitimately
 # take, because reclaiming a job that is still running means doing it twice.
 claim_timeout_secs = 300
+
+# ===========================================================================
+# Development profiler  (docs/adr/0004-development-profiler.md)
+# ===========================================================================
+# Off here, on in development.toml. Startup REFUSES `enabled = true` under
+# PHONIX_ENV=production: a profile holds SQL, request paths and log lines, and
+# the report is served without authentication.
+#
+# The stronger gate is that the crate is not compiled at all unless the build
+# passed `--features profiler`. This key is what stops a build that did from
+# serving the surface anyway.
+[profiler]
+enabled = false
+# Profiles kept in memory. A hard cap, not a target - this is request detail
+# held in RAM for the life of the process.
+capacity = 250
+# The profiler's own tracing filter, separate from [telemetry] on purpose.
+# `sqlx::query=debug` is load-bearing: sqlx logs statements at DEBUG and
+# [telemetry] sets that target to warn, so without this the query panel is
+# present, correct and always empty. Keeping the filters separate means
+# turning the profiler on does not also print every statement to the terminal.
+filter = "info,sqlx::query=debug"
+# Record the call stack behind every SQL statement, so the report can say which
+# of *your* files ran it. Nothing else can answer that: the application opens no
+# spans of its own, and the statement is logged from inside sqlx.
+#
+# The request pays for a stack walk per statement - measured at ~750ns, so a
+# screen running forty statements pays about 30us. Turning the addresses into
+# file names is the expensive half, and happens only when somebody opens the
+# report. There is a switch here anyway because this is the one part of the
+# profiler that does work per statement rather than per request.
+backtraces = true

@@ -27,6 +27,9 @@ phonix-master = { path = "crates/phonix-master" }
 app-books = { path = "crates/app-books" }
 phonix-config = { path = "crates/phonix-config" }
 phonix-telemetry = { path = "crates/phonix-telemetry" }
+# Development only, and gated twice over - see
+# docs/adr/0004-development-profiler.md section 8.
+phonix-profiler = { path = "crates/phonix-profiler" }
 phonix-db = { path = "crates/phonix-db" }
 phonix-services = { path = "crates/phonix-services" }
 phonix-cache = { path = "crates/phonix-cache" }
@@ -173,6 +176,9 @@ uuid = { version = "1", features = ["serde"] }
 chrono = { version = "0.4", default-features = false, features = ["serde", "clock", "wasmbind"] }
 async-trait = "0.1"
 futures = "0.3"
+# Stack walking for the development profiler, so a SQL statement can name the
+# file that ran it. Only ever built into `phonix-profiler`.
+backtrace = "0.3"
 url = "2"
 
 # Renders the TOTP enrolment QR as an inline SVG, server-side. `svg` only: the
