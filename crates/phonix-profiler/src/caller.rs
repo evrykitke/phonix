@@ -197,7 +197,7 @@ fn trim(name: &str) -> String {
             let _ = write!(cleaned, "::");
         }
 
-        cleaned.push_str(segment);
+        cleaned.push_str(without_disambiguator(segment));
     }
 
     cleaned
@@ -210,7 +210,17 @@ fn is_noise(segment: &str) -> bool {
         && segment.starts_with('h')
         && segment[1..].chars().all(|character| character.is_ascii_hexdigit());
 
-    if is_hash || segment == "{{closure}}" {
+    if is_hash {
+        return true;
+    }
+
+    // Anything the compiler wrote in braces is machinery rather than a name
+    // somebody typed, and the rule is written that way on purpose: legacy
+    // mangling spells it `{{closure}}`, v0 spells the same thing
+    // `{closure#0}`, and v0 has a whole family besides - `{async_fn#0}`,
+    // `{async_block#0}`, `{constructor#0}`, `{shim:vtable#0}`. Matching the
+    // shape rather than the list means the next one costs nothing.
+    if segment.starts_with('{') && segment.ends_with('}') {
         return true;
     }
 
@@ -222,6 +232,31 @@ fn is_noise(segment: &str) -> bool {
     matches!(kind, "impl" | "async_fn" | "closure" | "async_block")
         && !index.is_empty()
         && index.chars().all(|character| character.is_ascii_digit())
+}
+
+/// `phonix_db[57778ea5703b32e]` without the bracket.
+///
+/// v0 mangling writes the crate's disambiguator into the first segment of
+/// every path. It identifies the *compilation* - it changes when the compiler
+/// flags do - so it is never what somebody reading a stack trace wants, and it
+/// is long enough to push the part they do want off the line.
+///
+/// Only a bracket holding nothing but hex is taken, and only a long one. A
+/// path segment can legitimately contain brackets - `<[u8]>::to_vec` - and
+/// none of those spell a hash.
+fn without_disambiguator(segment: &str) -> &str {
+    let Some((name, rest)) = segment.split_once('[') else {
+        return segment;
+    };
+    let Some(hash) = rest.strip_suffix(']') else {
+        return segment;
+    };
+
+    if hash.len() >= 8 && hash.chars().all(|character| character.is_ascii_hexdigit()) {
+        name
+    } else {
+        segment
+    }
 }
 
 /// On the wire a caller is its resolved frames, because an address is of no
@@ -383,6 +418,42 @@ mod tests {
             trim("phonix_server::middleware::resolve_tenant::async_fn$0"),
             "phonix_server::middleware::resolve_tenant"
         );
+    }
+
+    /// The dialect this workspace's own Linux builds actually emit, and the
+    /// one a Windows box never sees. Found by running these tests in a
+    /// container, where the untrimmed name came out as
+    /// `zz_demo[57778ea5703b32e]::tests::query::{closure#0}::{closure#0}`.
+    #[test]
+    fn the_v0_spelling_of_a_closure_is_dropped_too() {
+        assert_eq!(
+            trim("phonix_db::tenancy::resolve::{closure#0}::{closure#0}"),
+            "phonix_db::tenancy::resolve"
+        );
+        assert_eq!(
+            trim("phonix_db::tenancy::find::{async_fn#0}"),
+            "phonix_db::tenancy::find"
+        );
+        assert_eq!(
+            trim("phonix_web::app::render::{shim:vtable#0}"),
+            "phonix_web::app::render"
+        );
+    }
+
+    #[test]
+    fn a_crate_disambiguator_is_not_part_of_the_name() {
+        assert_eq!(
+            trim("phonix_db[57778ea5703b32e]::tenancy::resolve"),
+            "phonix_db::tenancy::resolve"
+        );
+    }
+
+    /// A path segment may hold brackets that are not a hash, and taking those
+    /// would rename real code - `<[u8]>::to_vec` is the obvious one.
+    #[test]
+    fn a_bracket_that_is_not_a_disambiguator_survives() {
+        assert_eq!(trim("<[u8]>::to_vec"), "<[u8]>::to_vec");
+        assert_eq!(trim("phonix_db[zz]::resolve"), "phonix_db[zz]::resolve");
     }
 
     /// A `$` in a name that is not the compiler's bookkeeping stays. Dropping
