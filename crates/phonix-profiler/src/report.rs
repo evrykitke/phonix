@@ -28,7 +28,9 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::build_info;
 use crate::flow::PageFlow;
+use crate::health::{self, Health};
 use crate::highlight::{self, Lang};
 use crate::page::PageSummary;
 use crate::profile::{Kind, Profile, Query, Token};
@@ -110,9 +112,8 @@ pub fn index(profiles: &[Arc<Profile>], show_all: bool, held: usize) -> String {
     if profiles.is_empty() {
         body.push_str(&empty(
             "Nothing recorded yet",
-            "Load a page in the application and come back. Profiles live in \
-             memory for this process only, so a restart clears them - and the \
-             watcher restarts on every save.",
+            "Load a page in the application and come back. A restart clears \
+             these, and the watcher restarts on every save.",
         ));
 
         return page("Requests", "requests", &actions, "", &body);
@@ -144,15 +145,18 @@ pub fn index(profiles: &[Arc<Profile>], show_all: bool, held: usize) -> String {
     body.push_str("<section class=\"card\">");
     body.push_str(
         "<table>\n<thead><tr>\
-         <th>time</th><th>kind</th><th class=\"num\">status</th><th>route</th>\
+         <th></th><th>time</th><th>kind</th><th class=\"num\">status</th><th>route</th>\
          <th class=\"num\">took</th><th class=\"num\">sql</th><th class=\"num\">n</th>\
          <th>tenant</th><th></th></tr></thead>\n<tbody>\n",
     );
 
     for profile in profiles {
+        let verdict = health::of_profile(profile);
+
         let _ = writeln!(
             body,
             "<tr class=\"{status_class}\">\
+             <td class=\"mk {tone}\" title=\"{verdict}\">{mark}</td>\
              <td class=\"dim mono nowrap\"><a href=\"/_profiler/{token}\">{when}</a></td>\
              <td>{kind}</td>\
              <td class=\"num\">{status}</td>\
@@ -165,6 +169,9 @@ pub fn index(profiles: &[Arc<Profile>], show_all: bool, held: usize) -> String {
              <td class=\"num\">{group}</td>\
              </tr>",
             status_class = status_class(profile.status),
+            tone = verdict.grade.tone(),
+            mark = verdict.grade.mark(),
+            verdict = escape(verdict.grade.label()),
             token = profile.token,
             when = profile.at.format("%H:%M:%S%.3f"),
             kind = kind_pill(profile.kind),
@@ -204,6 +211,7 @@ pub fn index(profiles: &[Arc<Profile>], show_all: bool, held: usize) -> String {
     }
 
     body.push_str("</tbody>\n</table>\n</section>\n");
+    environment(&mut body);
 
     page("Requests", "requests", &actions, "", &body)
 }
@@ -213,14 +221,17 @@ pub fn detail(profile: &Profile) -> String {
     let mut body = String::new();
     let repeats = profile.repeated_queries().len();
 
+    let health = health::of_profile(profile);
+
     let _ = write!(
         body,
         "<div class=\"title\">{kind}<span class=\"method big\">{method}</span>\
-         <h1 class=\"mono\">{path}</h1>{status}</div>",
+         <h1 class=\"mono\">{path}</h1>{status}{badge}</div>",
         kind = kind_pill(profile.kind),
         method = escape(&profile.method),
         path = escape(&profile.path),
         status = status_chip(profile.status),
+        badge = badge(&health),
     );
 
     metrics(
@@ -232,6 +243,8 @@ pub fn detail(profile: &Profile) -> String {
             Metric::flagged("repeated", repeats.to_string(), repeats > 0),
         ],
     );
+
+    health_card(&mut body, &health);
 
     body.push_str("<section class=\"card\"><h2>Request</h2><dl class=\"facts\">");
     fact(&mut body, "token", &profile.token.to_string());
@@ -281,9 +294,8 @@ pub fn detail(profile: &Profile) -> String {
     );
     body.push_str("</dl>");
     body.push_str(
-        "<p class=\"note\">Process RSS is the whole process, not this request. \
-         Rust has no per-request memory figure; this one is a gauge of whether the \
-         process is growing, and nothing more.</p>",
+        "<p class=\"note\">Whole process, not this request - Rust has no \
+         per-request figure.</p>",
     );
     body.push_str("</section>");
 
@@ -329,22 +341,26 @@ pub fn detail(profile: &Profile) -> String {
 /// The report `docs/adr/0004-development-profiler.md` section 2 is really
 /// about. A per-request view cannot answer "why is this screen slow" when the
 /// answer is spread across nine server functions.
-pub fn page_load(summary: &PageSummary, flow: &PageFlow, phase: Option<Token>) -> String {
+pub fn page_load(
+    summary: &PageSummary,
+    flow: &PageFlow,
+    phase: Option<Token>,
+    health: &Health,
+) -> String {
     let mut body = String::new();
     let actions = "<a class=\"button\" href=\"/_profiler\">all requests</a>";
 
     let _ = write!(
         body,
-        "<div class=\"title\"><h1>Page load</h1><code class=\"chip\">{page}</code></div>",
+        "<div class=\"title\"><h1>Page load</h1><code class=\"chip\">{page}</code>{badge}</div>",
         page = escape(&summary.page),
+        badge = badge(health),
     );
 
     if summary.requests == 0 {
         body.push_str(&empty(
             "Nothing recorded for this page load",
-            "Either the screen has made no server calls yet, or the process has \
-             restarted since - the watcher does that on every save, and profiles \
-             do not survive it.",
+            "No server calls yet, or the process restarted since.",
         ));
 
         return page("Page load", "page load", actions, "", &body);
@@ -361,27 +377,25 @@ pub fn page_load(summary: &PageSummary, flow: &PageFlow, phase: Option<Token>) -
     );
 
     body.push_str(
-        "<p class=\"note lead\">Server time is summed across the group, not elapsed: \
-         these calls overlap, and the wall clock between the first and the last \
-         would also be counting how long somebody sat looking at the screen.</p>",
+        "<p class=\"note lead\">Server time is summed, not elapsed - these calls \
+         overlap.</p>",
     );
 
     if !summary.has_document {
         body.push_str(
-            "<p class=\"note lead\">No document request in this group. That is what an \
-             in-app navigation looks like - the browser never asked the server for a \
-             page - and it is not a gap in the recording.</p>",
+            "<p class=\"note lead\">No document request: an in-app navigation, not a \
+             gap in the recording.</p>",
         );
     }
 
+    health_card(&mut body, health);
     body.push_str(&crate::diagram::section(&summary.page, flow, phase));
 
     if !summary.repeated.is_empty() {
         body.push_str("<section class=\"card warnish\"><h2>Repeated across the page load</h2>");
         body.push_str(
-            "<p class=\"note\">The same statement run more than once by this screen, \
-             counted across every request in it. One statement in each of eleven \
-             server functions is an N+1 that no single profile can show you.</p>",
+            "<p class=\"note\">Counted across every request in the group - the N+1 \
+             no single profile can show.</p>",
         );
         body.push_str(
             "<table><thead><tr><th class=\"num\">times</th><th>statement</th>\
@@ -474,9 +488,8 @@ pub fn missing(token: &str) -> String {
         "",
         &empty(
             &format!("No profile {}", escape(token)),
-            "Profiles live in memory and only for this process. A restart - which \
-             the watcher does on every save - drops all of them, and the oldest are \
-             evicted once the ring is full.",
+            "Profiles live in memory only. A restart drops them, and the oldest \
+             are evicted once the ring is full.",
         ),
     )
 }
@@ -490,10 +503,7 @@ fn repeated(body: &mut String, profile: &Profile) {
     }
 
     body.push_str("<section class=\"card warnish\"><h2>Repeated statements</h2>");
-    body.push_str(
-        "<p class=\"note\">The same statement run more than once in this one request. \
-         Usually a loop that should have been a single query.</p>",
-    );
+    body.push_str("<p class=\"note\">Usually a loop that should have been one query.</p>");
     body.push_str(
         "<table><thead><tr><th class=\"num\">times</th><th>statement</th></tr></thead><tbody>",
     );
@@ -833,7 +843,7 @@ pub fn source(page_id: &str, snippet: &Snippet) -> String {
         let number = snippet.start + offset as u32;
         let marked = if number == snippet.line { " here" } else { "" };
 
-        let _ = writeln!(
+        let _ = write!(
             body,
             "<span class=\"row{marked}\"><span class=\"ln\">{number}</span>{text}</span>",
         );
@@ -880,9 +890,77 @@ pub fn no_source(page_id: &str) -> String {
         "",
         &empty(
             "No source for that",
-            "The report only shows files this page load actually recorded a frame              in, read from this checkout. A file that was not on one of these              stacks is not readable here, and neither is anything outside              crates/.",
+            "Only files this page load recorded a frame in are readable here.",
         ),
     )
+}
+
+/// The verdict as a pill, for a page title.
+pub(crate) fn badge(health: &Health) -> String {
+    format!(
+        "<span class=\"badge {tone}\"><span class=\"mk\">{mark}</span>{label}</span>",
+        tone = health.grade.tone(),
+        mark = health.grade.mark(),
+        label = escape(health.grade.label()),
+    )
+}
+
+/// The verdict, itemised.
+///
+/// The list is the point, not decoration under the badge: a tick nobody can
+/// audit is one that gets over-trusted or ignored. Every check names what it
+/// measured, including the ones that passed.
+pub(crate) fn health_card(body: &mut String, health: &Health) {
+    body.push_str("<section class=\"card\"><h2>Health</h2>");
+
+    if health.checks.is_empty() {
+        body.push_str(
+            "<p class=\"note\">Nothing was recorded, so nothing was checked.</p></section>",
+        );
+
+        return;
+    }
+
+    body.push_str("<table><tbody>");
+
+    for check in &health.checks {
+        let _ = write!(
+            body,
+            "<tr><td class=\"mk {tone}\">{mark}</td><td>{name}</td>\
+             <td class=\"dim\">{detail}</td></tr>",
+            tone = check.grade.tone(),
+            mark = check.grade.mark(),
+            name = escape(check.name),
+            detail = escape(&check.detail),
+        );
+    }
+
+    body.push_str("</tbody></table></section>");
+}
+
+/// What built this binary. A property of the process, so it belongs on the
+/// index rather than on any one request.
+fn environment(body: &mut String) {
+    body.push_str("<section class=\"card\"><h2>Build</h2><table><tbody>");
+
+    let mut row = |name: &str, value: &str| {
+        let _ = write!(
+            body,
+            "<tr><td>{name}</td><td class=\"mono dim\">{value}</td></tr>",
+            name = escape(name),
+            value = escape(value),
+        );
+    };
+
+    row("rustc", build_info::RUSTC);
+    row("profile", build_info::PROFILE);
+    row("target", build_info::TARGET);
+
+    for (crate_name, version) in build_info::dependencies() {
+        row(crate_name, version);
+    }
+
+    body.push_str("</tbody></table></section>");
 }
 
 pub(crate) fn escape(text: &str) -> String {
@@ -910,6 +988,8 @@ const STYLE: &str = "\
 --ui:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;\
 --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace}\
 *{box-sizing:border-box}\
+/* An author `display` beats the UA rule for [hidden]. Without this, hiding the drawer or a tab panel silently does nothing. */\
+[hidden]{display:none!important}\
 html,body{margin:0;padding:0}\
 body{background:var(--bg);color:var(--text);font:13px/1.55 var(--ui);\
 -webkit-font-smoothing:antialiased}\
@@ -1014,6 +1094,18 @@ display:flex;align-items:center;gap:.5rem}\
 \
 table{width:100%;border-collapse:collapse;display:block;overflow-x:auto}\
 \
+/* health: a verdict, and the checks behind it */\
+.badge{display:inline-flex;align-items:center;gap:.3rem;padding:.12rem .5rem;border-radius:999px;font-size:11px;border:1px solid currentColor;white-space:nowrap}\
+.badge .mk{font-weight:700}\
+.badge.pass{color:var(--ok)}\
+.badge.warn{color:var(--warn)}\
+.badge.fail{color:var(--bad)}\
+.badge.unknown{color:var(--faint)}\
+td.mk{width:2ch;text-align:center;font-weight:700}\
+td.mk.pass,.mk.pass{color:var(--ok)}\
+td.mk.warn,.mk.warn{color:var(--warn)}\
+td.mk.fail,.mk.fail{color:var(--bad)}\
+td.mk.unknown,.mk.unknown{color:var(--faint)}\
 /* timings: one threshold, everywhere - crate::report::SLOW */\
 .t{font-variant-numeric:tabular-nums}\
 .t.ok,.value.ok{color:var(--ok)}\
@@ -1054,7 +1146,7 @@ a:focus-visible>.lay rect{stroke:var(--ok);stroke-width:2}\
 .layer-files h3{margin:0;padding:.7rem .95rem .2rem;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--dim)}\
 \
 /* one file, around one line */\
-pre.src{margin:0;padding:.8rem 0;overflow-x:auto;font-family:var(--mono);font-size:12px;line-height:1.55}\
+pre.src{margin:0;padding:.7rem 0;overflow-x:auto;font-family:var(--mono);font-size:12px;line-height:1.45}\
 .src .row{display:block;padding:0 .95rem;white-space:pre}\
 .src .ln{display:inline-block;width:4ch;margin-right:1.2ch;text-align:right;color:var(--faint);user-select:none}\
 .src .row.here{background:var(--raised)}\
@@ -1285,6 +1377,10 @@ mod tests {
             profiles: Vec::new(),
         };
 
-        assert!(page_load(&summary, &PageFlow::of(&[]), None).contains("in-app navigation"));
+        let health = crate::health::of_page(&summary, &[]);
+
+        assert!(
+            page_load(&summary, &PageFlow::of(&[]), None, &health).contains("in-app navigation")
+        );
     }
 }

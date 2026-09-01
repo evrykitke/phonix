@@ -167,6 +167,12 @@
     });
 
     show(known ? wanted : panels[0].id, false);
+
+    // The browser scrolls to a matching id on load. The panel is already at the
+    // top of the page, so that only pushes it under the sticky header.
+    if (known) {
+      window.scrollTo(0, 0);
+    }
   }
 
   /* -------------------------------------------------------------- drawer */
@@ -295,6 +301,40 @@
     if (event.key === "Escape") {
       close();
     }
+  });
+
+  /* -------------------------------------------------------- phase links */
+
+  /*
+   * Choosing a phase is a real navigation - the server draws that phase's
+   * diagram - but the active tab lives in the URL hash, and a plain link does
+   * not carry it. Without this you pick a phase and land back on the first tab,
+   * having lost the panel you were reading.
+   *
+   * The hash is added at click time rather than baked into the href, so it is
+   * whatever tab is open now and not whichever was open when the page loaded.
+   */
+  document.addEventListener("click", function (event) {
+    var link = event.target.closest(".phases a");
+
+    if (!link || !location.hash) {
+      return;
+    }
+
+    var href = link.getAttribute("href") || "";
+
+    // A link that names its own target knows better than we do.
+    if (href.indexOf("#") !== -1) {
+      return;
+    }
+
+    // Leave every deliberate "open somewhere else" gesture alone.
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    location.href = href + location.hash;
   });
 
   /* ------------------------------------------------------------- sidebar */

@@ -21,10 +21,12 @@
 //! feature on `phonix-server` and a config key that `validate::check` refuses
 //! to accept outside development. Both, because the failure mode is silent.
 
+pub mod build_info;
 pub mod caller;
 mod collect;
 pub mod diagram;
 pub mod flow;
+pub mod health;
 pub mod highlight;
 mod inject;
 pub mod middleware;

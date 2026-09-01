@@ -93,10 +93,14 @@ async fn page_report(
     // still perfectly renderable.
     let phase = params.phase.as_deref().and_then(parse);
 
+    let summary = PageSummary::of(&page, &profiles);
+    let health = crate::health::of_page(&summary, &profiles);
+
     Html(report::page_load(
-        &PageSummary::of(&page, &profiles),
+        &summary,
         &PageFlow::of(&profiles),
         phase,
+        &health,
     ))
 }
 

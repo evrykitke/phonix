@@ -101,16 +101,13 @@ pub fn section(page: &str, flow: &PageFlow, active: Option<Token>) -> String {
     // goes hunting for the bug rather than accepting the answer.
     if shown.nothing_observed() {
         html.push_str(
-            "<p class=\"note warn\">Nothing was recorded for this scope - no \
-             statements, and no log lines at or above the profiler's own filter. \
-             That is a request which did no work this tool can see, not a gap in \
-             the recording. Widen <code>profiler.filter</code> to follow code \
-             that only logs at debug.</p>",
+            "<p class=\"note warn\">Nothing recorded here - no statements, no log \
+             lines above the filter. Widen <code>profiler.filter</code> to see \
+             more.</p>",
         );
     } else if shown.without_stacks {
         html.push_str(
-            "<p class=\"note warn\">No stacks were captured, so the layers below are \
-             lit from log positions only and there are no arrows. That is \
+            "<p class=\"note warn\">No stacks captured, so no arrows - \
              <code>profiler.backtraces = false</code>.</p>",
         );
     }
@@ -314,8 +311,8 @@ fn legend(html: &mut String, flow: &Flow) {
         .collect();
 
     html.push_str(
-        "<p class=\"note\">Click a lit layer for the files behind it. A number on \
-         an arrow is how many stacks crossed there.</p>",
+        "<p class=\"note\">Click a lit layer for its files. A number on an arrow \
+         is how many stacks crossed there.</p>",
     );
 
     html.push_str(
@@ -575,10 +572,10 @@ mod tests {
         let profiles = vec![profile_with(Vec::new(), Vec::new())];
         let html = section("p1", &PageFlow::of(&profiles), None);
 
-        assert!(html.contains("Nothing was recorded for this scope"));
+        assert!(html.contains("Nothing recorded here"));
         assert!(
-            html.contains("not a gap in"),
-            "an all-grey diagram has to say it is an answer, not a failure"
+            html.contains("profiler.filter"),
+            "an all-grey diagram has to name the knob that widens it"
         );
     }
 
