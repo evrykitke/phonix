@@ -376,25 +376,47 @@ A profiler holds request headers, response bodies and SQL. On a production
 deployment it is a data breach with a URL.
 
 1. **A cargo feature.** `phonix-profiler` is an optional dependency of
-   `phonix-server` behind `--features profiler`. Without it the crate is not
-   in the binary, so the routes cannot exist and the collector cannot run. It
-   is deliberately *not* in `bin-features`, so the ordinary build — the one
-   `phonix-deploy` runs — does not have it, and a developer opts in per run:
+   `phonix-server` behind the `profiler` feature. Without it the crate is not
+   in the binary, so the routes cannot exist and the collector cannot run.
+
+   **Which build asks for it is inverted from what a gate usually looks
+   like**, and deliberately. The workspace manifest carries
+   `bin-features = ["ssr", "profiler"]`, so an ordinary `cargo leptos watch`
+   has a profiler, and `phonix-deploy` takes it back out:
 
    ```
-   cargo leptos watch --bin-features "ssr,profiler"
+   cargo leptos build --release --bin-features ssr
    ```
 
-   `ssr` is repeated because `--bin-features` **replaces** the manifest's
+   That works because `--bin-features` **replaces** the manifest's
    `bin-features` rather than adding to it (cargo-leptos 0.3.7,
-   `config/bin_package.rs`). Dropping it builds a server with no `ssr`
-   feature, which is not this application. The neighbouring `--features`
-   flag is not the answer either: it is appended to the lib target as
-   well, and `phonix-web` has no `profiler` feature to enable.
+   `config/bin_package.rs`) — the same property that used to make a developer
+   repeat `ssr` when opting in. Naming `ssr` there is therefore mandatory, not
+   decorative: dropping it builds a server with no `ssr` feature, which is not
+   this application. The neighbouring `--features` flag is not the answer
+   either: it is appended to the lib target as well, and `phonix-web` has no
+   `profiler` feature to enable.
+
+   The inversion was made on 2026-09-01, and it moves a cost rather than
+   removing one. Before, the failure was a developer building without the flag
+   and debugging a tool that was never there — every day, cheaply. Now the
+   failure is a deploy script that forgets `--bin-features ssr` and ships a
+   binary with the profiler compiled in — rarely, and expensively. Two things
+   make that trade sound. `phonix-deploy` is one script in one place, so there
+   is a single line to get right rather than a habit to keep. And the second
+   gate below is what actually decides whether anything is served, so a
+   forgetful deploy produces a bigger binary with a dormant profiler in it,
+   not an exposed one: `validate::check` refuses to start the process at all
+   if `enabled` is true under production.
+
+   Note the residual, because it is the reason the deploy flag stays: a binary
+   built *with* the feature and run against **development** configuration
+   serves `/_profiler`, and on the shared box nginx proxies `*.evrykit.com` to
+   it. Config validation cannot object — that deployment is not claiming to be
+   production. Only the absent feature covers that case.
 
    A binary built without the feature but configured with `enabled = true`
-   says so on stderr rather than starting quietly with no profiler. The
-   alternative is an afternoon spent debugging a tool that was never there.
+   says so on stderr rather than starting quietly with no profiler.
 2. **A config key.** `profiler.enabled`, which `validate::check` refuses to
    accept as `true` under `production` — the same refusal already applied to
    `tenancy.auto_provision` and `telemetry.tracing.log_bodies`, for the same

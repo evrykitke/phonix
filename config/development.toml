@@ -143,7 +143,9 @@ from_address = "no-reply@phonix.local"
 from_name = "Phonix (development)"
 encryption = "start_tls"
 
-# The profiler. Also needs the binary to have been built with
-# `--features profiler`; see docs/adr/0004-development-profiler.md section 8.
+# The profiler. On unless this says otherwise: `profiler` is in the workspace's
+# `bin-features`, so an ordinary `cargo leptos watch` has one and this key is
+# the switch. A release built by `phonix-deploy` has no profiler compiled into
+# it whatever this says - see docs/adr/0004-development-profiler.md section 8.
 [profiler]
 enabled = true

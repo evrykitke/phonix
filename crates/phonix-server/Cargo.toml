@@ -13,9 +13,11 @@ path = "src/main.rs"
 phonix-core = { workspace = true }
 phonix-config = { workspace = true }
 phonix-telemetry = { workspace = true }
-# Optional, and the strong half of the profiler's gate: without
-# `--features profiler` the crate is not in the binary, so the routes cannot
-# exist. See docs/adr/0004-development-profiler.md section 8.
+# Optional, and the strong half of the profiler's gate: without the `profiler`
+# feature the crate is not in the binary, so the routes cannot exist. The
+# workspace's `bin-features` turns it on for development builds and
+# `phonix-deploy` turns it back off for the release it installs.
+# See docs/adr/0004-development-profiler.md section 8.
 phonix-profiler = { workspace = true, optional = true }
 phonix-db = { workspace = true }
 phonix-services = { workspace = true }
@@ -67,7 +69,8 @@ tracing = { workspace = true }
 # cargo-leptos passes --features ssr to the bin package; the binary is
 # server-only, so the flag simply has nothing extra to switch on.
 ssr = []
-# The development profiler. Not in `default`: a build has to ask for it, and a
-# production build never does. `config/development.toml` turns it on, but this
-# is what decides whether there is anything to turn on.
+# The development profiler. Not in `default`, because the build that matters
+# is cargo-leptos's and it is told explicitly either way: the workspace's
+# `bin-features` asks for this, and `phonix-deploy` overrides that list to drop
+# it. `profiler.enabled` decides whether a build that has it collects anything.
 profiler = ["dep:phonix-profiler"]

@@ -357,7 +357,16 @@ browserquery = "defaults"
 watch-additional-files = ["config", "style"]
 
 # Feature wiring
-bin-features = ["ssr"]
+#
+# `profiler` is here rather than opted into per run, so that an ordinary
+# `cargo leptos watch` has the profiler and `[profiler] enabled` in
+# `config/development.toml` is the only switch a developer touches.
+#
+# The production build takes it back out. `phonix-deploy` passes
+# `--bin-features ssr`, which **replaces** this list rather than adding to it
+# (cargo-leptos 0.3.7, `config/bin_package.rs`), so the deployed binary has no
+# profiler in it at all - see docs/adr/0004-development-profiler.md section 8.
+bin-features = ["ssr", "profiler"]
 bin-default-features = false
 lib-features = ["hydrate"]
 lib-default-features = false

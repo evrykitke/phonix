@@ -55,17 +55,23 @@ impl Profiling {
 
     /// The same, for a build with no profiler in it.
     ///
-    /// A configuration asking for one is reported rather than ignored. The
-    /// developer who set `enabled = true` and got nothing would otherwise
-    /// spend the afternoon debugging the profiler instead of reading a build
-    /// flag.
+    /// This is the deployed shape: `phonix-deploy` builds with
+    /// `--bin-features ssr`, which drops the `profiler` that the workspace
+    /// manifest otherwise asks for. A development build takes the arm above.
+    ///
+    /// A configuration asking for a profiler is still reported rather than
+    /// ignored. The developer who set `enabled = true` and got nothing would
+    /// otherwise spend the afternoon debugging the profiler instead of reading
+    /// a build flag.
     #[cfg(not(feature = "profiler"))]
     pub fn start(config: &AppConfig) -> Result<(Self, Vec<ExtraLayer>), String> {
         if config.profiler.enabled {
             eprintln!(
                 "phonix-server: profiler.enabled is true, but this binary was built \
-                 without --features profiler, so there is no profiler. Rebuild with \
-                 the feature, or set profiler.enabled = false."
+                 without the profiler feature, so there is no profiler. That is \
+                 what a release built by phonix-deploy is; an ordinary \
+                 cargo leptos watch has one. Set profiler.enabled = false to \
+                 silence this."
             );
         }
 
