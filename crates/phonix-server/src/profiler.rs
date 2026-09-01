@@ -201,4 +201,95 @@ mod tests {
     fn a_build_without_the_feature_has_no_profiler() {
         assert!(!super::Profiling::default().is_on());
     }
+
+    /// What `/_profiler` answers, without a server.
+    ///
+    /// These are here rather than in `tests/` so they can build a [`Profiling`]
+    /// with its field set directly. That is the whole point: the alternative is
+    /// a `cargo leptos watch`, a wasm build, a link and a boot, to learn a
+    /// status code.
+    #[cfg(feature = "profiler")]
+    mod mounting {
+        use axum::Router;
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt as _;
+
+        use crate::profiler::Profiling;
+
+        async fn status_of(profiling: &Profiling, path: &str) -> StatusCode {
+            let router = profiling.mount(Router::new());
+            let request = Request::builder()
+                .uri(path)
+                .body(Body::empty())
+                .expect("a request with no body builds");
+
+            router
+                .oneshot(request)
+                .await
+                .expect("a router is infallible")
+                .status()
+        }
+
+        #[tokio::test]
+        async fn a_running_profiler_serves_its_report() {
+            let profiling = Profiling {
+                handle: Some(phonix_profiler::Profiler::new(8)),
+            };
+
+            assert!(profiling.is_on());
+            assert_eq!(status_of(&profiling, "/_profiler").await, StatusCode::OK);
+            assert_eq!(
+                status_of(&profiling, "/_profiler/toolbar.js").await,
+                StatusCode::OK
+            );
+        }
+
+        /// The half that `profiler.enabled = false` is supposed to buy. Not
+        /// "the page is empty" - the routes are not there at all.
+        #[tokio::test]
+        async fn a_profiler_that_is_off_mounts_nothing() {
+            let profiling = Profiling::default();
+
+            assert!(!profiling.is_on());
+            assert_eq!(
+                status_of(&profiling, "/_profiler").await,
+                StatusCode::NOT_FOUND
+            );
+            assert_eq!(
+                status_of(&profiling, "/_profiler/toolbar.js").await,
+                StatusCode::NOT_FOUND
+            );
+        }
+    }
+
+    /// `profiler.enabled` is the switch, and this is the line that reads it.
+    ///
+    /// Loading the repository's own `config/` rather than a fixture, because a
+    /// fixture that drifts from the real files proves nothing. The `enabled`
+    /// flag is then set both ways on the loaded struct, so this does not care
+    /// what `development.toml` currently says.
+    ///
+    /// If this fails to load at all, check `PHONIX_ENV`: set to `production`
+    /// it pulls in `production.toml`, whose secrets come from the environment
+    /// and are not present in a test run.
+    #[cfg(feature = "profiler")]
+    #[test]
+    fn the_config_key_decides_whether_anything_collects() {
+        let mut config =
+            phonix_config::load_from("../../config").expect("the repository's config loads");
+
+        config.profiler.enabled = false;
+        let (off, layers) = super::Profiling::start(&config).expect("an off profiler starts");
+        assert!(!off.is_on());
+        assert!(
+            layers.is_empty(),
+            "an off profiler must not add a tracing layer either"
+        );
+
+        config.profiler.enabled = true;
+        let (on, layers) = super::Profiling::start(&config).expect("an on profiler starts");
+        assert!(on.is_on());
+        assert_eq!(layers.len(), 1);
+    }
 }

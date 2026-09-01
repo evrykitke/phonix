@@ -65,6 +65,16 @@ serde_json = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v7"] }
 tracing = { workspace = true }
 
+[dev-dependencies]
+# `util` is what carries `ServiceExt::oneshot`, which drives a `Router` as a
+# plain function from request to response. It is a dev-dependency because it
+# buys nothing at runtime: the server never calls a router directly.
+#
+# This is the cheap rung of the ladder. Asking "is /_profiler mounted?" through
+# a real `cargo leptos watch` costs a wasm build, a link and a boot, and the
+# answer is a status code either way.
+tower = { workspace = true, features = ["util"] }
+
 [features]
 # cargo-leptos passes --features ssr to the bin package; the binary is
 # server-only, so the flag simply has nothing extra to switch on.
