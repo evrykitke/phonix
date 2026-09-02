@@ -58,7 +58,8 @@
        and any utility in the markup wins without `!important`. Copied from the
        product deliberately: the point of sharing the tokens is lost if the two
        spell the same control differently. */
-    input:where(:not([type="checkbox"], [type="radio"], [type="submit"], [type="hidden"])) {
+    input:where(:not([type="checkbox"], [type="radio"], [type="submit"], [type="hidden"])),
+    textarea {
         display: block;
         width: 100%;
         /* The Real Estate Rule. A box 1500px wide holding a six-digit code
@@ -78,13 +79,31 @@
         transition: border-color 120ms ease;
     }
 
-    input:hover:not(:disabled, :focus) {
+    input:hover:not(:disabled, :focus),
+    textarea:hover:not(:disabled, :focus) {
         border-color: var(--control-edge-hover);
     }
 
-    input:disabled {
+    input:disabled,
+    textarea:disabled {
         background-color: var(--control-surface-disabled);
         color: var(--content-subtle);
+    }
+
+    /* Vertical only. A textarea that can be dragged wider escapes the measure
+       ceiling above, and on a phone a control wider than the screen inflates
+       the layout viewport - which throws the whole page sideways, not just the
+       box. */
+    textarea {
+        resize: vertical;
+    }
+
+    /* The accent colour is the product's, so a radio in Desk is the same
+       violet as a checkbox in the app. One line, and it is the difference
+       between looking like Phonix and looking like a form from 2004. */
+    input[type="radio"],
+    input[type="checkbox"] {
+        accent-color: var(--brand);
     }
 
     /* A six-digit code is not a sentence and should not be as wide as one. */
@@ -98,7 +117,7 @@
 /* --------------------------------------------------------------------------
    COMPONENTS
 
-   Five of them, and they exist because each is written in more than one
+   Six of them, and they exist because each is written in more than one
    template. Anything used once stays as utilities in the markup, which is the
    product's rule too.
    -------------------------------------------------------------------------- */
@@ -155,6 +174,14 @@
         font-size: var(--text-2xs);
         color: var(--content-muted);
         white-space: nowrap;
+    }
+
+    /* The one meaning worth colouring, and the comment above says why there is
+       only one: this is a licence, or a standing, that is the reason a
+       workspace is refused. Everything else stays a plain status word. */
+    .pill-warn {
+        border-color: var(--danger);
+        color: var(--danger);
     }
 
     /* A secret shown once: a setup link, a TOTP secret. Dashed, because the

@@ -143,6 +143,8 @@ mod tests {
             total: 0,
             serving: 0,
             stuck: 0,
+            unlicensed: 0,
+            outdated: 0,
         };
 
         let rendered = page.render().expect("the page renders");

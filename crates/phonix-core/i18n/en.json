@@ -486,6 +486,12 @@
   "date.weekday.wed": "Wednesday",
 
   "desk.account.last_active": "This is the last desk account that can sign in. Create another one before disabling it.",
+  "desk.licence.end_before_start": "A licence has to end after it starts.",
+  "desk.licence.note_too_long": "Keep the note to 500 characters.",
+  "desk.licence.unreadable_date": "Use a date the calendar accepts, or leave it empty for no end date.",
+  "desk.workspace.not_stuck": "That workspace is not stuck part-way through provisioning, so there is nothing to retry.",
+  "desk.workspace.status_unchanged": "That workspace is already in that state.",
+  "desk.workspace.cannot_resume_unprovisioned": "A workspace that never finished provisioning cannot be resumed. Retry its provisioning instead.",
 
   "diff.added": "Added",
   "diff.changed": "Changed",

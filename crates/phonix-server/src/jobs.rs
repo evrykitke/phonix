@@ -509,11 +509,11 @@ async fn active_tenants(state: &AppState) -> Vec<(TenantSlug, PgPool)> {
     let mut open = Vec::with_capacity(records.len());
 
     for record in records {
-        // A suspended or archived workspace is not served, and its background
-        // work is not run either: verifying an upload for a tenant nobody may
-        // reach would be work done on behalf of an account that has been
-        // switched off.
-        if !record.status.serves_traffic() {
+        // A suspended, archived or unlicensed workspace is not served, and its
+        // background work is not run either: verifying an upload for a tenant
+        // nobody may reach would be work done on behalf of an account that has
+        // been switched off - or one that is no longer authorized to be here.
+        if !record.serves_traffic() {
             continue;
         }
 

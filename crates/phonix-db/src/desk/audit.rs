@@ -68,6 +68,19 @@ pub enum DeskAction {
     DeskUserSetupCompleted,
     DeskUserDisabled,
     DeskUserReinstated,
+
+    // --- workspaces ----------------------------------------------------
+    /// A licence issued, extended or shortened.
+    ///
+    /// One action for all three, because they are the same act with a
+    /// different date and the `before`/`after` pair says which it was. A verb
+    /// per date arithmetic would be three names for one decision.
+    LicenceSet,
+    /// A licence withdrawn. Its own action, and not folded into
+    /// [`Self::LicenceSet`], because this is the one that stops a workspace
+    /// serving - and "who withdrew this" is a question somebody asks by
+    /// scanning a column, not by reading diffs.
+    LicenceWithdrawn,
 }
 
 impl DeskAction {
@@ -80,6 +93,8 @@ impl DeskAction {
             Self::DeskUserSetupCompleted => "desk.user.setup_completed",
             Self::DeskUserDisabled => "desk.user.disabled",
             Self::DeskUserReinstated => "desk.user.reinstated",
+            Self::LicenceSet => "desk.licence.set",
+            Self::LicenceWithdrawn => "desk.licence.withdrawn",
         }
     }
 }
@@ -274,6 +289,8 @@ mod tests {
             DeskAction::DeskUserSetupCompleted,
             DeskAction::DeskUserDisabled,
             DeskAction::DeskUserReinstated,
+            DeskAction::LicenceSet,
+            DeskAction::LicenceWithdrawn,
         ] {
             assert!(
                 action.as_str().starts_with("desk."),

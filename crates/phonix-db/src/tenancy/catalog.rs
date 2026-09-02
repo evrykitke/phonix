@@ -1,7 +1,7 @@
 //! The tenant registry, stored in the shared catalog database.
 
 use chrono::{DateTime, Utc};
-use phonix_core::{TenantId, TenantSlug, TenantStatus, TenantSummary};
+use phonix_core::{Licence, LicenceStanding, TenantId, TenantSlug, TenantStatus, TenantSummary};
 use sqlx::{FromRow, PgPool, Row};
 
 use crate::error::DbError;
@@ -54,9 +54,35 @@ pub struct TenantRecord {
     pub owner_email: Option<String>,
     pub onboarded_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    /// Whether this workspace is authorized to be here, and until when.
+    ///
+    /// Joined onto every read of this table rather than fetched separately,
+    /// because `serves_traffic` needs it on every request and a second lookup
+    /// on the hot path is a second thing that can be stale. `None` means no
+    /// row at all, which after catalog migration 0005's backfill means a
+    /// workspace created since - and it is refused, not served.
+    pub licence: Option<Licence>,
 }
 
 impl TenantRecord {
+    /// Whether this workspace should be served, deciding both halves.
+    ///
+    /// The one place the status and the licence are ANDed. Neither can widen
+    /// the other: a licence does not un-suspend a workspace, and an active
+    /// status does not authorize an unlicensed one.
+    pub fn serves_traffic(&self) -> bool {
+        self.status.serves_traffic(self.licence.as_ref())
+    }
+
+    /// Why the licence half refuses, or `None` if it does not.
+    ///
+    /// Kept separate from the status so a refusal can say which of the two it
+    /// was: "your licence ended" and "we stopped you" are different sentences
+    /// to receive.
+    pub fn licence_problem(&self) -> Option<LicenceStanding> {
+        self.status.licence_problem(self.licence.as_ref())
+    }
+
     pub fn summary(&self) -> TenantSummary {
         TenantSummary {
             id: self.id,
@@ -94,6 +120,14 @@ impl<'r> FromRow<'r, sqlx::postgres::PgRow> for TenantRecord {
             owner_email: row.try_get("owner_email")?,
             onboarded_at: row.try_get("onboarded_at")?,
             created_at: row.try_get("created_at")?,
+            // Decoded by the licence repository, so this table and that one
+            // cannot come to read the same columns differently.
+            licence: super::licence::from_prefixed_row(row).map_err(|err| {
+                sqlx::Error::ColumnDecode {
+                    index: "licence_state".to_owned(),
+                    source: Box::new(err),
+                }
+            })?,
         })
     }
 }
@@ -101,23 +135,47 @@ impl<'r> FromRow<'r, sqlx::postgres::PgRow> for TenantRecord {
 // sqlx 0.9 only accepts `&'static str` as SQL unless the string is explicitly
 // asserted safe, so these are written out as literals rather than assembled
 // from a shared column constant at runtime.
-const SELECT_BY_SLUG: &str = "SELECT id, slug, display_name, database_name, status, \
-     schema_version, owner_email, onboarded_at, created_at FROM tenants WHERE slug = $1";
+//
+// Every read joins `tenant_licences`. That join is on the hot path - the
+// registry resolves a catalog row on essentially every request - and it is
+// there rather than being a second query because `serves_traffic` needs both
+// halves to answer at all, and two lookups is two things that can disagree.
+// It is a primary-key join against a table with one row per tenant.
+const SELECT_BY_SLUG: &str = "SELECT t.id, t.slug, t.display_name, t.database_name, t.status, \
+     t.schema_version, t.owner_email, t.onboarded_at, t.created_at, \
+     l.state AS licence_state, l.valid_from AS licence_valid_from, \
+     l.valid_until AS licence_valid_until, l.note AS licence_note, \
+     l.updated_at AS licence_updated_at, l.updated_by AS licence_updated_by \
+     FROM tenants t LEFT JOIN tenant_licences l ON l.tenant_id = t.id WHERE t.slug = $1";
 
-const SELECT_ALL: &str = "SELECT id, slug, display_name, database_name, status, \
-     schema_version, owner_email, onboarded_at, created_at FROM tenants ORDER BY slug";
+const SELECT_ALL: &str = "SELECT t.id, t.slug, t.display_name, t.database_name, t.status, \
+     t.schema_version, t.owner_email, t.onboarded_at, t.created_at, \
+     l.state AS licence_state, l.valid_from AS licence_valid_from, \
+     l.valid_until AS licence_valid_until, l.note AS licence_note, \
+     l.updated_at AS licence_updated_at, l.updated_by AS licence_updated_by \
+     FROM tenants t LEFT JOIN tenant_licences l ON l.tenant_id = t.id ORDER BY t.slug";
 
+/// The row comes back with no licence because it has none yet: this is the
+/// serialisation point, before the database exists. The nulls are spelled out
+/// rather than left off so the decoder stays strict about columns it expects.
 const INSERT_TENANT: &str = "INSERT INTO tenants \
      (slug, display_name, database_name, status, created_via, owner_email) \
      VALUES ($1, $2, $3, 'provisioning', $4, $5) \
      RETURNING id, slug, display_name, database_name, status, schema_version, \
-     owner_email, onboarded_at, created_at";
+     owner_email, onboarded_at, created_at, \
+     NULL::text AS licence_state, NULL::timestamptz AS licence_valid_from, \
+     NULL::timestamptz AS licence_valid_until, NULL::text AS licence_note, \
+     NULL::timestamptz AS licence_updated_at, NULL::text AS licence_updated_by";
 
 /// Case-insensitive, because addresses are stored lowercased but a caller may
 /// not have normalised theirs.
-const SELECT_BY_OWNER_EMAIL: &str = "SELECT id, slug, display_name, database_name, status, \
-     schema_version, owner_email, onboarded_at, created_at FROM tenants \
-     WHERE lower(owner_email) = lower($1) ORDER BY created_at";
+const SELECT_BY_OWNER_EMAIL: &str = "SELECT t.id, t.slug, t.display_name, t.database_name, t.status, \
+     t.schema_version, t.owner_email, t.onboarded_at, t.created_at, \
+     l.state AS licence_state, l.valid_from AS licence_valid_from, \
+     l.valid_until AS licence_valid_until, l.note AS licence_note, \
+     l.updated_at AS licence_updated_at, l.updated_by AS licence_updated_by \
+     FROM tenants t LEFT JOIN tenant_licences l ON l.tenant_id = t.id \
+     WHERE lower(t.owner_email) = lower($1) ORDER BY t.created_at";
 
 /// Read access to the tenant registry.
 #[derive(Clone)]
@@ -164,10 +222,21 @@ impl Catalog {
             .await?
             .ok_or_else(|| DbError::UnknownTenant(slug.to_string()))?;
 
-        if !record.status.serves_traffic() {
+        // Two refusals, not one. A workspace we stopped and a workspace whose
+        // licence ran out are both 403, and the person on the other end needs
+        // to know which conversation to start.
+        if let Some(problem) = record.licence_problem() {
+            return Err(DbError::TenantUnlicensed {
+                slug: slug.to_string(),
+                standing: problem.as_str().to_owned(),
+                reason: problem.refusal().to_owned(),
+            });
+        }
+
+        if !record.status.serves_traffic(record.licence.as_ref()) {
             return Err(DbError::TenantInactive {
                 slug: slug.to_string(),
-                status: format!("{:?}", record.status).to_lowercase(),
+                status: record.status.as_str().to_owned(),
             });
         }
 

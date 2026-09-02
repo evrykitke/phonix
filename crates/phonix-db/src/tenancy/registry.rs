@@ -72,8 +72,11 @@ impl TenantRegistry {
 
     /// Resolve a slug to a usable pool, creating one if needed.
     ///
-    /// Returns [`DbError::UnknownTenant`] for an unregistered slug and
-    /// [`DbError::TenantInactive`] for a suspended or archived one.
+    /// Returns [`DbError::UnknownTenant`] for an unregistered slug,
+    /// [`DbError::TenantInactive`] for a suspended or archived one, and
+    /// [`DbError::TenantUnlicensed`] for one whose licence has lapsed or been
+    /// withdrawn. The last two are both 403 and are deliberately different
+    /// errors - see ADR 0005 section 7.
     pub async fn resolve(&self, slug: &TenantSlug) -> Result<TenantHandle, DbError> {
         let record = self.record_for(slug).await?;
         self.open(record).await
@@ -97,13 +100,25 @@ impl TenantRegistry {
 
     /// Attach a pool to a row, refusing one that may not serve traffic.
     ///
-    /// The shared tail of both entry points, so that the status check cannot
-    /// come to mean one thing for a request and another for a background pass.
+    /// The shared tail of both entry points, so that the check cannot come to
+    /// mean one thing for a request and another for a background pass.
+    ///
+    /// The licence is asked about first, and separately, so the refusal can
+    /// name which half said no. `serves_traffic` then decides both together -
+    /// neither half can widen the other.
     async fn open(&self, record: Arc<TenantRecord>) -> Result<TenantHandle, DbError> {
-        if !record.status.serves_traffic() {
+        if let Some(problem) = record.licence_problem() {
+            return Err(DbError::TenantUnlicensed {
+                slug: record.slug.to_string(),
+                standing: problem.as_str().to_owned(),
+                reason: problem.refusal().to_owned(),
+            });
+        }
+
+        if !record.serves_traffic() {
             return Err(DbError::TenantInactive {
                 slug: record.slug.to_string(),
-                status: format!("{:?}", record.status).to_lowercase(),
+                status: record.status.as_str().to_owned(),
             });
         }
 

@@ -1,0 +1,190 @@
+{#
+  One workspace.
+
+  Two questions, kept apart: whether it is running, and whether it is
+  authorized. They are separate facts in separate tables and they are separate
+  panels here, because folding them into one badge would mean that reinstating
+  a workspace starts with guessing which of the two stopped it.
+
+  Everything is a `<form method="post">` and a plain `<a href>`. No script -
+  see ADR 0005 section 3.
+#}
+{% extends "shell.html" %}
+
+{% block content %}
+<p class="text-xs text-content-muted">
+  <a class="hover:text-content hover:underline" href="/">Workspaces</a>
+  <span aria-hidden="true"> / </span>
+  <span class="font-mono">{{ slug }}</span>
+</p>
+
+{% include "_banner.html" %}
+
+{% if let Some(text) = confirmation %}
+<div class="rounded-control border border-edge border-l-2 border-l-success bg-surface-raised px-3 py-2 text-sm">
+  {{ text }}
+</div>
+{% endif %}
+
+{# ---------------------------------------------------------------------------
+   The workspace as an object. Not its business data - Desk may not read that,
+   and section 6 of the ADR is why.
+   --------------------------------------------------------------------------- #}
+<section class="panel">
+  <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-edge px-3 py-2">
+    <h2 class="text-sm font-semibold">{{ name }}</h2>
+    <span class="pill">{{ status }}</span>
+    {% if serving %}
+    <p class="text-xs text-content-muted">Serving traffic.</p>
+    {% else %}
+    <p class="text-xs text-warning">Not serving traffic.</p>
+    {% endif %}
+  </div>
+
+  <dl class="grid grid-cols-1 gap-x-6 gap-y-2 px-3 py-3 sm:grid-cols-2">
+    <div>
+      <dt class="text-2xs uppercase tracking-wide text-content-subtle">Address</dt>
+      <dd class="font-mono text-xs">{{ slug }}</dd>
+    </div>
+    <div>
+      <dt class="text-2xs uppercase tracking-wide text-content-subtle">Database</dt>
+      <dd class="font-mono text-xs">{{ database_name }}</dd>
+    </div>
+    <div>
+      <dt class="text-2xs uppercase tracking-wide text-content-subtle">Schema</dt>
+      <dd class="font-mono text-xs">
+        {{ schema_version }}
+        {% if outdated %}
+        {# The one thing this page exists to be able to say. The expected
+           version is computed from the migrators compiled into this binary,
+           which is why Desk has to be deployed in the same step as the
+           server - two builds disagreeing about "current" is the failure it
+           exists to catch. #}
+        <span class="text-warning">behind {{ current_schema }}</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt class="text-2xs uppercase tracking-wide text-content-subtle">Owner</dt>
+      <dd class="text-xs">{{ owner_email }}</dd>
+    </div>
+    <div>
+      <dt class="text-2xs uppercase tracking-wide text-content-subtle">Created</dt>
+      <dd class="text-xs text-content-muted">{{ created }}</dd>
+    </div>
+    <div>
+      <dt class="text-2xs uppercase tracking-wide text-content-subtle">Onboarded</dt>
+      <dd class="text-xs text-content-muted">{{ onboarded }}</dd>
+    </div>
+  </dl>
+</section>
+
+{# ---------------------------------------------------------------------------
+   The licence.
+   --------------------------------------------------------------------------- #}
+<section class="panel">
+  <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-edge px-3 py-2">
+    <h2 class="text-sm font-semibold">Licence</h2>
+    {% if let Some(licence) = licence %}
+    {% if licence.authorizes %}
+    <span class="pill">{{ licence.standing }}</span>
+    {% else %}
+    <span class="pill pill-warn">{{ licence.standing }}</span>
+    {% endif %}
+    {% else %}
+    <span class="pill pill-warn">unlicensed</span>
+    {% endif %}
+  </div>
+
+  {% if let Some(licence) = licence %}
+  <dl class="grid grid-cols-1 gap-x-6 gap-y-2 px-3 py-3 sm:grid-cols-2">
+    <div>
+      <dt class="text-2xs uppercase tracking-wide text-content-subtle">Kind</dt>
+      <dd class="text-xs">{{ licence.state }}</dd>
+    </div>
+    <div>
+      <dt class="text-2xs uppercase tracking-wide text-content-subtle">Began</dt>
+      <dd class="text-xs text-content-muted">{{ licence.valid_from }}</dd>
+    </div>
+    <div>
+      <dt class="text-2xs uppercase tracking-wide text-content-subtle">Ends</dt>
+      <dd class="text-xs text-content-muted">{{ licence.valid_until }}</dd>
+    </div>
+    <div>
+      <dt class="text-2xs uppercase tracking-wide text-content-subtle">Last decided</dt>
+      <dd class="text-xs text-content-muted">{{ licence.updated_by }}, {{ licence.updated_at }}</dd>
+    </div>
+    {% if licence.note != "" %}
+    <div class="sm:col-span-2">
+      <dt class="text-2xs uppercase tracking-wide text-content-subtle">Note</dt>
+      <dd class="text-xs">{{ licence.note }}</dd>
+    </div>
+    {% endif %}
+  </dl>
+  {% else %}
+  <p class="border-b border-edge px-3 py-2 text-sm">
+    Nothing authorizes this workspace, so it is refused with a 403 whatever its status says.
+    Issue one below.
+  </p>
+  {% endif %}
+
+  {# The form. Radios rather than a dropdown: there are three answers, they are
+     mutually exclusive, and Desk has no script - so a `<select>` would be the
+     one control on these pages whose current value is hidden until it is
+     opened. #}
+  <form class="flex flex-col gap-3 border-t border-edge px-3 py-3" method="post"
+        action="/workspaces/{{ slug }}/licence">
+    <fieldset class="flex flex-col gap-1">
+      <legend class="text-2xs uppercase tracking-wide text-content-subtle">Kind</legend>
+
+      <label class="flex items-center gap-2 text-sm">
+        <input type="radio" name="state" value="trial"
+               {% if chosen_state == "trial" %}checked{% endif %}>
+        <span>Trial <span class="text-content-muted">- time-limited, and expected to end</span></span>
+      </label>
+      <label class="flex items-center gap-2 text-sm">
+        <input type="radio" name="state" value="licensed"
+               {% if chosen_state == "licensed" %}checked{% endif %}>
+        <span>Licensed <span class="text-content-muted">- paid, internal, or a demonstration</span></span>
+      </label>
+      <label class="flex items-center gap-2 text-sm">
+        <input type="radio" name="state" value="revoked"
+               {% if chosen_state == "revoked" %}checked{% endif %}>
+        <span>Withdrawn <span class="text-content-muted">- stops the workspace serving, now</span></span>
+      </label>
+    </fieldset>
+
+    <div class="flex flex-col gap-1">
+      <label class="text-2xs uppercase tracking-wide text-content-subtle" for="valid_until">Ends</label>
+      <input id="valid_until" name="valid_until" type="date"
+             value="{% if let Some(licence) = licence %}{{ licence.valid_until_date }}{% endif %}">
+      {# Half-open, like every other interval in this codebase. Said on the
+         form because it is the one thing about this field somebody would
+         otherwise reasonably assume the other way. #}
+      <p class="text-xs text-content-muted">
+        The first day <em>not</em> covered, at 00:00 UTC. Leave it empty for no end date.
+      </p>
+    </div>
+
+    <div class="flex flex-col gap-1">
+      <label class="text-2xs uppercase tracking-wide text-content-subtle" for="note">Note</label>
+      <textarea id="note" name="note" rows="2" maxlength="500"
+                placeholder="Why. Read by whoever looks at this next.">{% if let Some(licence) = licence %}{{ licence.note }}{% endif %}</textarea>
+    </div>
+
+    <div>
+      <button class="btn" type="submit">Save the licence</button>
+    </div>
+  </form>
+</section>
+
+{# Saying where the build stopped, on the page rather than only in the record. #}
+<section class="panel p-3">
+  <h2 class="text-sm font-semibold">Not built yet</h2>
+  <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-content-muted">
+    <li>Retrying a stuck <code class="font-mono text-xs">provisioning</code>, and migrating this workspace.</li>
+    <li>Suspending and resuming - the mechanism exists and nothing calls it.</li>
+    <li>Dependency health, and this workspace's own slice of the audit trail.</li>
+  </ul>
+</section>
+{% endblock %}

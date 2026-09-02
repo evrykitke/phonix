@@ -87,4 +87,7 @@ pub use money::{Conversion, ExchangeRate, Money, MoneyError, Rate, RateError, Ro
 pub use numbering::{NumberContext, Pattern, PatternError, ResetPeriod};
 pub use organization::OrganizationProfile;
 pub use query::{Page, PageRequest, Sort, SortDirection};
-pub use tenant::{TenantId, TenantSlug, TenantStatus, TenantSummary, WorkspaceSecuritySettings};
+pub use tenant::{
+    Licence, LicenceStanding, LicenceState, TenantId, TenantSlug, TenantStatus, TenantSummary,
+    WorkspaceSecuritySettings,
+};

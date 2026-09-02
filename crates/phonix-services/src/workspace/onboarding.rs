@@ -13,20 +13,27 @@
 //! 1. catalog row, status 'provisioning'   <- the serialisation point
 //! 2. CREATE DATABASE                      <- skipped if present
 //! 3. tenant migrations                    <- idempotent
+//! 3b. trial licence                       <- only if it has none
 //! 4. static role permissions + settings   <- idempotent
 //! 5. owner account + Admin role           <- inside ONE tenant transaction
 //! 6. catalog row -> 'active'              <- the commit point
 //! ```
+//!
+//! Step 3b is inside `provision_tenant` and sits before the row goes active
+//! deliberately: `serves_traffic` is "active **and** currently licensed", so
+//! issuing the licence afterwards would leave an interval in which a finished
+//! workspace answered 403.
 //!
 //! A crash before step 6 leaves a workspace stuck in `provisioning`, which
 //! serves no traffic and can be retried. A crash after it leaves a working
 //! workspace. What cannot happen is a workspace that serves traffic with no
 //! owner in it - that is what step 5 being one transaction, before step 6, buys.
 
+use chrono::{Duration, Utc};
 use phonix_config::AppConfig;
-use phonix_core::TenantSlug;
 use phonix_core::authorization::roles;
 use phonix_core::identity::{UserStatus, ValidSignup};
+use phonix_core::{LicenceState, TenantSlug};
 use phonix_db::authorization::role;
 use phonix_db::identity::one_time_token::TokenPurpose;
 use phonix_db::identity::user::{self, NewUser};
@@ -34,7 +41,7 @@ use phonix_db::identity::{AuditEntry, IdentityEvent, audit};
 use phonix_db::settings as settings_store;
 use phonix_db::sqlx::PgPool;
 use phonix_db::tenancy::catalog::{Catalog, TenantOrigin, TenantRecord};
-use phonix_db::tenancy::provision;
+use phonix_db::tenancy::{LicenceInput, provision};
 use secrecy::SecretString;
 
 use crate::crypto::password::Hasher;
@@ -82,7 +89,14 @@ pub async fn onboard_workspace(
         .await
         .map_err(|err| ServiceError::Crypto(err.to_string()))?;
 
-    // Steps 1-3.
+    // Steps 1-3b. The trial is a licence with an end date and not a status of
+    // its own, so signing up exercises the expiry path from the first day
+    // rather than for the first time on a real customer. Its length is the one
+    // number that says what a trial is: `[desk] trial_days`.
+    let trial_note = format!(
+        "Trial issued by self-service signup, {} days.",
+        config.desk.trial_days
+    );
     let tenant = provision::provision_tenant(
         catalog,
         &config.database,
@@ -90,6 +104,16 @@ pub async fn onboard_workspace(
         &input.organization_name,
         TenantOrigin::Signup,
         Some(&input.email),
+        LicenceInput {
+            state: LicenceState::Trial,
+            valid_from: Utc::now(),
+            valid_until: Some(Utc::now() + Duration::days(config.desk.trial_days as i64)),
+            note: Some(&trial_note),
+            // Nobody authorized this one; the form did. Said plainly rather
+            // than attributed to the person signing up, who is not in a
+            // position to license anything.
+            updated_by: "signup",
+        },
     )
     .await?;
 

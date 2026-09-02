@@ -9,14 +9,26 @@
     <p class="text-xs text-content-muted">{{ total }} in the catalog, {{ serving }} serving traffic.</p>
   </div>
 
+  {# Three counts, and each one is a different problem with a different fix. A
+     single "needs attention" number would send somebody to the wrong page. #}
   {% if stuck > 0 %}
-  {# Named because it is the reason a workspace list is worth having at all:
-     until Desk existed, a workspace stuck part-way through provisioning was
-     invisible. #}
   <p class="border-b border-edge border-l-2 border-l-danger px-3 py-2 text-sm">
-    {{ stuck }} workspace(s) are still <code class="font-mono text-xs">provisioning</code>. A crash
-    between creating the database and marking the row leaves them there, serving nothing.
-    Retrying them is the next thing Desk learns to do.
+    {{ stuck }} still <code class="font-mono text-xs">provisioning</code>. A crash between creating
+    the database and marking the row leaves them there, serving nothing.
+  </p>
+  {% endif %}
+
+  {% if unlicensed > 0 %}
+  <p class="border-b border-edge border-l-2 border-l-danger px-3 py-2 text-sm">
+    {{ unlicensed }} active but not currently licensed, so they are refused with a 403. Open one to
+    see whether its licence lapsed or was withdrawn - those are different conversations.
+  </p>
+  {% endif %}
+
+  {% if outdated > 0 %}
+  <p class="border-b border-edge border-l-2 border-l-warning px-3 py-2 text-sm">
+    {{ outdated }} on a schema older than this build's. They keep serving; a query that needs a new
+    column is what fails, per workspace, in production.
   </p>
   {% endif %}
 
@@ -30,6 +42,7 @@
           <th scope="col" class="px-3 py-1.5 font-medium">Slug</th>
           <th scope="col" class="px-3 py-1.5 font-medium">Name</th>
           <th scope="col" class="px-3 py-1.5 font-medium">Status</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Licence</th>
           <th scope="col" class="px-3 py-1.5 font-medium">Schema</th>
           <th scope="col" class="px-3 py-1.5 font-medium">Created</th>
         </tr>
@@ -37,14 +50,25 @@
       <tbody>
         {% for row in rows %}
         <tr class="border-b border-edge last:border-0 hover:bg-surface-hover">
-          <td class="px-3 py-1.5 font-mono text-xs">{{ row.slug }}</td>
+          <td class="px-3 py-1.5 font-mono text-xs">
+            <a class="text-brand hover:underline" href="/workspaces/{{ row.slug }}">{{ row.slug }}</a>
+          </td>
           <td class="px-3 py-1.5">{{ row.name }}</td>
           <td class="px-3 py-1.5"><span class="pill">{{ row.status }}</span></td>
-          <td class="px-3 py-1.5 font-mono text-xs">{{ row.schema_version }}</td>
+          <td class="px-3 py-1.5">
+            {% if row.licence_refuses %}
+            <span class="pill pill-warn">{{ row.licence }}</span>
+            {% else %}
+            <span class="pill">{{ row.licence }}</span>
+            {% endif %}
+          </td>
+          <td class="px-3 py-1.5 font-mono text-xs">
+            {{ row.schema_version }}{% if row.outdated %} <span class="text-warning">behind</span>{% endif %}
+          </td>
           <td class="px-3 py-1.5 text-content-muted">{{ row.created }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="px-3 py-4 text-center text-sm text-content-muted">
+        <tr><td colspan="6" class="px-3 py-4 text-center text-sm text-content-muted">
           No workspaces yet.
         </td></tr>
         {% endfor %}
@@ -59,13 +83,11 @@
 <section class="panel p-3">
   <h2 class="text-sm font-semibold">Not built yet</h2>
   <p class="mt-0.5 text-xs text-content-muted">
-    Desk can sign you in and manage its own accounts. Everything below is written down in
-    <code class="font-mono">docs/adr/0005-phonix-desk.md</code> and is not here yet:
+    Written down in <code class="font-mono">docs/adr/0005-phonix-desk.md</code>, and not here yet:
   </p>
   <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-content-muted">
     <li>Retrying a stuck <code class="font-mono text-xs">provisioning</code>, and migrating outdated workspaces.</li>
     <li>Suspending and resuming - the mechanism exists and nothing calls it.</li>
-    <li>Licences: whether a workspace is authorized to be here, and until when.</li>
     <li>Creating a workspace, with its licence and its owner invitation.</li>
     <li>The audit trail's own screen, and the job queues.</li>
   </ul>

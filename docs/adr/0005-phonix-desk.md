@@ -353,10 +353,27 @@ audit that cannot be removed by the person who wrote it.
 
 Not a feature switch, not a plan, not a bundle of entitlements: a licence
 answers one question, **is this workspace authorized to use Phonix**, and it is
-the commercial half of that answer rather than the operational one. The
-licensing framework does not exist yet; this section specifies the smallest
-honest version of it, because Desk cannot create workspaces without deciding
-what a created workspace is allowed to do.
+the commercial half of that answer rather than the operational one. This
+section specifies the smallest honest version of it, because Desk cannot create
+workspaces without deciding what a created workspace is allowed to do.
+
+**Built**, as catalog migration 0005, `phonix_core::tenant::licence` and
+`phonix_db::tenancy::licence`. Three things settled during the build that the
+draft above did not say:
+
+* **One row per workspace, and the primary key says so.** The history of what a
+  workspace has been licensed under is `desk_audit`, in a database it cannot
+  edit — not a table of superseded rows. Two places holding licence history is
+  two answers to "is this authorized", and they eventually disagree.
+* **The licence is joined onto every read of `catalog.tenants`,** not fetched
+  separately. `serves_traffic` needs both halves to answer at all, and the
+  registry resolves a catalog row on essentially every request; a second lookup
+  would be a second thing that can be stale.
+* **A lapse and a suspension are different errors, not one.**
+  `DbError::TenantUnlicensed` carries the standing and the sentence to refuse
+  with; `DbError::TenantInactive` stays what it was. Both are 403 and both are
+  still distinguishable from the 404 an unknown host gets — the difference
+  between them is for the log, the trail, and the sentence the customer reads.
 
 **It lives in the catalog, and that is the whole point.** A licence a tenant's
 own administrators can reach is not a licence. There is already a cautionary
@@ -541,7 +558,8 @@ do yet.
    issues and extends one, and `serves_traffic()` learning about them. This
    comes before creating workspaces, because a workspace created with nowhere
    to record its authorization is a workspace somebody has to remember to go
-   back to.
+   back to. **Built**, together with step 3's workspace page — the licence form
+   needs a page to live on, and the page needs the licence to be worth opening.
 5. **Creating a workspace**, licence and owner invitation together, in one act.
 6. **The three safe writes.** Retry a stuck provisioning; migrate one workspace
    and migrate all outdated; suspend and resume. Each behind a confirm, each

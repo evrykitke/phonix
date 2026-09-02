@@ -17,7 +17,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::html::{Chrome, message, render};
-use crate::routes::{Client, SignedIn, internal_error, see_other};
+use crate::routes::{Client, SignedIn, internal_error, query_value, see_other, urlencode};
 use crate::state::DeskState;
 
 /// One account, already in the words the page uses.
@@ -174,98 +174,5 @@ pub async fn set_disabled(
             urlencode("That account no longer exists.")
         )),
         Err(err) => internal_error(err, "changing a desk account"),
-    }
-}
-
-/// Percent-encode a value for a query string.
-///
-/// Small and local rather than a dependency: Desk puts exactly two things in a
-/// query string, and both are its own text.
-fn urlencode(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    for byte in raw.as_bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(*byte as char)
-            }
-            other => out.push_str(&format!("%{other:02X}")),
-        }
-    }
-    out
-}
-
-/// Read one query parameter, percent-decoded.
-fn query_value(uri: &axum::http::Uri, name: &str) -> Option<String> {
-    let query = uri.query()?;
-    for pair in query.split('&') {
-        let (key, value) = pair.split_once('=')?;
-        if key == name {
-            return Some(urldecode(value));
-        }
-    }
-    None
-}
-
-fn urldecode(raw: &str) -> String {
-    let bytes = raw.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-
-    while index < bytes.len() {
-        match bytes[index] {
-            b'%' if index + 2 < bytes.len() => {
-                let hex = std::str::from_utf8(&bytes[index + 1..index + 3]).unwrap_or("");
-                match u8::from_str_radix(hex, 16) {
-                    Ok(byte) => {
-                        out.push(byte);
-                        index += 3;
-                    }
-                    Err(_) => {
-                        out.push(bytes[index]);
-                        index += 1;
-                    }
-                }
-            }
-            b'+' => {
-                out.push(b' ');
-                index += 1;
-            }
-            other => {
-                out.push(other);
-                index += 1;
-            }
-        }
-    }
-
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_value_survives_a_round_trip() {
-        let original = "https://console-desk.example.com/setup/aB3-_x?y&z=1 2";
-        assert_eq!(urldecode(&urlencode(original)), original);
-    }
-
-    /// The encoder has to escape everything a query string treats specially, or
-    /// a setup link containing `&` arrives truncated and does not work.
-    #[test]
-    fn the_encoder_escapes_query_separators() {
-        let encoded = urlencode("a&b=c d");
-
-        assert!(!encoded.contains('&'));
-        assert!(!encoded.contains('='));
-        assert!(!encoded.contains(' '));
-    }
-
-    #[test]
-    fn reading_a_parameter_finds_it_among_others() {
-        let uri: axum::http::Uri = "/accounts?other=1&link=http%3A%2F%2Fx%2Fy".parse().unwrap();
-
-        assert_eq!(query_value(&uri, "link").as_deref(), Some("http://x/y"));
-        assert_eq!(query_value(&uri, "missing"), None);
     }
 }

@@ -57,6 +57,20 @@ pub async fn resolve_tenant(
             tenant_error(StatusCode::FORBIDDEN.as_u16(), "tenant is not active")
         }
 
+        // The same 403, and deliberately not the same sentence. A workspace we
+        // stopped and a workspace whose licence ran out need to start different
+        // conversations - see ADR 0005 section 7. Both are still distinguishable
+        // from the 404 an unknown host gets, which is what makes a suspended
+        // customer tellable apart from a DNS mistake.
+        Err(phonix_db::DbError::TenantUnlicensed {
+            slug,
+            standing,
+            reason,
+        }) => {
+            tracing::info!(tenant = %slug, standing = %standing, "tenant is not licensed");
+            tenant_error(StatusCode::FORBIDDEN.as_u16(), &reason)
+        }
+
         Err(err) => {
             tracing::error!(error = %err, "tenant resolution failed");
             tenant_error(
@@ -90,6 +104,17 @@ async fn provision_and_continue(
         // it, and the catalog should say so.
         phonix_db::tenancy::catalog::TenantOrigin::AutoProvision,
         None,
+        // An open licence, because this path only exists in development -
+        // `validate::check` refuses `auto_provision` under production. A trial
+        // here would mean a laptop's workspaces silently stopping serving a
+        // month after they were conjured, which is a mystery, not a feature.
+        phonix_db::tenancy::LicenceInput {
+            state: phonix_core::LicenceState::Licensed,
+            valid_from: chrono::Utc::now(),
+            valid_until: None,
+            note: Some("Auto-provisioned in development by an unrecognised Host header."),
+            updated_by: "auto-provision",
+        },
     )
     .await
     {
@@ -124,9 +149,11 @@ async fn provision_and_continue(
     }
 }
 
-fn tenant_error(status: u16, message: &'static str) -> Response {
+fn tenant_error(status: u16, message: &str) -> Response {
     let status = StatusCode::from_u16(status).unwrap_or(StatusCode::NOT_FOUND);
-    (status, message).into_response()
+    // Owned rather than `&'static str`: a licence refusal names which standing
+    // it was, and that sentence is built from the row rather than written here.
+    (status, message.to_owned()).into_response()
 }
 
 /// Pull the tenant slug out of the request, per the configured strategy.

@@ -30,6 +30,23 @@ pub enum DbError {
     #[error("tenant '{slug}' is {status}, not active")]
     TenantInactive { slug: String, status: String },
 
+    /// The workspace has no current licence.
+    ///
+    /// Deliberately not [`Self::TenantInactive`], even though both answer 403.
+    /// A suspension is somebody's decision with their name against it; a lapse
+    /// is a date passing. Collapsing the two would mean a customer whose trial
+    /// ran out and a customer we stopped read the same sentence, and would
+    /// start the wrong conversation. See ADR 0005 section 7.
+    #[error("tenant '{slug}' is not licensed: {reason}")]
+    TenantUnlicensed {
+        slug: String,
+        /// One word for the log line and the pill: `expired`, `revoked`,
+        /// `unlicensed`, `not yet started`.
+        standing: String,
+        /// The sentence the request is refused with.
+        reason: String,
+    },
+
     #[error("tenant '{0}' already exists")]
     TenantExists(String),
 
@@ -149,6 +166,10 @@ impl From<DbError> for CoreError {
         match err {
             DbError::UnknownTenant(slug) => CoreError::UnknownTenant(slug),
             DbError::TenantInactive { slug, .. } => CoreError::TenantInactive(slug),
+            // Both are 403 to the browser. The difference between them is for
+            // the log, the audit trail and the sentence nginx's upstream puts
+            // on the page - not for the status code.
+            DbError::TenantUnlicensed { slug, .. } => CoreError::TenantInactive(slug),
             DbError::TenantExists(slug) => {
                 CoreError::Conflict(format!("tenant '{slug}' already exists"))
             }

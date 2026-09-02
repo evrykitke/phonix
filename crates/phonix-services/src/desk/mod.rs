@@ -6,6 +6,8 @@
 //! * [`auth`]    - signing a desk user in, and what a desk session may do.
 //! * [`account`] - creating desk accounts, and the setup link that gives one a
 //!   password of its own.
+//! * [`workspace`] - what Desk may do to a workspace, each act writing an
+//!   audit row in a database that workspace cannot edit.
 //!
 //! # Why this is not `identity`
 //!
@@ -29,6 +31,8 @@
 
 pub mod account;
 pub mod auth;
+pub mod workspace;
 
 pub use account::{CreatedDeskUser, SetupOutcome, SetupPage};
 pub use auth::{ChallengeOutcome, DeskCaller, SignInOutcome};
+pub use workspace::LicenceDecision;

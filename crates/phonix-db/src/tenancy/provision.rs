@@ -6,6 +6,7 @@ use sqlx::Connection;
 
 use super::apps::{self, AppMigrations};
 use super::catalog::{Catalog, NewTenant, TenantOrigin, TenantRecord};
+use super::licence::{self, LicenceInput};
 use crate::error::DbError;
 
 /// Create a tenant's database, migrate it, and mark the tenant active.
@@ -17,6 +18,19 @@ use crate::error::DbError;
 /// Creates no users. A workspace with a database but nobody in it is exactly
 /// what auto-provisioning and operator tooling want; the onboarding flow adds
 /// the owner afterwards (see [`crate::onboarding`]).
+///
+/// # Why a licence is an argument and not a default
+///
+/// `serves_traffic` is "active **and** currently licensed", so a workspace
+/// provisioned without one is created switched off. Rather than pick a term
+/// here - the database layer is not where a commercial decision belongs - the
+/// caller states it: self-service signup issues a trial of
+/// `[desk] trial_days`, Desk issues what the person filling in the form chose,
+/// and development's auto-provisioning issues an open licence to itself.
+///
+/// It is issued only if the workspace has none. Provisioning is retryable by
+/// design and a retry must not reinstate a licence somebody has since
+/// withdrawn.
 pub async fn provision_tenant(
     catalog: &Catalog,
     cfg: &DatabaseConfig,
@@ -24,6 +38,7 @@ pub async fn provision_tenant(
     display_name: &str,
     origin: TenantOrigin,
     owner_email: Option<&str>,
+    licence: LicenceInput<'_>,
 ) -> Result<TenantRecord, DbError> {
     let database_name = slug.database_name(&cfg.tenant_database_prefix);
 
@@ -61,6 +76,18 @@ pub async fn provision_tenant(
 
     create_database_if_absent(cfg, &record.database_name).await?;
     migrate_tenant(cfg, &record.database_name).await?;
+
+    // Before the row is marked active, so there is no instant at which a
+    // workspace is `active` with nothing authorizing it. The order costs
+    // nothing and means the "unlicensed" standing only ever describes a
+    // workspace somebody has to look at, never one mid-creation.
+    let issued = licence::issue_if_absent(catalog.pool(), record.id, licence).await?;
+    if !issued {
+        tracing::info!(
+            tenant = %slug,
+            "kept the licence this workspace already had rather than reissuing one"
+        );
+    }
 
     catalog
         .mark_active(slug, &apps::schema_fingerprint())
