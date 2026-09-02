@@ -1,0 +1,27 @@
+{% extends "plain.html" %}
+
+{% block card %}
+{% include "_banner.html" %}
+
+<div class="panel p-4">
+  <h2 class="text-base font-semibold">Enter your code</h2>
+  <p class="mt-0.5 text-sm text-content-muted">Signing in as {{ who }}.</p>
+
+  <form method="post" action="/mfa" class="mt-4 flex flex-col gap-3">
+    <div>
+      <label for="code" class="mb-1 block text-sm font-medium">Six-digit code</label>
+      <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code"
+             pattern="[0-9 ]*" required autofocus>
+    </div>
+    <div>
+      <button class="btn" type="submit">Sign in</button>
+    </div>
+  </form>
+</div>
+
+{# Its own form, outside the panel: cancelling is leaving, not an alternative
+   way to submit the one above. #}
+<form method="post" action="/sign-out" class="px-1">
+  <button class="btn btn-quiet" type="submit">Cancel</button>
+</form>
+{% endblock %}

@@ -24,6 +24,7 @@
 //! phonix-desk bootstrap <email> <name>   create the first account and print its setup link
 //! ```
 
+mod assets;
 mod cookie;
 mod html;
 mod routes;

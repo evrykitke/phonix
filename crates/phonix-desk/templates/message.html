@@ -1,0 +1,20 @@
+{#
+  A page that only has something to say: a dead setup link, a 404, a 500.
+
+  One template for the three because they differ in their sentences and in
+  nothing else, and three near-identical files drift.
+#}
+{% extends "plain.html" %}
+
+{% block card %}
+<div class="panel p-4">
+  <h2 class="text-base font-semibold">{{ heading }}</h2>
+  <p class="mt-0.5 text-sm text-content-muted">{{ detail }}</p>
+  {% if let Some(extra) = extra %}
+  <p class="mt-2 text-sm">{{ extra }}</p>
+  {% endif %}
+  {% if let Some(link) = back %}
+  <p class="mt-3 text-sm"><a class="text-brand hover:underline" href="{{ link.href }}">{{ link.label }}</a></p>
+  {% endif %}
+</div>
+{% endblock %}

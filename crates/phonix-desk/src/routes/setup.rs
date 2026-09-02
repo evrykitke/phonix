@@ -12,6 +12,7 @@
 //! `otpauth://` link instead: every authenticator app accepts a typed secret,
 //! the link opens one directly on a phone, and neither needs a script.
 
+use askama::Template;
 use axum::Form;
 use axum::extract::{Path, State};
 use axum::response::Response;
@@ -20,9 +21,21 @@ use phonix_services::desk::account::{self, SetupOutcome};
 use secrecy::SecretString;
 use serde::Deserialize;
 
-use crate::html::{Page, esc, message, notice};
-use crate::routes::{Client, html_response, internal_error, see_other};
+use crate::html::{MessagePage, message, render};
+use crate::routes::{Client, internal_error, see_other};
 use crate::state::DeskState;
+
+#[derive(Template)]
+#[template(path = "setup.html")]
+pub struct SetupPage {
+    title: String,
+    banner: Option<String>,
+    display_name: String,
+    email: String,
+    secret_base32: String,
+    provisioning_uri: String,
+    token: String,
+}
 
 #[derive(Deserialize)]
 pub struct SetupForm {
@@ -44,50 +57,25 @@ pub async fn form(
     };
 
     let banner = match uri.query() {
-        Some(q) if q.contains("wrong_code") => notice(
-            "bad",
-            "That code did not match. Check the clock on your phone and use the current code.",
+        Some(q) if q.contains("wrong_code") => Some(
+            "That code did not match. Check the clock on your phone and use the current code."
+                .to_owned(),
         ),
-        Some(q) if q.contains("weak") => notice(
-            "bad",
-            "That password was refused. Use a longer one that you do not use elsewhere.",
+        Some(q) if q.contains("weak") => Some(
+            "That password was refused. Use a longer one that you do not use elsewhere.".to_owned(),
         ),
-        _ => String::new(),
+        _ => None,
     };
 
-    let body = format!(
-        r#"<div class="panel">
-  <h1>Set up your Desk account</h1>
-  <p class="lede">{name}, this link sets the password for {email}.</p>
-  {banner}
-  <p>Add this secret to your authenticator app, then enter the code it shows.
-     TOTP is not optional here.</p>
-  <code class="secret">{secret}</code>
-  <p class="hint"><a href="{uri}">Open in an authenticator app</a> if you are on the phone
-     that holds it.</p>
-  <form method="post" action="/setup/{token}">
-    <div class="field">
-      <label for="password">Choose a password</label>
-      <input id="password" name="password" type="password" autocomplete="new-password" required>
-      <p class="hint">Only you will know it. Nobody at Desk can set or read it.</p>
-    </div>
-    <div class="field">
-      <label for="code">Code from your authenticator</label>
-      <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code"
-             pattern="[0-9 ]*" required>
-    </div>
-    <button type="submit">Finish setup</button>
-  </form>
-</div>"#,
-        name = esc(&page.display_name),
-        email = esc(&page.email),
-        banner = banner,
-        secret = esc(&page.secret_base32),
-        uri = esc(&page.provisioning_uri),
-        token = esc(&token),
-    );
-
-    html_response(Page::new("Set up your account", body).render())
+    render(&SetupPage {
+        title: "Set up your account".to_owned(),
+        banner,
+        display_name: page.display_name,
+        email: page.email,
+        secret_base32: page.secret_base32,
+        provisioning_uri: page.provisioning_uri,
+        token,
+    })
 }
 
 pub async fn submit(
@@ -134,12 +122,48 @@ pub async fn submit(
 }
 
 /// One answer for unknown, spent and expired alike.
+///
+/// Three sentences and no clue which of the three it was. A page that
+/// distinguishes a spent link from an unknown one tells whoever is holding it
+/// whether it was ever real.
 fn unusable() -> Response {
-    let body = r#"<div class="panel">
-  <h1>That link does not work</h1>
-  <p class="lede">It may have expired, or already been used.</p>
-  <p>Ask whoever created your account to issue another one.</p>
-</div>"#;
+    render(
+        &MessagePage::new(
+            "That link does not work",
+            "It may have expired, or already been used.",
+        )
+        .extra("Ask whoever created your account to issue another one."),
+    )
+}
 
-    html_response(Page::new("That link does not work", body).render())
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The escaping case a hand-written escaper gets wrong: a value
+    /// interpolated into an *attribute* rather than into text. This page has
+    /// the only one Desk has - the `otpauth://` link's `href` - and it carries
+    /// a display name and an email address, neither of which Desk wrote.
+    ///
+    /// A single quote is in there because an attribute written with single
+    /// quotes is a mistake somebody eventually makes, and an escaper that only
+    /// handles the double is then wrong in a file nobody re-reads.
+    #[test]
+    fn the_authenticator_link_cannot_break_out_of_its_attribute() {
+        let page = SetupPage {
+            title: "Set up your account".to_owned(),
+            banner: None,
+            display_name: "Ada".to_owned(),
+            email: "ada@example.com".to_owned(),
+            secret_base32: "JBSWY3DPEHPK3PXP".to_owned(),
+            provisioning_uri: "otpauth://totp/x?issuer=\" onmouseover='alert(1)".to_owned(),
+            token: "tok".to_owned(),
+        };
+
+        let rendered = page.render().expect("the page renders");
+
+        assert!(!rendered.contains("onmouseover='alert(1)"));
+        assert!(rendered.contains("&#34;"));
+        assert!(rendered.contains("&#39;"));
+    }
 }

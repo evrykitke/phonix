@@ -1,0 +1,26 @@
+{#
+  The document. Everything Desk serves is this file with a body in it.
+
+  Two things it settles for every page. The stylesheet is one request with a
+  content hash in its name, so it is cached forever and can never be stale.
+  And `noindex` is on every page rather than on the ones that look sensitive:
+  nginx is the real gate, but a tool that suspends workspaces should not be
+  indexable if a server block is ever mistakenly opened up.
+
+  There is no <script>. Not "no script yet" - the content security policy in
+  `routes::html_response` says `default-src 'none'`, so a page that grows one
+  fails here rather than quietly depending on a CDN.
+#}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{ title }} - Phonix Desk</title>
+<link rel="stylesheet" href="{{ crate::assets::STYLESHEET }}">
+</head>
+<body>
+{% block document %}{% endblock %}
+</body>
+</html>

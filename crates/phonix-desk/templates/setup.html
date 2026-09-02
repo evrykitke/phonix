@@ -1,0 +1,37 @@
+{% extends "plain.html" %}
+
+{% block card %}
+{% include "_banner.html" %}
+
+<div class="panel p-4">
+  <h2 class="text-base font-semibold">Set up your Desk account</h2>
+  <p class="mt-0.5 text-sm text-content-muted">{{ display_name }}, this link sets the password for {{ email }}.</p>
+
+  <p class="mt-4 text-sm">Add this secret to your authenticator app, then enter the code it
+     shows. TOTP is not optional here.</p>
+  <code class="secret mt-2">{{ secret_base32 }}</code>
+  {# No QR code, and deliberately: drawing one means either a JavaScript
+     library or an image endpoint that renders whatever it is handed. Every
+     authenticator accepts a typed secret, and this link opens one directly. #}
+  <p class="mt-2 text-xs text-content-muted">
+    <a class="text-brand hover:underline" href="{{ provisioning_uri }}">Open in an authenticator app</a>
+    if you are on the phone that holds it.
+  </p>
+
+  <form method="post" action="/setup/{{ token }}" class="mt-4 flex flex-col gap-3">
+    <div>
+      <label for="password" class="mb-1 block text-sm font-medium">Choose a password</label>
+      <input id="password" name="password" type="password" autocomplete="new-password" required>
+      <p class="mt-1 text-xs text-content-muted">Only you will know it. Nobody at Desk can set or read it.</p>
+    </div>
+    <div>
+      <label for="code" class="mb-1 block text-sm font-medium">Code from your authenticator</label>
+      <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code"
+             pattern="[0-9 ]*" required>
+    </div>
+    <div>
+      <button class="btn" type="submit">Finish setup</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

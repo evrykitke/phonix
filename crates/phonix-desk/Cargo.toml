@@ -29,6 +29,8 @@ tower-http = { workspace = true }
 http = { workspace = true }
 cookie = { workspace = true }
 
+askama = { workspace = true }
+
 anyhow = { workspace = true }
 chrono = { workspace = true }
 secrecy = { workspace = true }

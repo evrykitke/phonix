@@ -1,0 +1,75 @@
+{#
+  The frame for a signed-in page: the product's shape, without the product.
+
+  A sidebar on `surface-shell` beside content on `surface`, a 44px top bar over
+  both, the brand tile in the corner - the same arrangement as
+  `phonix_web::components::shell`, drawn with the same tokens, and about three
+  hundred lines lighter. What it does not copy is the behaviour: no collapse to
+  a rail, no drawer, no command palette, no app launcher. Those are the parts
+  that need a script, and Desk pages are complete without one.
+
+  So the narrow layout is not a drawer but a strip. Below `md` the sidebar
+  stops being a column and the same links appear in a row under the top bar,
+  which is what "responsive without JavaScript" actually looks like. The nav is
+  written once as a macro and called twice rather than being maintained in two
+  places.
+#}
+{% extends "base.html" %}
+
+{% macro nav_links(current) %}
+  <a href="/"
+     class="flex h-row items-center gap-2 rounded-control px-2 text-sm hover:bg-surface-hover {% if current == "workspaces" %}bg-surface-active font-medium text-content{% else %}text-content-muted{% endif %}"
+     {% if current == "workspaces" %}aria-current="page"{% endif %}>Workspaces</a>
+  <a href="/accounts"
+     class="flex h-row items-center gap-2 rounded-control px-2 text-sm hover:bg-surface-hover {% if current == "accounts" %}bg-surface-active font-medium text-content{% else %}text-content-muted{% endif %}"
+     {% if current == "accounts" %}aria-current="page"{% endif %}>Desk accounts</a>
+{% endmacro %}
+
+{% block document %}
+<div class="flex min-h-screen">
+  <aside class="hidden w-sidebar shrink-0 flex-col border-r border-edge bg-surface-shell md:flex" aria-label="Main">
+    <div class="flex h-topbar shrink-0 items-center gap-2 border-b border-edge px-3">
+      <span class="grid size-6 shrink-0 place-items-center rounded-control bg-brand text-2xs font-bold text-on-brand" aria-hidden="true">P</span>
+      <span class="truncate text-sm font-semibold tracking-tight">Phonix Desk</span>
+    </div>
+
+    <nav class="flex flex-1 flex-col gap-0.5 p-2">
+      {% call nav_links(chrome.current) %}{% endcall %}
+    </nav>
+
+    {# The environment, at the foot and not in the top bar. It is a fact about
+       the box rather than about the page, and the one moment it matters is the
+       moment somebody is about to suspend something - which is a glance down,
+       not a thing to read on every page. #}
+    <div class="border-t border-edge px-3 py-2">
+      <span class="pill">{{ chrome.environment }}</span>
+    </div>
+  </aside>
+
+  <div class="flex min-w-0 flex-1 flex-col">
+    <header class="flex h-topbar shrink-0 items-center gap-2 border-b border-edge bg-surface-shell px-3">
+      {# The brand appears here only where the sidebar is gone, so the narrow
+         layout still says what it is. #}
+      <span class="grid size-6 shrink-0 place-items-center rounded-control bg-brand text-2xs font-bold text-on-brand md:hidden" aria-hidden="true">P</span>
+      <h1 class="truncate text-sm font-medium">{{ title }}</h1>
+
+      <div class="ml-auto flex items-center gap-2">
+        <span class="pill">{{ chrome.who }}</span>
+        <form method="post" action="/sign-out">
+          <button class="btn btn-quiet" type="submit">Sign out</button>
+        </form>
+      </div>
+    </header>
+
+    <nav class="flex items-center gap-1 border-b border-edge bg-surface-shell px-2 py-1 md:hidden" aria-label="Main">
+      {% call nav_links(chrome.current) %}{% endcall %}
+    </nav>
+
+    <main class="min-w-0 flex-1 p-3 sm:p-4">
+      <div class="mx-auto flex max-w-5xl flex-col gap-3">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+</div>
+{% endblock %}

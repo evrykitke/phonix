@@ -5,6 +5,7 @@
 //! here can produce a session that skipped the second step, because
 //! `desk::auth` has no way to ask for one.
 
+use askama::Template;
 use axum::Form;
 use axum::extract::State;
 use axum::response::Response;
@@ -13,11 +14,24 @@ use phonix_services::desk::auth::{self, ChallengeOutcome, SignInOutcome};
 use secrecy::SecretString;
 use serde::Deserialize;
 
-use crate::html::{Page, esc, notice};
-use crate::routes::{
-    Client, HalfSignedIn, html_response, internal_error, see_other, see_other_with_cookie,
-};
+use crate::html::render;
+use crate::routes::{Client, HalfSignedIn, internal_error, see_other, see_other_with_cookie};
 use crate::state::DeskState;
+
+#[derive(Template)]
+#[template(path = "sign_in.html")]
+pub struct SignInPage {
+    title: String,
+    banner: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "mfa.html")]
+pub struct MfaPage {
+    title: String,
+    banner: Option<String>,
+    who: String,
+}
 
 #[derive(Deserialize)]
 pub struct SignInForm {
@@ -39,37 +53,14 @@ pub struct CodeForm {
 pub async fn sign_in_form(uri: axum::http::Uri) -> Response {
     let refused = uri.query().is_some_and(|q| q.contains("refused"));
 
-    let banner = if refused {
+    render(&SignInPage {
+        title: "Sign in".to_owned(),
         // One sentence for every refusal: wrong password, unknown address,
         // locked, disabled, never set up. The audit trail says which; the page
         // does not, because a page that distinguishes them is a page that
         // confirms an address exists.
-        notice("bad", "That did not work. Check the address and password.")
-    } else {
-        String::new()
-    };
-
-    let body = format!(
-        r#"<div class="panel">
-  <h1>Phonix Desk</h1>
-  <p class="lede">Sign in to run the platform.</p>
-  {banner}
-  <form method="post" action="/sign-in">
-    <div class="field">
-      <label for="email">Email</label>
-      <input id="email" name="email" type="email" autocomplete="username" required autofocus>
-    </div>
-    <div class="field">
-      <label for="password">Password</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" required>
-    </div>
-    <button type="submit">Continue</button>
-    <p class="hint">You will be asked for a code from your authenticator next.</p>
-  </form>
-</div>"#
-    );
-
-    html_response(Page::new("Sign in", body).render())
+        banner: refused.then(|| String::from("That did not work. Check the address and password.")),
+    })
 }
 
 pub async fn sign_in(
@@ -117,34 +108,12 @@ pub async fn code_form(HalfSignedIn(caller): HalfSignedIn, uri: axum::http::Uri)
     }
 
     let refused = uri.query().is_some_and(|q| q.contains("refused"));
-    let banner = if refused {
-        notice("bad", "That code was not right. Try the current one.")
-    } else {
-        String::new()
-    };
 
-    let body = format!(
-        r#"<div class="panel">
-  <h1>Enter your code</h1>
-  <p class="lede">Signing in as {who}.</p>
-  {banner}
-  <form method="post" action="/mfa">
-    <div class="field">
-      <label for="code">Six-digit code</label>
-      <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code"
-             pattern="[0-9 ]*" required autofocus>
-    </div>
-    <button type="submit">Sign in</button>
-  </form>
-</div>
-<form method="post" action="/sign-out">
-  <button class="quiet">Cancel</button>
-</form>"#,
-        who = esc(&caller.user.display_name),
-        banner = banner,
-    );
-
-    html_response(Page::new("Enter your code", body).render())
+    render(&MfaPage {
+        title: "Enter your code".to_owned(),
+        banner: refused.then(|| String::from("That code was not right. Try the current one.")),
+        who: caller.user.display_name.clone(),
+    })
 }
 
 pub async fn answer_code(

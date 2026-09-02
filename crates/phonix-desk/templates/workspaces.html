@@ -1,0 +1,73 @@
+{% extends "shell.html" %}
+
+{% block content %}
+{% include "_banner.html" %}
+
+<section class="panel">
+  <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-edge px-3 py-2">
+    <h2 class="text-sm font-semibold">Workspaces</h2>
+    <p class="text-xs text-content-muted">{{ total }} in the catalog, {{ serving }} serving traffic.</p>
+  </div>
+
+  {% if stuck > 0 %}
+  {# Named because it is the reason a workspace list is worth having at all:
+     until Desk existed, a workspace stuck part-way through provisioning was
+     invisible. #}
+  <p class="border-b border-edge border-l-2 border-l-danger px-3 py-2 text-sm">
+    {{ stuck }} workspace(s) are still <code class="font-mono text-xs">provisioning</code>. A crash
+    between creating the database and marking the row leaves them there, serving nothing.
+    Retrying them is the next thing Desk learns to do.
+  </p>
+  {% endif %}
+
+  {# `overflow-x-auto`, and no min-width below `sm`: a document containing
+     anything wider than the screen makes a mobile browser widen the layout
+     viewport to fit it. The product's grid carries the same comment. #}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="border-b border-edge text-left text-xs uppercase tracking-wide text-content-subtle">
+        <tr>
+          <th scope="col" class="px-3 py-1.5 font-medium">Slug</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Name</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Status</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Schema</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr class="border-b border-edge last:border-0 hover:bg-surface-hover">
+          <td class="px-3 py-1.5 font-mono text-xs">{{ row.slug }}</td>
+          <td class="px-3 py-1.5">{{ row.name }}</td>
+          <td class="px-3 py-1.5"><span class="pill">{{ row.status }}</span></td>
+          <td class="px-3 py-1.5 font-mono text-xs">{{ row.schema_version }}</td>
+          <td class="px-3 py-1.5 text-content-muted">{{ row.created }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="px-3 py-4 text-center text-sm text-content-muted">
+          No workspaces yet.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{# Saying where the build stopped, on the page. A console that shows a
+   workspace and offers no way to act on it is only misleading if it does not
+   admit that. #}
+<section class="panel p-3">
+  <h2 class="text-sm font-semibold">Not built yet</h2>
+  <p class="mt-0.5 text-xs text-content-muted">
+    Desk can sign you in and manage its own accounts. Everything below is written down in
+    <code class="font-mono">docs/adr/0005-phonix-desk.md</code> and is not here yet:
+  </p>
+  <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-content-muted">
+    <li>Retrying a stuck <code class="font-mono text-xs">provisioning</code>, and migrating outdated workspaces.</li>
+    <li>Suspending and resuming - the mechanism exists and nothing calls it.</li>
+    <li>Licences: whether a workspace is authorized to be here, and until when.</li>
+    <li>Creating a workspace, with its licence and its owner invitation.</li>
+    <li>The audit trail's own screen, and the job queues.</li>
+  </ul>
+</section>
+{% endblock %}

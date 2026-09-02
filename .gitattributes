@@ -27,6 +27,12 @@
 *.rs    text eol=lf
 *.toml  text eol=lf
 *.json  text eol=lf
+# Desk's stylesheet is committed and its filename is a hash of its bytes
+# (`tools/build-desk-css.mjs`), so a checkout that rewrote its line endings
+# would give it a name that no longer describes it. Its templates are hashed
+# through it, being what Tailwind reads.
+*.css   text eol=lf
+*.html  text eol=lf
 
 # Windows-native scripts are read by cmd.exe and PowerShell, which want CRLF.
 *.bat   text eol=crlf

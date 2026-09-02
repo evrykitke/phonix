@@ -10,6 +10,7 @@ pub mod session;
 pub mod setup;
 pub mod workspaces;
 
+use askama::Template;
 use axum::extract::FromRequestParts;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
@@ -36,6 +37,9 @@ pub fn router(state: DeskState) -> Router {
         .route("/sign-out", post(session::sign_out))
         // Setting up an account somebody else created.
         .route("/setup/{token}", get(setup::form).post(setup::submit))
+        // The one asset Desk serves. Its path carries a content hash, which is
+        // what lets it be cached forever - see `crate::assets`.
+        .route(crate::assets::STYLESHEET, get(stylesheet))
         // For the systemd unit and nothing else.
         .route("/health", get(health))
         .fallback(not_found)
@@ -52,15 +56,28 @@ async fn health() -> impl IntoResponse {
 }
 
 async fn not_found() -> Response {
-    let body = crate::html::Page::new(
-        "Not found",
-        r#"<div class="panel"><h1>Not found</h1>
-           <p class="lede">There is no page at that address.</p>
-           <p><a href="/">Back to workspaces</a></p></div>"#,
-    )
-    .render();
+    let page = crate::html::MessagePage::new("Not found", "There is no page at that address.")
+        .back("/", "Back to workspaces");
 
-    (StatusCode::NOT_FOUND, crate::routes::html_response(body)).into_response()
+    (StatusCode::NOT_FOUND, crate::html::render(&page)).into_response()
+}
+
+/// The stylesheet.
+///
+/// Compiled into the binary rather than read from a directory beside it, so
+/// Desk stays one artefact: copy the binary, run it. `immutable` is safe to the
+/// point of being the reason the name has a hash in it - a changed stylesheet
+/// is a different address, so there is nothing here a browser could hold that
+/// is wrong.
+async fn stylesheet() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        crate::assets::STYLESHEET_CSS,
+    )
+        .into_response()
 }
 
 /// An HTML response with the headers every Desk page carries.
@@ -78,10 +95,16 @@ pub fn html_response(body: String) -> Response {
             (header::REFERRER_POLICY, "same-origin"),
             (
                 header::CONTENT_SECURITY_POLICY,
-                // Desk serves no script and no external asset. Saying so means
-                // a future page that reaches for one fails visibly here rather
-                // than quietly depending on a CDN.
-                "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; \
+                // Desk serves no script and nothing from anywhere else. Saying
+                // so means a future page that reaches for a CDN fails visibly
+                // here rather than quietly depending on one.
+                //
+                // `style-src 'self'` rather than `'unsafe-inline'`: the
+                // stylesheet used to be a <style> block in every page and is
+                // now one hashed file served from `/assets`, so the exception
+                // that allowed it is not needed and is not kept. Nothing here
+                // carries a `style=` attribute either.
+                "default-src 'none'; style-src 'self'; form-action 'self'; \
                  base-uri 'none'; frame-ancestors 'none'",
             ),
         ],
@@ -207,13 +230,16 @@ async fn caller_from(parts: &Parts, state: &DeskState) -> Option<DeskCaller> {
 pub fn internal_error(err: impl std::fmt::Display, doing: &str) -> Response {
     tracing::error!(error = %err, doing, "desk request failed");
 
-    let body = crate::html::Page::new(
+    // Rendered here rather than through `crate::html::render`, which reports a
+    // failed render by calling this function: one of the two has to end the
+    // recursion, and it is the one that already has nothing better to say.
+    let body = crate::html::MessagePage::new(
         "Something went wrong",
-        r#"<div class="panel"><h1>Something went wrong</h1>
-           <p class="lede">The details are in the log. Try again; if it keeps
-           happening, look at <code>journalctl -u phonix-desk</code>.</p></div>"#,
+        "The details are in the log. Try again; if it keeps happening, look at \
+         journalctl -u phonix-desk.",
     )
-    .render();
+    .render()
+    .unwrap_or_else(|_| "Something went wrong.".to_owned());
 
     (StatusCode::INTERNAL_SERVER_ERROR, html_response(body)).into_response()
 }

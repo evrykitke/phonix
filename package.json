@@ -3,6 +3,7 @@
     "lucide-static": "^1.33.0"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
     "@tiptap/core": "^3.30.3",
     "@tiptap/extension-table": "^3.30.3",
     "@tiptap/pm": "^3.30.3",

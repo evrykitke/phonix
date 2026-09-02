@@ -1,0 +1,21 @@
+{#
+  The frame for a page reached before there is anywhere to go: signing in, the
+  code box, following a setup link, and the two pages that report a failure.
+
+  No navigation, deliberately. There is nothing to navigate to yet, and chrome
+  that suggests otherwise is a sign-in page pretending to be an application.
+  The brand mark is here instead, which is the one thing worth saying: this is
+  Phonix, and it is the Desk rather than the product.
+#}
+{% extends "base.html" %}
+
+{% block document %}
+<main class="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center gap-3 px-4 py-10">
+  <div class="flex items-center gap-2 px-1">
+    <span class="grid size-6 shrink-0 place-items-center rounded-control bg-brand text-2xs font-bold text-on-brand" aria-hidden="true">P</span>
+    <span class="text-sm font-semibold tracking-tight">Phonix Desk</span>
+  </div>
+
+  {% block card %}{% endblock %}
+</main>
+{% endblock %}

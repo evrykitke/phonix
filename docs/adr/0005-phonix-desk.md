@@ -119,6 +119,41 @@ and that is exactly the moment the tool is wanted. Building Desk on the same
 hydration stack as the product means one bug in the shared UI kit takes out the
 instrument you would have used to find it.
 
+**It shares the theme, and only the theme.** Not compiling the product does
+not mean looking nothing like it. `style/theme.css` — the palette, the accent
+ramps, the semantic roles in light and dark, the compact type scale — is
+imported by both entry points, so a Desk page uses `bg-surface-shell` and
+`text-content-muted` and means exactly what the product means by them. That
+file is a split of `style/main.css` and changed nothing: the product's compiled
+stylesheet is byte-identical across the split.
+
+This is not the shared UI crate rejected above, and the difference is the whole
+point. That was 58 files of Leptos components with hydration in them. This is
+one CSS import with no code in it at all, and it cannot drag wasm into Desk
+because there is none in it to drag. What Desk gets is the *look*; what it
+still does not get is the DataGrid, the command palette, the collapsing
+sidebar, or anything else that needs a script — its sidebar becomes a row of
+links below `md` rather than a drawer, because that is what responsive without
+JavaScript actually looks like.
+
+Tailwind compiles it. `phonix-desk` is a plain `cargo build` with no
+cargo-leptos in front of it, so the stylesheet is built by hand
+(`node tools/build-desk-css.mjs`) and **the output is committed** — the same
+arrangement the editor bundle already uses, and for the stronger version of the
+same reason: a second binary whose deployment needs npm on the box is a second
+way for a release to fail at the moment the tool is wanted. The compiled CSS is
+`include_str!`d, so Desk stays one artefact.
+
+**The markup is in `templates/`, not in `format!` strings.** Askama compiles
+those HTML files into the binary at build time, so nothing is read from disk at
+request time and there is still one thing to deploy. The reason to prefer it is
+not tidiness: **escaping is the default**. The first version applied an `esc()`
+helper at every interpolation and admitted in its own doc comment that "this one
+is safe" is a judgement that has to be right every time or not made at all.
+Pages compose by `{% extends %}` rather than by passing a rendered body string,
+because a body string would need `{{ body|safe }}` in the frame and would have
+put the same hole back one level up. No template of Desk's writes `|safe`.
+
 **The rule is ADR 0004's replacement rule, unchanged: every page must be
 complete without the script.** Tabs are sections otherwise stacked in order; a
 detail link is an ordinary `<a href>` to a page that exists; collapsing is

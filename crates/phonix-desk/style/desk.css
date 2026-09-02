@@ -1,0 +1,172 @@
+/* ==========================================================================
+   Phonix Desk - the stylesheet.
+
+   Desk is server-rendered HTML with no wasm and none of the product's
+   component kit (docs/adr/0005-phonix-desk.md section 3). What it does share
+   is `style/theme.css`: the same palette, the same accent ramps, the same
+   semantic roles, the same compact type scale. So a Desk page is recognisably
+   Phonix without a single line of the product being compiled into it.
+
+   `source(none)` and an explicit `@source`, because this file is built from
+   the repository root and Tailwind's automatic detection would otherwise scan
+   `crates/phonix-web` as well - producing a stylesheet carrying every utility
+   the product uses, most of a megabyte of it, for a tool with eight pages.
+   Desk's markup is entirely in `templates/`, so that is the whole of it.
+
+   Built by `node tools/build-desk-css.mjs`, and the output is committed. See
+   that script for why - the short version is that building and deploying
+   Phonix needs cargo and nothing else, exactly as it does for the editor
+   bundle.
+   ========================================================================== */
+
+@import "tailwindcss" source(none);
+@import "../../../style/theme.css";
+
+@source "../templates";
+
+/* --------------------------------------------------------------------------
+   BASE
+
+   The product styles every control once in `style/main.css`, for a reason
+   written out at length there: a control nobody has to remember to decorate
+   cannot drift. Desk has five kinds of control rather than fifty, so this is
+   the same idea at the size it needs to be here - and it reads the same
+   tokens, so the two cannot disagree about what a text box looks like.
+   -------------------------------------------------------------------------- */
+@layer base {
+    html {
+        height: 100%;
+    }
+
+    body {
+        min-height: 100%;
+        font-family: var(--font-sans);
+        font-size: var(--text-sm);
+        line-height: var(--text-sm--line-height);
+        background-color: var(--surface);
+        color: var(--content);
+        -webkit-font-smoothing: antialiased;
+    }
+
+    /* One focus ring, and only for keyboard users - the product's rule. */
+    :focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: 2px;
+    }
+
+    /* `:where()` so the whole selector has the specificity of a bare element,
+       and any utility in the markup wins without `!important`. Copied from the
+       product deliberately: the point of sharing the tokens is lost if the two
+       spell the same control differently. */
+    input:where(:not([type="checkbox"], [type="radio"], [type="submit"], [type="hidden"])) {
+        display: block;
+        width: 100%;
+        /* The Real Estate Rule. A box 1500px wide holding a six-digit code
+           reads as broken before anybody types in it. `width` stays 100% so it
+           still collapses on a phone; the ceiling stops it growing past the
+           value it holds. */
+        max-width: var(--container-measure);
+        appearance: none;
+        border-radius: var(--radius-control);
+        border: 1px solid var(--control-edge);
+        background-color: var(--control-surface);
+        color: var(--content);
+        padding: 0.375rem 0.5rem;
+        font-family: inherit;
+        font-size: var(--text-sm);
+        line-height: var(--text-sm--line-height);
+        transition: border-color 120ms ease;
+    }
+
+    input:hover:not(:disabled, :focus) {
+        border-color: var(--control-edge-hover);
+    }
+
+    input:disabled {
+        background-color: var(--control-surface-disabled);
+        color: var(--content-subtle);
+    }
+
+    /* A six-digit code is not a sentence and should not be as wide as one. */
+    input[inputmode="numeric"] {
+        max-width: 10rem;
+        letter-spacing: 0.35em;
+        font-family: var(--font-mono);
+    }
+}
+
+/* --------------------------------------------------------------------------
+   COMPONENTS
+
+   Five of them, and they exist because each is written in more than one
+   template. Anything used once stays as utilities in the markup, which is the
+   product's rule too.
+   -------------------------------------------------------------------------- */
+@layer components {
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.375rem;
+        border-radius: var(--radius-control);
+        border: 1px solid transparent;
+        background-color: var(--brand);
+        color: var(--on-brand);
+        padding: 0.375rem 0.75rem;
+        font-size: var(--text-sm);
+        font-weight: 500;
+        line-height: var(--text-sm--line-height);
+        cursor: pointer;
+        transition: background-color 120ms ease;
+    }
+
+    .btn:hover {
+        background-color: var(--brand-hover);
+    }
+
+    /* The second button on a page, and every button in a table row. */
+    .btn-quiet {
+        background-color: transparent;
+        color: var(--content);
+        border-color: var(--control-edge);
+    }
+
+    .btn-quiet:hover {
+        background-color: var(--surface-hover);
+    }
+
+    .panel {
+        background-color: var(--surface-raised);
+        border: 1px solid var(--edge);
+        border-radius: var(--radius-card);
+        box-shadow: var(--elevation-panel);
+    }
+
+    /* A status word, not a badge with an opinion. Desk shows six of these -
+       active, provisioning, suspended, archived, invited, disabled - and
+       colouring them by meaning is a table nobody maintains. */
+    .pill {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 9999px;
+        border: 1px solid var(--edge);
+        background-color: var(--surface-sunken);
+        padding: 0.0625rem 0.5rem;
+        font-size: var(--text-2xs);
+        color: var(--content-muted);
+        white-space: nowrap;
+    }
+
+    /* A secret shown once: a setup link, a TOTP secret. Dashed, because the
+       border is saying "this is here to be copied, not to be read past". */
+    .secret {
+        display: block;
+        border: 1px dashed var(--edge-strong);
+        border-radius: var(--radius-control);
+        background-color: var(--surface-sunken);
+        padding: 0.5rem 0.625rem;
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+        word-break: break-all;
+    }
+}

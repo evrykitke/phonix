@@ -1,0 +1,19 @@
+{#
+  The one-line report above a form.
+
+  Always a refusal. Desk has nothing to say here that is not "that did not
+  work" - a confirmation belongs where the thing it confirms is, which is why
+  the created-account panel on `accounts.html` is written there and not
+  routed through this.
+
+  Included rather than repeated because five pages show one and there is no
+  version of this that should differ between them. The colour is a left edge
+  rather than a filled box - the product's inline notice does the same, and a
+  full-bleed red panel over a form reads as the page having failed rather than
+  the last attempt.
+#}
+{% if let Some(text) = banner %}
+<div class="rounded-control border border-edge border-l-2 border-l-danger bg-surface-raised px-3 py-2 text-sm">
+  {{ text }}
+</div>
+{% endif %}

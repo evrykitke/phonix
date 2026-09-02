@@ -80,6 +80,22 @@ utoipa = { version = "5.5", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-axum = { version = "0.2" }
 utoipa-scalar = { version = "0.3", features = ["axum"] }
 
+# --- templates (Phonix Desk only) ---
+# Desk draws its pages as HTML files rather than as `format!` strings in Rust.
+# Askama compiles `crates/phonix-desk/templates/*.html` into the binary at build
+# time, so there is still one artefact to deploy and nothing is read from disk
+# at request time - but a missing field is a compile error and, far more
+# importantly, **escaping is the default**. The version Desk replaces applied
+# `esc()` by hand at every interpolation and said so in its own doc comment:
+# a judgement that has to be right every time or not made at all. Now the
+# judgement is only made where a template says `|safe`, and Desk's say it
+# nowhere.
+#
+# `phonix-web` does not use this and must not: it is a Leptos application and
+# its markup is `view!`. Two ways to write a page in one crate is how a
+# codebase ends up with three.
+askama = { version = "0.16" }
+
 # --- federated sign-in ---
 # One POST to Google's token endpoint, and nothing else in the workspace makes
 # an outbound HTTP request. rustls rather than native-tls so the binary does not
