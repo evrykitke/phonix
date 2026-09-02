@@ -15,9 +15,22 @@
 //! * **JSON, but not this shape** - 422. Understood and refused, which is what
 //!   422 means and what every validation failure in this API already answers.
 //! * **No `Content-Type: application/json`** - 415, naming what was wanted.
+//!
+//! # `Option<ApiJson<T>>`, for the endpoints whose body is optional
+//!
+//! Some requests are a verb with nothing to say: revoking a key without giving
+//! a reason. Requiring `Content-Type: application/json` and a literal `{}` for
+//! those would answer the most natural spelling of the request - a bare `POST`
+//! - with a 415, which is a confusing way to say "that was fine".
+//!
+//! So `ApiJson` also implements [`OptionalFromRequest`], mirroring what
+//! `axum::Json` does: **no `Content-Type` header at all** means `None`, and
+//! anything else is parsed and refused exactly as it would be if the body were
+//! required. A caller that sends a malformed body still gets a 400 rather than
+//! having it quietly ignored, which is the half that matters.
 
-use axum::extract::FromRequest;
 use axum::extract::rejection::JsonRejection;
+use axum::extract::{FromRequest, OptionalFromRequest};
 use axum::http::{Request, StatusCode};
 
 use super::problem::Problem;
@@ -35,6 +48,25 @@ where
     async fn from_request(request: Request<axum::body::Body>, state: &S) -> Result<Self, Problem> {
         match axum::Json::<T>::from_request(request, state).await {
             Ok(axum::Json(value)) => Ok(Self(value)),
+            Err(rejection) => Err(translate(rejection)),
+        }
+    }
+}
+
+impl<T, S> OptionalFromRequest<S> for ApiJson<T>
+where
+    axum::Json<T>: OptionalFromRequest<S, Rejection = JsonRejection>,
+    S: Send + Sync,
+{
+    type Rejection = Problem;
+
+    async fn from_request(
+        request: Request<axum::body::Body>,
+        state: &S,
+    ) -> Result<Option<Self>, Problem> {
+        match <axum::Json<T> as OptionalFromRequest<S>>::from_request(request, state).await {
+            Ok(Some(axum::Json(value))) => Ok(Some(Self(value))),
+            Ok(None) => Ok(None),
             Err(rejection) => Err(translate(rejection)),
         }
     }

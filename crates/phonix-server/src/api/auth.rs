@@ -40,8 +40,8 @@ use axum::http::request::Parts;
 use axum::http::{StatusCode, header};
 use phonix_core::{Error as CoreError, TenantSummary};
 use phonix_db::PgPool;
-use phonix_services::identity::{api_key, authentication};
 use phonix_services::Caller;
+use phonix_services::identity::{api_key, authentication};
 use phonix_web::state::AppState;
 use secrecy::{ExposeSecret, SecretString};
 use uuid::Uuid;
@@ -104,6 +104,23 @@ pub struct ApiCaller {
     /// caller already. The workspace itself is on the request's tracing span,
     /// put there by the middleware that resolved it.
     pub key_id: Option<Uuid>,
+    /// The workspace this request was routed to.
+    ///
+    /// Kept rather than dropped - which [`ApiWorkspace`] deliberately does -
+    /// because two of the administration endpoints put the workspace's own
+    /// name and slug into something a person reads: the invitation link is
+    /// built from the slug, and the message that carries it is signed with the
+    /// display name. A handler that needed either would otherwise have to
+    /// resolve the tenant a second time, and the second resolution is the one
+    /// that eventually disagrees with the first.
+    pub tenant: TenantSummary,
+    /// Everything the process holds: the configuration, the hasher, the vault.
+    ///
+    /// Only the handlers that send mail or seal a secret reach for it. Cloned
+    /// rather than borrowed for the reason [`ApiWorkspace`] gives - an
+    /// extractor cannot hand out a reference into state, and `AppState` is a
+    /// handful of `Arc`s by design.
+    pub state: AppState,
 }
 
 impl FromRequestParts<AppState> for ApiCaller {
@@ -123,9 +140,9 @@ impl FromRequestParts<AppState> for ApiCaller {
         };
 
         if presented.expose_secret().starts_with(KEY_PREFIX) {
-            api_key_caller(&pool, &tenant, presented).await
+            api_key_caller(&pool, tenant, state, presented).await
         } else {
-            session_caller(&pool, state, presented).await
+            session_caller(&pool, tenant, state, presented).await
         }
     }
 }
@@ -133,7 +150,8 @@ impl FromRequestParts<AppState> for ApiCaller {
 /// The API-key arm: a licence, then a credential.
 async fn api_key_caller(
     pool: &PgPool,
-    tenant: &TenantSummary,
+    tenant: TenantSummary,
+    state: &AppState,
     presented: SecretString,
 ) -> Result<ApiCaller, Problem> {
     // The licence, before the credential. A workspace that has not been sold
@@ -168,6 +186,8 @@ async fn api_key_caller(
         caller: authenticated.caller,
         pool: pool.clone(),
         key_id: Some(authenticated.key_id),
+        tenant,
+        state: state.clone(),
     })
 }
 
@@ -180,6 +200,7 @@ async fn api_key_caller(
 /// See ADR 0003 §3, which also states the residual this leaves open.
 async fn session_caller(
     pool: &PgPool,
+    tenant: TenantSummary,
     state: &AppState,
     presented: SecretString,
 ) -> Result<ApiCaller, Problem> {
@@ -199,6 +220,8 @@ async fn session_caller(
         caller: Caller::user(user),
         pool: pool.clone(),
         key_id: None,
+        tenant,
+        state: state.clone(),
     })
 }
 
@@ -225,11 +248,7 @@ async fn workspace(
 /// Case-insensitive on the scheme because RFC 7235 says so, and clients get it
 /// wrong in both directions.
 pub fn bearer_of(headers: &axum::http::HeaderMap) -> Option<SecretString> {
-    let raw = headers
-        .get(header::AUTHORIZATION)?
-        .to_str()
-        .ok()?
-        .trim();
+    let raw = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
 
     let (scheme, token) = raw.split_once(' ')?;
     if !scheme.eq_ignore_ascii_case("bearer") {

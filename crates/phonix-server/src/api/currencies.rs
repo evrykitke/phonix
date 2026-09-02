@@ -16,7 +16,6 @@
 //! from the workspace's row, and a client formatting an amount needs them.
 
 use axum::Json;
-use axum::extract::Path;
 use axum::http::StatusCode;
 use phonix_core::locale::Currency;
 use phonix_core::money::WorkspaceCurrency;
@@ -28,6 +27,7 @@ use utoipa::ToSchema;
 use super::auth::ApiCaller;
 use super::json::ApiJson;
 use super::paging::{ListParams, ListRequest, PageEnvelope, cut};
+use super::path::ApiPath;
 use super::problem::Problem;
 
 /// A currency this workspace deals in.
@@ -125,7 +125,7 @@ pub async fn list(
 )]
 pub async fn get(
     caller: ApiCaller,
-    Path(code): Path<String>,
+    ApiPath(code): ApiPath<String>,
 ) -> Result<Json<CurrencyResource>, Problem> {
     let currency = parse_code(&code).ok_or_else(|| missing(&code))?;
     let rows = currency::list(&caller.pool).await?;
@@ -160,7 +160,7 @@ pub async fn get(
 )]
 pub async fn save(
     caller: ApiCaller,
-    Path(code): Path<String>,
+    ApiPath(code): ApiPath<String>,
     ApiJson(input): ApiJson<SaveCurrency>,
 ) -> Result<Json<CurrencyResource>, Problem> {
     let currency = parse_code(&code).ok_or_else(|| missing(&code))?;
@@ -173,7 +173,14 @@ pub async fn save(
         .map(str::trim)
         .filter(|symbol| !symbol.is_empty());
 
-    currency::save(&caller.pool, &caller.caller, currency, input.enabled, symbol).await?;
+    currency::save(
+        &caller.pool,
+        &caller.caller,
+        currency,
+        input.enabled,
+        symbol,
+    )
+    .await?;
 
     // The audit trail records the change and who made it; this records which
     // credential it arrived on, which is the question asked when a key turns

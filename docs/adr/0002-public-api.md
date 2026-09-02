@@ -485,6 +485,141 @@ paginator here must end in a tie-break that is total and agrees with its own
 default**, or paging shows one row twice and another never.
 
 
+### Amended 2026-09-01 — the administration area, finished
+
+Everything the administration screens can do, `/api/v1` can now do. The surface
+is thirty-nine operations across nine tags; twenty-eight of them are new, and
+they include the writes §10 deferred:
+
+```
+GET    /permissions                    the tree scopes are named from   ungated
+GET    /users                          list                             (Users)
+POST   /users                          invite                           (Users.Create)
+GET    /users/{id}                     one                              (Users)
+PUT    /users/{id}                     name, status, roles              (Users.Edit)
+POST   /users/{id}/invitation          reissue                          (Users.Create)
+GET    /users/{id}/permissions         by source                        (Users)
+PUT    /users/{id}/permissions         replace                          (Users.ChangePermissions)
+GET    /roles, /roles/{id}             list, one with grants            (Roles)
+POST   /roles                          define                           (Roles.Create)
+PUT    /roles/{id}                     rename                           (Roles.Edit)
+DELETE /roles/{id}                     remove                           (Roles.Delete)
+PUT    /roles/{id}/permissions         replace what it grants           (Roles.ChangePermissions)
+GET    /api-keys                       list, live and revoked           (ApiKeys)
+POST   /api-keys                       issue, token once                (ApiKeys.Create)
+POST   /api-keys/{id}/revoke           stop                             (ApiKeys.Revoke)
+GET    /apps                           the catalog and this workspace   (Apps)
+POST   /apps/{id}/install              switch on, with dependencies     (Apps.Install)
+POST   /apps/{id}/uninstall            switch off                       (Apps.Install)
+GET    /settings/security              password, MFA, audit policy      ungated
+PUT    /settings/security              replace                          (Settings)
+GET    /settings/organization          who the workspace is             (Settings)
+PUT    /settings/organization          replace                          (Settings)
+GET    /settings/mail                  the relay, never its password    (Settings)
+PUT    /settings/mail                  replace                          (Settings)
+GET    /settings/api                   the licence                      ungated
+PUT    /settings/api                   sell it, or stop                 (Settings)
+GET    /audit/changes, /{id}           the change trail                 (AuditLogs)
+GET    /audit/events, /{id}            the security trail               (AuditLogs)
+```
+
+Nine decisions the build settled. Each is here because the next resource
+should not have to make it again.
+
+1. **The user writes are safe, and §10's worry has an answer.** That section
+   held them back because "roles and status move together, and a key must not
+   be able to hand itself a role". Two existing mechanisms answer it. Changing
+   roles requires `Users.ChangePermissions`, asked for by the service *only
+   when the roles actually differ* — so renaming somebody needs `Users.Edit`
+   alone. And a key cannot widen itself: its power is its owner's current
+   grants ∩ its own scopes, re-read per request, so granting its owner more
+   moves the first half and not the second.
+
+   What is left is that somebody holding `Users.ChangePermissions` can escalate
+   *themselves*. That has always been true of that permission and is what it
+   means. It is not a property of this surface, and refusing here would only
+   make the browser and the API disagree about who may administer a workspace.
+
+2. **An adapter must not add a gate the service does not have — the converse
+   of the rule under "Consequences".** Three reads on this surface are
+   ungated: the security policy, the API licence, and the permission tree.
+   Gating them "because they are administration" would have made the API
+   refuse what the browser allows, with nothing to report the difference. The
+   password policy is readable by everybody because somebody choosing a
+   password has to be told the rules; the API flag is readable because the
+   screen that manages keys has to be able to say the API is off; the
+   permission tree is a compiled `const` describing the software, not a tenant.
+
+3. **`/settings` is four sub-resources, not one document.** Merging them would
+   force the strictest gate onto the loosest part — the password policy is
+   ungated, the organization's registered address is not — so a single
+   `GET /settings` would mean only administrators could find out how long their
+   password has to be.
+
+4. **A `PUT` is the whole document, and no field defaults.** An omitted
+   `enabled` defaulting to `false` would let a caller who sent half a policy
+   switch the audit trail off without naming it. "I did not mention it" must
+   not mean "turn it off". A client changing one field reads, edits and writes
+   back, which is also what makes two concurrent saves produce one of the two
+   documents rather than a mixture.
+
+5. **A refusal the service models as a value is still a refusal on the wire.**
+   `uninstall` answers `AlwaysOn` and `NeededBy` as ordinary outcomes, which is
+   right where a screen renders both beside the button. A script that read
+   `200` and moved on would have been told an app is off while it is still on.
+   They became `409 app_always_on` and `409 app_required_by` — the second
+   naming the dependant, because "no" without a reason is a dead end.
+   `SwitchedOff`, including "it was already off", stays a `200`: that is a true
+   statement about the end state.
+
+6. **`errors[].code` has two namespaces, and the prefix is the discriminator.**
+   `error.*` is a catalog key from a service rejection, which a client may
+   render its own wording for. `request.*` is this surface's own, for the
+   values a wire type cannot express — an ISO code, an IANA timezone — where
+   there is no sentence in the catalog to point at. Both are stable within a
+   major version. Inventing catalog keys for API-only refusals would have put
+   sentences in the translation files that no screen ever shows.
+
+7. **The §"users" 404 trap has a second answer, for when there is no list to
+   scan.** `directory::audit_event` reports a missing row as a rejection, like
+   `directory::find`. `users::get` works around it by scanning the list; the
+   audit trail has no list — it is paged in SQL and grows forever — so the
+   handler recognises the rejection by the field the service names and spells
+   the 404. A test asserts against the real message that call site produces, so
+   a rename there fails here rather than quietly reverting to a 422.
+
+8. **A key that can mint a key is not an escalation.** `issue` refuses a scope
+   the issuer does not hold, and the widest key a key can mint is therefore a
+   copy of itself, issued by and acting as the same person. What it buys is
+   rotation without a browser, and a deployment that needs a browser to replace
+   a credential is a deployment whose credentials do not get replaced.
+
+9. **Revoking is not deleting, so it is not `DELETE`.** The row stays, with its
+   name, its scopes, its `last_used_at` and the reason somebody gave — because
+   "which key was that, and who stopped it" is asked long after the key is
+   dead. `POST /api-keys/{id}/revoke` is named after what it does. It is also
+   deliberately *not* idempotent: revoking an already-revoked key answers 422
+   rather than reporting success for an act that did nothing.
+
+Two things a write must do, restated as rules because every new endpoint here
+had to be reminded of them:
+
+* **Read back; never echo.** The value returned is loaded from storage after
+  the write, not the draft that came in. The two differ whenever the database
+  declined something — a static role keeps its name however it was submitted —
+  and echoing the draft shows a change that did not happen.
+* **A `Submission::Rejected` goes out through `ServiceError::Rejected`.** It is
+  not an error inside the application, but on a wire it is a 422, and it has to
+  be *the same* 422 a service error produces or a client parses two shapes for
+  one situation.
+
+Still not here, and still for the reasons §10 gives: exchange rates, webhooks,
+cursor pagination. And one new one — **there is no endpoint that sets somebody
+else's password.** An account gets one exactly once, from the person who will
+use it, by opening an invitation link. Anything else is an account takeover
+with a friendly name, and no client needs it.
+
+
 ## Consequences
 
 * A published spec cannot be walked back. Every endpoint added to `v1` is
@@ -512,6 +647,10 @@ default**, or paging shows one row twice and another never.
   problem body, the paging contract, the specification at
   `/api/v1/openapi.json`, Scalar at `/api/v1/docs`, and currencies.
 * A rate-limit tier of its own.
+
+**Since built** (2026-09-01): the whole administration area, listed in the
+amendment above — permissions, the user and role writes, API keys, apps,
+settings and both audit trails.
 
 **Since built** (2026-08-28, checked 2026-08-29): `/admin/api-keys`, which
 lists and revokes, carries the `api_enabled` control, and hands the token over

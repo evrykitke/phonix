@@ -1,6 +1,22 @@
 //! `/api/v1/roles` - what a workspace's roles are, and what each one grants.
 //!
-//! Read-only, and gated on `Pages.Administration.Roles`.
+//! Reading is gated on `Pages.Administration.Roles`. Writing is gated on four
+//! *different* permissions, and that is the shape of the resource rather than
+//! an accident:
+//!
+//! ```text
+//! POST   /roles                  Roles.Create
+//! PUT    /roles/{id}             Roles.Edit
+//! DELETE /roles/{id}             Roles.Delete
+//! PUT    /roles/{id}/permissions Roles.ChangePermissions
+//! ```
+//!
+//! Being allowed to rename a role is not being allowed to define one, and
+//! neither is being allowed to say what it *grants* - which reaches everybody
+//! holding it, immediately, because permissions are resolved per request and
+//! never cached into a session. That last one is the reason the permission set
+//! is a sub-resource with a gate of its own rather than a field on the role:
+//! merging them would make renaming a role require the power to re-grant it.
 //!
 //! # Why this one earns its place in `v1`
 //!
@@ -23,16 +39,20 @@
 //! where every row drags its whole permission list along.
 
 use axum::Json;
-use axum::extract::Path;
 use axum::http::StatusCode;
-use phonix_core::authorization::{RoleDetail, RoleSummary};
+use phonix_core::authorization::{PermissionSet, RoleDetail, RoleInput, RoleSummary};
+use phonix_core::form::Submission;
 use phonix_core::query::{Page, PageRequest};
+use phonix_services::ServiceError;
 use phonix_services::authorization::{grants, roles};
+use serde::Deserialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::auth::ApiCaller;
+use super::json::ApiJson;
 use super::paging::{ListParams, ListRequest, PageEnvelope, cut};
+use super::path::ApiPath;
 use super::problem::Problem;
 
 /// A role this workspace has defined.
@@ -147,7 +167,10 @@ pub async fn list(
     ),
     security(("api_key" = [])),
 )]
-pub async fn get(caller: ApiCaller, Path(id): Path<Uuid>) -> Result<Json<RoleDetailResource>, Problem> {
+pub async fn get(
+    caller: ApiCaller,
+    ApiPath(id): ApiPath<Uuid>,
+) -> Result<Json<RoleDetailResource>, Problem> {
     // `grants::role_permissions` answers a missing role with
     // `ServiceError::rejected`, which renders as a 422 with a field error -
     // right for the role editor's form, wrong for an address with nothing at
@@ -170,6 +193,291 @@ pub async fn get(caller: ApiCaller, Path(id): Path<Uuid>) -> Result<Json<RoleDet
     let detail = grants::role_permissions(&caller.pool, &caller.caller, id).await?;
 
     Ok(Json(resource_of(&detail)))
+}
+
+/// What `POST /roles` and `PUT /roles/{id}` accept.
+///
+/// Identity only - what the role is called and whether new accounts get it.
+/// **Not what it grants**: that is `PUT /roles/{id}/permissions`, behind a
+/// different permission, for the reason the module note gives.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[schema(as = RoleSave)]
+pub struct SaveRole {
+    /// The stable key, matched case-insensitively and unique per workspace.
+    /// This is what appears in a user's `roles`, what `filter[role]` on
+    /// `/users` matches, and what `PUT /users/{id}` names a role by.
+    ///
+    /// **Ignored for a role that ships with the product**: code assigns
+    /// `Admin` by that string, so the stored name stands whatever is sent.
+    #[schema(example = "Bookkeeper")]
+    pub name: String,
+    /// What a screen shows. Free to change without breaking anything that
+    /// refers to the role by `name`.
+    #[schema(example = "Bookkeeper")]
+    pub display_name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Given automatically to every account created **from now on**. It does
+    /// not reach accounts that already exist, which is the whole of what this
+    /// flag does and the part that surprises people.
+    #[serde(default)]
+    pub is_default: bool,
+}
+
+/// What `PUT /roles/{id}/permissions` accepts.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[schema(as = RolePermissionsSave)]
+pub struct SavePermissions {
+    /// The whole set this role should grant, by permission name -
+    /// `GET /permissions` lists them.
+    ///
+    /// **A set, not a diff.** A diff would be a diff against whatever the
+    /// caller last read, which may be minutes old and may be somebody else's
+    /// change, and applying it would silently undo theirs. Sending the same
+    /// set twice is the same answer twice.
+    ///
+    /// Granting a name implies its ancestors, exactly as a tick in the editor
+    /// does.
+    ///
+    /// **A name this build does not define is dropped, not refused** - as is
+    /// one belonging to an app this workspace has not switched on. The second
+    /// is load-bearing: enablement *is* permissions, and this is the one door
+    /// that would otherwise let somebody re-open an app by hand. The first
+    /// follows the paging contract's rule for a value this build does not
+    /// recognise, and means a client written against a later release does not
+    /// have its whole save refused for one name. Read the response to see what
+    /// was actually stored.
+    #[schema(example = json!(["Pages.Administration", "Pages.Administration.Users"]))]
+    pub permissions: Vec<String>,
+}
+
+/// Define a role.
+///
+/// A new role grants **nothing** until `PUT /roles/{id}/permissions` is called;
+/// the change trail says so on the creation entry, so a trail reader does not
+/// have to infer it.
+///
+/// Requires `Pages.Administration.Roles.Create`. A name somebody already has
+/// comes back as a 422 against `name` rather than as a conflict, because that
+/// is a thing to say next to the box it was typed into.
+#[utoipa::path(
+    post,
+    path = "/roles",
+    tag = "roles",
+    operation_id = "createRole",
+    request_body = SaveRole,
+    responses(
+        (status = 201, description = "The role as stored", body = RoleResource),
+        (status = 401, description = "No usable key", body = Problem),
+        (status = 403, description = "The key does not carry Roles.Create", body = Problem),
+        (status = 415, description = "The body was not sent as JSON", body = Problem),
+        (status = 422, description = "A blank or reserved name, or one already taken", body = Problem),
+    ),
+    security(("api_key" = [])),
+)]
+pub async fn create(
+    caller: ApiCaller,
+    ApiJson(body): ApiJson<SaveRole>,
+) -> Result<
+    (
+        StatusCode,
+        [(axum::http::HeaderName, String); 1],
+        Json<RoleResource>,
+    ),
+    Problem,
+> {
+    // `id: None` is what makes this a creation. The service reads the mode off
+    // the draft rather than from a parameter, so an endpoint cannot open the
+    // create path against a role that exists.
+    let saved = save_role(&caller, input_of(body, None)).await?;
+
+    let id = saved.id.ok_or_else(|| {
+        // Unreachable: a saved role carries the id it was given, and a test in
+        // the service says so. Answering rather than unwrapping, because a
+        // panic inside a request is the wrong answer to anything.
+        Problem::from(phonix_core::Error::Internal)
+    })?;
+
+    let role = one(&caller, id).await?;
+
+    Ok((
+        StatusCode::CREATED,
+        [(axum::http::header::LOCATION, format!("/api/v1/roles/{id}"))],
+        Json(role),
+    ))
+}
+
+/// Rename a role, or change whether new accounts get it.
+///
+/// Requires `Pages.Administration.Roles.Edit`. A role that ships with the
+/// product keeps its `name` whatever is sent - see [`SaveRole`] - and the
+/// answer is read back from storage rather than echoed, so the response shows
+/// what was stored rather than what was asked for.
+#[utoipa::path(
+    put,
+    path = "/roles/{id}",
+    tag = "roles",
+    operation_id = "updateRole",
+    params(("id" = Uuid, Path, description = "The role's id")),
+    request_body = SaveRole,
+    responses(
+        (status = 200, description = "The role as it now stands", body = RoleResource),
+        (status = 401, description = "No usable key", body = Problem),
+        (status = 403, description = "The key does not carry Roles.Edit", body = Problem),
+        (status = 415, description = "The body was not sent as JSON", body = Problem),
+        (status = 422, description = "No such role, a bad name, or one already taken", body = Problem),
+    ),
+    security(("api_key" = [])),
+)]
+pub async fn update(
+    caller: ApiCaller,
+    ApiPath(id): ApiPath<Uuid>,
+    ApiJson(body): ApiJson<SaveRole>,
+) -> Result<Json<RoleResource>, Problem> {
+    save_role(&caller, input_of(body, Some(id))).await?;
+
+    Ok(Json(one(&caller, id).await?))
+}
+
+/// Remove a role.
+///
+/// **Everybody holding it loses whatever it granted, at once** - permissions
+/// are resolved per request - without their accounts being touched otherwise.
+/// How many people that was is counted before the row goes and recorded on the
+/// change trail, because afterwards nothing can answer it.
+///
+/// The roles that ship with the product are refused: `Admin` and `User` are
+/// assigned by code and rewritten on every deploy.
+///
+/// Requires `Pages.Administration.Roles.Delete`.
+#[utoipa::path(
+    delete,
+    path = "/roles/{id}",
+    tag = "roles",
+    operation_id = "deleteRole",
+    params(("id" = Uuid, Path, description = "The role's id")),
+    responses(
+        (status = 204, description = "Gone, and so are the grants it carried."),
+        (status = 401, description = "No usable key", body = Problem),
+        (status = 403, description = "The key does not carry Roles.Delete", body = Problem),
+        (status = 422, description = "No such role, or one that ships with the product", body = Problem),
+    ),
+    security(("api_key" = [])),
+)]
+pub async fn delete(caller: ApiCaller, ApiPath(id): ApiPath<Uuid>) -> Result<StatusCode, Problem> {
+    roles::delete(&caller.pool, &caller.caller, id).await?;
+
+    tracing::info!(key = ?caller.key_id, role = %id, "role deleted through the api");
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Replace what a role grants.
+///
+/// Requires `Pages.Administration.Roles.ChangePermissions`, which is a wider
+/// power than editing the role: this reaches every account holding it on their
+/// very next request.
+///
+/// `Admin` is refused. It holds the whole tree by definition and is rewritten
+/// from the compiled tree on every deploy, so an edit here would silently
+/// revert at the next release - which is worse than a refusal.
+#[utoipa::path(
+    put,
+    path = "/roles/{id}/permissions",
+    tag = "roles",
+    operation_id = "setRolePermissions",
+    params(("id" = Uuid, Path, description = "The role's id")),
+    request_body = SavePermissions,
+    responses(
+        (status = 200, description = "The role and what it now grants", body = RoleDetailResource),
+        (status = 401, description = "No usable key", body = Problem),
+        (status = 403, description = "The key does not carry Roles.ChangePermissions", body = Problem),
+        (status = 415, description = "The body was not sent as JSON", body = Problem),
+        (status = 422, description = "No such role, or Admin", body = Problem),
+    ),
+    security(("api_key" = [])),
+)]
+pub async fn set_permissions(
+    caller: ApiCaller,
+    ApiPath(id): ApiPath<Uuid>,
+    ApiJson(body): ApiJson<SavePermissions>,
+) -> Result<Json<RoleDetailResource>, Problem> {
+    // `grant` rather than `insert_exact`: a name implies its ancestors, which
+    // is what a tick in the editor does and what makes the two agree. Building
+    // the set exactly as sent would produce a role holding a leaf whose parent
+    // it does not hold, which no screen can render and no resolver expects.
+    let mut desired = PermissionSet::new();
+    for name in &body.permissions {
+        let name = name.trim();
+        if !name.is_empty() {
+            desired.grant(name);
+        }
+    }
+
+    let detail = grants::set_role_permissions(&caller.pool, &caller.caller, id, &desired).await?;
+
+    tracing::info!(
+        key = ?caller.key_id,
+        role = %id,
+        permissions = detail.permissions.len(),
+        "role permissions saved through the api"
+    );
+
+    Ok(Json(resource_of(&detail)))
+}
+
+/// A body as the service takes it.
+fn input_of(body: SaveRole, id: Option<Uuid>) -> RoleInput {
+    RoleInput {
+        id,
+        name: body.name,
+        display_name: body.display_name,
+        description: body.description,
+        is_default: body.is_default,
+    }
+}
+
+/// Save, and turn a refusal into the one validation body every other endpoint
+/// here produces.
+///
+/// `Submission::Rejected` is not an error inside the application - a form that
+/// fails validation is the expected path through a form - but on a wire it is
+/// a 422, and it has to be *the same* 422 a service error produces or a client
+/// has two shapes to parse for one situation. Routing it through
+/// `ServiceError::Rejected` is what guarantees they cannot drift.
+async fn save_role(caller: &ApiCaller, draft: RoleInput) -> Result<RoleInput, Problem> {
+    match roles::save(&caller.pool, &caller.caller, draft).await? {
+        Submission::Saved(saved) => {
+            tracing::info!(
+                key = ?caller.key_id,
+                role = ?saved.id,
+                "role saved through the api"
+            );
+            Ok(saved)
+        }
+        Submission::Rejected(errors) => Err(Problem::from(ServiceError::Rejected(errors))),
+    }
+}
+
+/// One role's summary, re-read after a write.
+///
+/// Read back rather than echoed, the rule `currencies::save` sets: the counts
+/// are the database's and the database declines a rename on a static role, so
+/// echoing the draft would show a change that did not happen.
+async fn one(caller: &ApiCaller, id: Uuid) -> Result<RoleResource, Problem> {
+    let summaries = roles::list(&caller.pool, &caller.caller).await?;
+
+    summaries
+        .iter()
+        .find(|role| role.id == id)
+        .map(RoleResource::from)
+        .ok_or_else(|| {
+            Problem::new(
+                StatusCode::NOT_FOUND,
+                "not_found",
+                "There is no role with that id on this workspace.",
+            )
+        })
 }
 
 /// The wire shape of one role and its grants.
@@ -235,7 +543,11 @@ fn paginate(rows: Vec<RoleSummary>, request: &PageRequest) -> Page<RoleResource>
                 .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
         }),
         Some("user_count") => {
-            matching.sort_by(|a, b| a.user_count.cmp(&b.user_count).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+            matching.sort_by(|a, b| {
+                a.user_count
+                    .cmp(&b.user_count)
+                    .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            });
         }
         _ => matching.sort_by_key(|role| role.name.to_lowercase()),
     }
@@ -298,8 +610,14 @@ mod tests {
 
     #[test]
     fn the_static_filter_separates_what_ships_from_what_a_workspace_defined() {
-        let ours = paginate(defined(), &PageRequest::default().filtered_by("static", "false"));
-        let theirs = paginate(defined(), &PageRequest::default().filtered_by("static", "true"));
+        let ours = paginate(
+            defined(),
+            &PageRequest::default().filtered_by("static", "false"),
+        );
+        let theirs = paginate(
+            defined(),
+            &PageRequest::default().filtered_by("static", "true"),
+        );
 
         assert_eq!(names(&ours), vec!["auditor", "Bookkeeper"]);
         assert_eq!(names(&theirs), vec!["Admin", "User"]);
@@ -310,7 +628,10 @@ mod tests {
         // Two-valued, so there is no third set for a typo to mean - and
         // refusing would break the contract that a bad parameter still
         // answers with rows.
-        let page = paginate(defined(), &PageRequest::default().filtered_by("static", "yes"));
+        let page = paginate(
+            defined(),
+            &PageRequest::default().filtered_by("static", "yes"),
+        );
 
         assert_eq!(names(&page), vec!["auditor", "Bookkeeper"]);
     }
@@ -328,7 +649,10 @@ mod tests {
         };
         let page = paginate(rows, &request.sanitised());
 
-        assert_eq!(names(&page)[..2], ["auditor".to_owned(), "Bookkeeper".to_owned()]);
+        assert_eq!(
+            names(&page)[..2],
+            ["auditor".to_owned(), "Bookkeeper".to_owned()]
+        );
     }
 
     #[test]
@@ -343,6 +667,37 @@ mod tests {
         let page = paginate(rows, &request.sanitised());
 
         assert_eq!(names(&page), vec!["auditor"]);
+    }
+
+    #[test]
+    fn a_body_with_no_id_is_a_creation_and_one_with_an_id_is_not() {
+        // The service reads the mode off the draft, so this mapping is what
+        // decides which of `Roles.Create` and `Roles.Edit` is asked for.
+        let body = SaveRole {
+            name: "Bookkeeper".to_owned(),
+            display_name: "Bookkeeper".to_owned(),
+            description: None,
+            is_default: false,
+        };
+
+        assert_eq!(input_of(body.clone(), None).id, None);
+        assert_eq!(
+            input_of(body, Some(Uuid::from_u128(7))).id,
+            Some(Uuid::from_u128(7))
+        );
+    }
+
+    #[test]
+    fn a_saved_permission_set_carries_the_ancestors_of_what_was_sent() {
+        // A leaf without its parents is a role no screen can render and no
+        // resolver expects, and a client sending one leaf means the tick.
+        let mut desired = PermissionSet::new();
+        desired.grant("Pages.Administration.Users.Create");
+
+        assert!(desired.is_granted("Pages.Administration.Users.Create"));
+        assert!(desired.is_granted("Pages.Administration.Users"));
+        assert!(desired.is_granted("Pages.Administration"));
+        assert!(desired.is_granted("Pages"));
     }
 
     #[test]

@@ -99,6 +99,36 @@ impl Problem {
         Self::new(StatusCode::UNAUTHORIZED, "unauthenticated", detail)
     }
 
+    /// A body this router refused before any use case saw it, naming the
+    /// field.
+    ///
+    /// For the values a wire type cannot express as a type: an ISO code, a
+    /// timezone name. Everything else that is refused field by field comes
+    /// from a service, whose `code` is a `Message` key out of the catalog.
+    ///
+    /// The two are told apart by their prefix, and this is the only place the
+    /// distinction is written down: **`error.` is a catalog key**, which a
+    /// client may render its own wording for; **`request.` is this surface's
+    /// own**, spelled here because there is no sentence in the catalog to
+    /// point at. Both are stable within a major version, which is what a
+    /// client branching on either actually needs.
+    pub fn invalid(field: &str, code: &str, detail: impl Into<String>) -> Self {
+        let detail = detail.into();
+        let mut problem = Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation",
+            format!("{field}: {detail}"),
+        );
+
+        problem.errors = vec![FieldProblem {
+            field: field.to_owned(),
+            code: code.to_owned(),
+            message: detail,
+        }];
+
+        problem
+    }
+
     /// Carry the wait in a `Retry-After` header as well as in the sentence.
     ///
     /// The header is the half a client library acts on without being taught to;
@@ -154,8 +184,7 @@ impl From<CoreError> for Problem {
 
 impl IntoResponse for Problem {
     fn into_response(self) -> Response {
-        let status =
-            StatusCode::from_u16(self.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        let status = StatusCode::from_u16(self.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         let unauthenticated = self.code == "unauthenticated";
         let retry_after = self.retry_after_secs;
 
@@ -261,6 +290,26 @@ mod tests {
         assert_eq!(Problem::unauthenticated("no key").status, 401);
         assert_eq!(Problem::from(CoreError::Forbidden).status, 403);
         assert_eq!(Problem::from(CoreError::Forbidden).code, "forbidden");
+    }
+
+    #[test]
+    fn a_body_this_router_refused_itself_still_names_its_field() {
+        // The shape has to be the one a service rejection produces, or a
+        // client parsing `errors[]` has two cases for one situation.
+        let problem = Problem::invalid(
+            "currency",
+            "request.currency.unknown",
+            "ZZZ is not a currency.",
+        );
+
+        assert_eq!(problem.status, 422);
+        assert_eq!(problem.code, "validation");
+        assert_eq!(problem.errors[0].field, "currency");
+        assert!(
+            problem.errors[0].code.starts_with("request."),
+            "not a catalog key"
+        );
+        assert!(problem.detail.contains("currency:"));
     }
 
     #[test]
