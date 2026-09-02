@@ -28,6 +28,34 @@ pub fn router(state: DeskState) -> Router {
         .route("/", get(workspaces::index))
         .route("/workspaces/{slug}", get(workspaces::show))
         .route("/workspaces/{slug}/licence", post(workspaces::set_licence))
+        // Each action is a confirm page and a POST. Without a script a confirm
+        // is a page rather than a dialog, which turns out to be better than
+        // what it replaces: there is room to say what will happen, the back
+        // button means "no", and the address bar says which workspace is about
+        // to be acted on.
+        .route(
+            "/workspaces/{slug}/retry",
+            get(workspaces::confirm_retry).post(workspaces::do_retry),
+        )
+        .route(
+            "/workspaces/{slug}/migrate",
+            get(workspaces::confirm_migrate).post(workspaces::do_migrate),
+        )
+        .route(
+            "/workspaces/{slug}/suspend",
+            get(workspaces::confirm_suspend).post(workspaces::do_suspend),
+        )
+        .route(
+            "/workspaces/{slug}/resume",
+            get(workspaces::confirm_resume).post(workspaces::do_resume),
+        )
+        // Not `/workspaces/migrate-outdated`: that address is also a valid
+        // workspace slug, and claiming it as a static segment would make a
+        // workspace named that unreachable.
+        .route(
+            "/estate/migrate",
+            get(workspaces::confirm_estate_migrate).post(workspaces::do_estate_migrate),
+        )
         .route("/accounts", get(accounts::index).post(accounts::create))
         .route("/accounts/{id}/disabled", post(accounts::set_disabled))
         // Signing in.

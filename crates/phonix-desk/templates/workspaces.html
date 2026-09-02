@@ -3,6 +3,12 @@
 {% block content %}
 {% include "_banner.html" %}
 
+{% if let Some(text) = confirmation %}
+<div class="rounded-control border border-edge border-l-2 border-l-success bg-surface-raised px-3 py-2 text-sm">
+  {{ text }}
+</div>
+{% endif %}
+
 <section class="panel">
   <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-edge px-3 py-2">
     <h2 class="text-sm font-semibold">Workspaces</h2>
@@ -26,9 +32,12 @@
   {% endif %}
 
   {% if outdated > 0 %}
-  <p class="border-b border-edge border-l-2 border-l-warning px-3 py-2 text-sm">
-    {{ outdated }} on a schema older than this build's. They keep serving; a query that needs a new
-    column is what fails, per workspace, in production.
+  <p class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-edge border-l-2 border-l-warning px-3 py-2 text-sm">
+    <span>
+      {{ outdated }} on a schema older than this build's. They keep serving; a query that needs a
+      new column is what fails, per workspace, in production.
+    </span>
+    <a class="btn btn-quiet" href="/estate/migrate">Migrate all outdated</a>
   </p>
   {% endif %}
 
@@ -86,10 +95,9 @@
     Written down in <code class="font-mono">docs/adr/0005-phonix-desk.md</code>, and not here yet:
   </p>
   <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-content-muted">
-    <li>Retrying a stuck <code class="font-mono text-xs">provisioning</code>, and migrating outdated workspaces.</li>
-    <li>Suspending and resuming - the mechanism exists and nothing calls it.</li>
     <li>Creating a workspace, with its licence and its owner invitation.</li>
     <li>The audit trail's own screen, and the job queues.</li>
+    <li>Archive, once suspend has been used in anger.</li>
   </ul>
 </section>
 {% endblock %}

@@ -139,6 +139,7 @@ mod tests {
             title: "Workspaces".to_owned(),
             chrome: Chrome::new("<img onerror=x>", "development", "workspaces"),
             banner: None,
+            confirmation: None,
             rows: Vec::new(),
             total: 0,
             serving: 0,
@@ -166,6 +167,33 @@ mod tests {
 
         assert!(!rendered.contains("Sign out"));
         assert!(!rendered.contains("Desk accounts"));
+    }
+
+    /// The property every confirm page rests on: reaching it changes nothing,
+    /// and the only thing that acts is a `POST`. A `GET` that suspended a
+    /// workspace could be fired by a prefetch, a crawler, or an `<img>` on
+    /// somebody else's page.
+    #[test]
+    fn a_confirm_page_only_acts_through_a_post() {
+        let page = crate::routes::workspaces::ConfirmPage {
+            title: "Acme".to_owned(),
+            chrome: Chrome::new("Ada", "development", "workspaces"),
+            banner: None,
+            heading: "Suspend this workspace?".to_owned(),
+            detail: "The workspace stops serving traffic immediately.".to_owned(),
+            consequences: vec!["The database is untouched."],
+            action: "/workspaces/acme/suspend".to_owned(),
+            button: "Suspend the workspace".to_owned(),
+            danger: true,
+            back: "/workspaces/acme".to_owned(),
+        };
+
+        let rendered = page.render().expect("the page renders");
+
+        assert!(rendered.contains(r#"method="post" action="/workspaces/acme/suspend""#));
+        // The only other way out is a link back, which acts on nothing.
+        assert!(rendered.contains(r#"href="/workspaces/acme""#));
+        assert!(!rendered.contains("method=\"get\""));
     }
 
     /// Search engines have no business here even though nginx is the real gate:

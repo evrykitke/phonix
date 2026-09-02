@@ -312,7 +312,43 @@ impl Catalog {
         Ok(())
     }
 
+    /// Record the schema version a tenant was migrated to, and nothing else.
+    ///
+    /// # Why this is not `mark_active`
+    ///
+    /// `mark_active` also writes `status = 'active'`, which is right at the end
+    /// of provisioning - that write *is* the commit point of creating a
+    /// workspace. It is wrong for a migration: the boot sweep migrates every
+    /// outdated workspace, so with `mark_active` a deploy would silently resume
+    /// every workspace somebody had suspended.
+    ///
+    /// That has never happened, because until Desk nothing anywhere wrote
+    /// `Suspended` - ADR 0005 section 1 lists it as a status no code path
+    /// reaches. It would have happened on the first deploy after the first
+    /// suspension, which is a bug nobody would have connected to a migration.
+    pub async fn mark_migrated(
+        &self,
+        slug: &TenantSlug,
+        schema_version: &str,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE tenants
+                SET schema_version = $2, migrated_at = now(), updated_at = now()
+              WHERE slug = $1",
+        )
+        .bind(slug.as_str())
+        .bind(schema_version)
+        .execute(&self.pool)
+        .await
+        .map_err(DbError::Query)?;
+
+        Ok(())
+    }
+
     /// Mark a tenant active and record the schema version it was migrated to.
+    ///
+    /// The commit point of *creating* a workspace, and only that. Anything
+    /// that migrates an existing one wants [`Self::mark_migrated`].
     pub async fn mark_active(
         &self,
         slug: &TenantSlug,

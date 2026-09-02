@@ -178,12 +178,46 @@
   </form>
 </section>
 
+{# ---------------------------------------------------------------------------
+   Actions. Every one is a link to a confirm page, never a button that acts -
+   so a stray click, a prefetch or a crawler cannot suspend anything.
+
+   Only the actions this workspace is in a state to accept are shown. That is
+   cosmetic and known to be: the service refuses regardless, and the flag here
+   is so a page does not offer something that would only produce a refusal.
+   --------------------------------------------------------------------------- #}
+<section class="panel">
+  <div class="border-b border-edge px-3 py-2">
+    <h2 class="text-sm font-semibold">Actions</h2>
+  </div>
+
+  {% if can_retry || can_migrate || can_suspend || can_resume %}
+  <div class="flex flex-wrap items-center gap-2 px-3 py-3">
+    {% if can_retry %}
+    <a class="btn btn-quiet" href="/workspaces/{{ slug }}/retry">Retry provisioning</a>
+    {% endif %}
+    {% if can_migrate %}
+    <a class="btn btn-quiet" href="/workspaces/{{ slug }}/migrate">Migrate to {{ current_schema }}</a>
+    {% endif %}
+    {% if can_resume %}
+    <a class="btn btn-quiet" href="/workspaces/{{ slug }}/resume">Resume</a>
+    {% endif %}
+    {% if can_suspend %}
+    <a class="btn btn-quiet" href="/workspaces/{{ slug }}/suspend">Suspend</a>
+    {% endif %}
+  </div>
+  {% else %}
+  <p class="px-3 py-3 text-sm text-content-muted">
+    Nothing to do. This workspace is current, running, and not stuck.
+  </p>
+  {% endif %}
+</section>
+
 {# Saying where the build stopped, on the page rather than only in the record. #}
 <section class="panel p-3">
   <h2 class="text-sm font-semibold">Not built yet</h2>
   <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-content-muted">
-    <li>Retrying a stuck <code class="font-mono text-xs">provisioning</code>, and migrating this workspace.</li>
-    <li>Suspending and resuming - the mechanism exists and nothing calls it.</li>
+    <li>Archive, once suspend has been used in anger and the difference is felt rather than argued.</li>
     <li>Dependency health, and this workspace's own slice of the audit trail.</li>
   </ul>
 </section>

@@ -563,7 +563,21 @@ do yet.
 5. **Creating a workspace**, licence and owner invitation together, in one act.
 6. **The three safe writes.** Retry a stuck provisioning; migrate one workspace
    and migrate all outdated; suspend and resume. Each behind a confirm, each
-   writing an audit row.
+   writing an audit row. **Built.** Two things the build settled:
+
+   * **A confirm is a page, not a dialog**, because there is no script to open
+     one — and it turns out to be the better of the two. There is room to say
+     what will happen and what it will not touch, the back button means "no",
+     and the address bar names the workspace about to be acted on. Every action
+     is a link to that page and a `POST` from it; nothing acts on a `GET`.
+   * **`mark_active` was wrong for a migration, and would have been a bug
+     nobody connected to one.** It writes `status = 'active'` as well as the
+     schema version, which is right at the end of provisioning — that write
+     *is* the commit point of creating a workspace. The boot sweep used it too,
+     so the first deploy after the first suspension would have silently resumed
+     every suspended workspace. `Catalog::mark_migrated` writes only the
+     version. It had never fired because until now nothing anywhere wrote
+     `Suspended`, which is section 1's first row.
 7. **Archive**, once suspend has been used in anger and the difference between
    the two is felt rather than argued.
 8. **Jobs and the outbox.** The four loops in `jobs.rs` — verifier, sweeper,

@@ -1,0 +1,45 @@
+{#
+  The page in front of every action that changes something.
+
+  A confirm without a script is a page, not a dialog - and that turns out to be
+  better than the dialog it replaces: there is room to say what will happen,
+  the back button means "no", and the address bar says which workspace is about
+  to be acted on. ADR 0005 section 3.
+
+  The button is the only control. Nothing here is pre-selected, nothing is a
+  GET, and reaching this page changes nothing.
+#}
+{% extends "shell.html" %}
+
+{% block content %}
+<p class="text-xs text-content-muted">
+  <a class="hover:text-content hover:underline" href="{{ back }}">Back</a>
+</p>
+
+{% include "_banner.html" %}
+
+<section class="panel">
+  <div class="border-b border-edge px-3 py-2">
+    <h2 class="text-sm font-semibold">{{ heading }}</h2>
+  </div>
+
+  <div class="flex flex-col gap-3 px-3 py-3">
+    <p class="text-sm">{{ detail }}</p>
+
+    {% if !consequences.is_empty() %}
+    <ul class="list-disc space-y-1 pl-5 text-sm text-content-muted">
+      {% for line in consequences %}
+      <li>{{ line }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    <div class="flex items-center gap-2">
+      <form method="post" action="{{ action }}">
+        <button class="btn{% if danger %} btn-danger{% endif %}" type="submit">{{ button }}</button>
+      </form>
+      <a class="btn btn-quiet" href="{{ back }}">Cancel</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

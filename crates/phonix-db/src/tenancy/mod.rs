@@ -22,6 +22,6 @@ pub use installs::AppInstall;
 pub use licence::LicenceInput;
 pub use provision::{
     MigrationSweep, drop_tenant_database, migrate_outdated_tenants, migrate_tenant,
-    provision_tenant,
+    provision_tenant, repair_tenant,
 };
 pub use registry::{TenantHandle, TenantRegistry};

@@ -137,7 +137,11 @@ pub async fn migrate_outdated_tenants(
 
         match migrate_tenant(cfg, &tenant.database_name).await {
             Ok(()) => {
-                catalog.mark_active(&tenant.slug, &latest).await?;
+                // `mark_migrated`, not `mark_active`. A suspended workspace
+                // still needs its schema brought forward so that resuming it
+                // is one decision rather than two - but a deploy must not be
+                // the thing that resumes it.
+                catalog.mark_migrated(&tenant.slug, &latest).await?;
                 sweep.migrated += 1;
             }
             Err(err) => {
@@ -148,6 +152,49 @@ pub async fn migrate_outdated_tenants(
     }
 
     Ok(sweep)
+}
+
+/// Finish a workspace whose provisioning stopped part-way through.
+///
+/// Steps 2, 3 and 6 of the sequence at the top of this file, against a row that
+/// already exists. Every one of them is idempotent, which is what makes a retry
+/// safe: `CREATE DATABASE` is skipped if the database is there, the migrations
+/// are a stream with a recorded position, and the status write is the same
+/// write provisioning ends with.
+///
+/// # What it deliberately does not do
+///
+/// **It does not issue a licence.** Repairing a workspace is not the moment to
+/// invent a commercial decision on somebody's behalf. A workspace that comes
+/// back from this with no licence is shown as unlicensed and refused, and the
+/// person who repaired it decides what it is authorized for - on the same page,
+/// in the next act.
+///
+/// **It does not create the owner.** Step 5 belongs to whichever flow was
+/// creating this workspace, and a repair that invented an account would be
+/// Desk setting somebody's password, which it may not do.
+pub async fn repair_tenant(
+    catalog: &Catalog,
+    cfg: &DatabaseConfig,
+    record: &TenantRecord,
+) -> Result<TenantRecord, DbError> {
+    tracing::info!(
+        tenant = %record.slug,
+        database = %record.database_name,
+        "retrying a stuck provisioning"
+    );
+
+    create_database_if_absent(cfg, &record.database_name).await?;
+    migrate_tenant(cfg, &record.database_name).await?;
+
+    catalog
+        .mark_active(&record.slug, &apps::schema_fingerprint())
+        .await?;
+
+    catalog
+        .find_by_slug(&record.slug)
+        .await?
+        .ok_or_else(|| DbError::UnknownTenant(record.slug.to_string()))
 }
 
 /// What [`migrate_outdated_tenants`] did.

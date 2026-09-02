@@ -15,13 +15,15 @@
 //! sustains that. ADR 0005 section 6.
 
 use chrono::{DateTime, Utc};
+use phonix_config::DatabaseConfig;
 use phonix_core::identity::validation::FieldError;
 use phonix_core::msg;
-use phonix_core::{Licence, LicenceState, TenantSlug};
+use phonix_core::{Licence, LicenceState, TenantSlug, TenantStatus};
 use phonix_db::desk::audit::{DeskAction, DeskAuditEntry, Outcome};
 use phonix_db::desk::session::ClientFacts;
 use phonix_db::tenancy::catalog::{Catalog, TenantRecord};
 use phonix_db::tenancy::licence::{self, LicenceInput};
+use phonix_db::tenancy::{MigrationSweep, apps, provision};
 use serde_json::json;
 
 use crate::desk::auth::DeskCaller;
@@ -150,6 +152,319 @@ pub async fn set_licence(
     );
 
     Ok(written)
+}
+
+// ---------------------------------------------------------------------------
+// The three safe writes
+//
+// Safe in a specific sense: each is either idempotent or reversible, and none
+// of them can lose anything. Retrying a stuck provisioning re-runs steps that
+// are all skip-if-present. Migrating is forward-only but is the same pass the
+// server already runs on boot. Suspending is one column, and resuming puts it
+// back. Creating a workspace and archiving one are not here, and deleting a
+// database is not exposed at all - ADR 0005 section 6.
+//
+// Every one of them writes a `desk_audit` row before returning, including when
+// it fails: an audit trail that holds only successes answers "what was done"
+// and not "what was tried", and the second question is the one asked after
+// something has gone wrong.
+// ---------------------------------------------------------------------------
+
+/// Finish a workspace whose provisioning stopped part-way through.
+///
+/// Refused for a workspace that is not actually stuck. There is nothing to
+/// repair on a workspace that is running, and a "retry" that quietly re-ran
+/// migrations on a live tenant would be a different act wearing this one's
+/// name.
+pub async fn retry_provisioning(
+    catalog: &Catalog,
+    database: &DatabaseConfig,
+    slug: &TenantSlug,
+    actor: &DeskCaller,
+    facts: ClientFacts<'_>,
+) -> ServiceResult<TenantRecord> {
+    let tenant = require(catalog, slug).await?;
+
+    if tenant.status != TenantStatus::Provisioning {
+        return Err(ServiceError::Rejected(vec![FieldError::new(
+            "slug",
+            msg!("desk.workspace.not_stuck"),
+        )]));
+    }
+
+    let before = json!({ "status": tenant.status.as_str() });
+
+    match provision::repair_tenant(catalog, database, &tenant).await {
+        Ok(repaired) => {
+            record(
+                catalog,
+                DeskAction::WorkspaceRetried,
+                Outcome::Ok,
+                slug,
+                actor,
+                facts,
+                Some(before),
+                json!({
+                    "status": repaired.status.as_str(),
+                    "schema_version": repaired.schema_version,
+                }),
+            )
+            .await?;
+
+            Ok(repaired)
+        }
+        Err(err) => {
+            // `Failed`, not `Refused`. This was allowed and then broke, which
+            // is the distinction that decides whether a row is worth waking
+            // somebody for.
+            let detail = err.to_string();
+            record_failure(
+                catalog,
+                DeskAction::WorkspaceRetried,
+                Some(slug),
+                actor,
+                facts,
+                &detail,
+            )
+            .await;
+            Err(err.into())
+        }
+    }
+}
+
+/// Bring one workspace's database up to this build's schema.
+///
+/// Returns the fingerprint it is now on. Runs in the request, which is honest
+/// rather than lazy: the person who pressed the button is the person who should
+/// see whether it worked, and a background job would report into a log nobody
+/// is watching at that moment.
+pub async fn migrate_one(
+    catalog: &Catalog,
+    database: &DatabaseConfig,
+    slug: &TenantSlug,
+    actor: &DeskCaller,
+    facts: ClientFacts<'_>,
+) -> ServiceResult<String> {
+    let tenant = require(catalog, slug).await?;
+    let latest = apps::schema_fingerprint();
+
+    let before = json!({ "schema_version": tenant.schema_version });
+
+    match provision::migrate_tenant(database, &tenant.database_name).await {
+        Ok(()) => {
+            // `mark_migrated`, so migrating a suspended workspace does not
+            // resume it. The two are separate decisions and stay separate.
+            catalog.mark_migrated(slug, &latest).await?;
+
+            record(
+                catalog,
+                DeskAction::WorkspaceMigrated,
+                Outcome::Ok,
+                slug,
+                actor,
+                facts,
+                Some(before),
+                json!({ "schema_version": latest }),
+            )
+            .await?;
+
+            Ok(latest)
+        }
+        Err(err) => {
+            let detail = err.to_string();
+            record_failure(
+                catalog,
+                DeskAction::WorkspaceMigrated,
+                Some(slug),
+                actor,
+                facts,
+                &detail,
+            )
+            .await;
+            Err(err.into())
+        }
+    }
+}
+
+/// Bring every outdated workspace forward, in one pass.
+///
+/// The same function the server runs on boot. One workspace failing does not
+/// stop the rest - a workspace that cannot be migrated is a problem for that
+/// workspace, and refusing to continue would take out every other one with it.
+/// The failures come back by slug, and the audit row names them.
+pub async fn migrate_outdated(
+    catalog: &Catalog,
+    database: &DatabaseConfig,
+    actor: &DeskCaller,
+    facts: ClientFacts<'_>,
+) -> ServiceResult<MigrationSweep> {
+    let sweep = provision::migrate_outdated_tenants(catalog, database).await?;
+
+    let outcome = if sweep.failed.is_empty() {
+        Outcome::Ok
+    } else {
+        Outcome::Failed
+    };
+
+    // No `tenant_slug`: this row is about the estate rather than about one
+    // workspace, and putting a slug on it would make it turn up in the wrong
+    // workspace's history. What it swept is in `after`.
+    phonix_db::desk::audit::record(
+        catalog.pool(),
+        DeskAuditEntry::new(DeskAction::WorkspacesSwept, outcome)
+            .actor(Some(actor.id()), Some(actor.email()))
+            .from_to(
+                json!({ "schema_version": "various" }),
+                json!({
+                    "schema_version": apps::schema_fingerprint(),
+                    "already_current": sweep.current,
+                    "migrated": sweep.migrated,
+                    "failed": sweep.failed,
+                }),
+            )
+            .from_client(facts.ip),
+    )
+    .await?;
+
+    Ok(sweep)
+}
+
+/// Suspend a workspace, or resume it.
+///
+/// One function for both, because they are one column and giving them separate
+/// use cases would be two places to keep the guards in step. What differs is
+/// the action written to the trail, so "who suspended this" stays a question a
+/// person answers by scanning a column.
+///
+/// The licence is untouched. A suspension is somebody's decision; a lapse is a
+/// date passing. Resuming a workspace whose licence has since expired leaves it
+/// still refused, and that is correct - it is a second thing to fix, and the
+/// page says which.
+pub async fn set_status(
+    catalog: &Catalog,
+    slug: &TenantSlug,
+    status: TenantStatus,
+    actor: &DeskCaller,
+    facts: ClientFacts<'_>,
+) -> ServiceResult<TenantRecord> {
+    let tenant = require(catalog, slug).await?;
+
+    if tenant.status == status {
+        return Err(ServiceError::Rejected(vec![FieldError::new(
+            "status",
+            msg!("desk.workspace.status_unchanged"),
+        )]));
+    }
+
+    // A workspace that never finished provisioning has no database to serve
+    // from, and marking it active would route traffic into nothing. That is the
+    // exact failure ADR 0005 section 12 gives as the reason a table editor is
+    // not a substitute for a use case.
+    if tenant.status == TenantStatus::Provisioning && status == TenantStatus::Active {
+        return Err(ServiceError::Rejected(vec![FieldError::new(
+            "status",
+            msg!("desk.workspace.cannot_resume_unprovisioned"),
+        )]));
+    }
+
+    catalog.set_status(slug, status).await?;
+
+    let action = match status {
+        TenantStatus::Active => DeskAction::WorkspaceResumed,
+        _ => DeskAction::WorkspaceSuspended,
+    };
+
+    record(
+        catalog,
+        action,
+        Outcome::Ok,
+        slug,
+        actor,
+        facts,
+        Some(json!({ "status": tenant.status.as_str() })),
+        json!({ "status": status.as_str() }),
+    )
+    .await?;
+
+    tracing::info!(
+        tenant = %slug,
+        from = tenant.status.as_str(),
+        to = status.as_str(),
+        by = actor.email(),
+        "workspace status changed"
+    );
+
+    require(catalog, slug).await
+}
+
+/// The workspace, or `UnknownTenant`.
+///
+/// Every write here starts with this rather than with an `UPDATE ... WHERE`,
+/// because the before-state is half of what the audit row records.
+async fn require(catalog: &Catalog, slug: &TenantSlug) -> ServiceResult<TenantRecord> {
+    catalog
+        .find_by_slug(slug)
+        .await?
+        .ok_or_else(|| phonix_db::DbError::UnknownTenant(slug.to_string()).into())
+}
+
+/// Write one row about one workspace.
+///
+/// Not best-effort, for the reason `phonix_db::desk::audit::record` gives: an
+/// action nobody can attribute is worse than one that failed and has to be
+/// repeated.
+#[allow(clippy::too_many_arguments)]
+async fn record(
+    catalog: &Catalog,
+    action: DeskAction,
+    outcome: Outcome,
+    slug: &TenantSlug,
+    actor: &DeskCaller,
+    facts: ClientFacts<'_>,
+    before: Option<serde_json::Value>,
+    after: serde_json::Value,
+) -> ServiceResult<()> {
+    let entry = DeskAuditEntry::new(action, outcome)
+        .actor(Some(actor.id()), Some(actor.email()))
+        .about(slug.as_str())
+        .from_to(before.unwrap_or(serde_json::Value::Null), after)
+        .from_client(facts.ip);
+
+    phonix_db::desk::audit::record(catalog.pool(), entry).await?;
+    Ok(())
+}
+
+/// Record an action that was allowed and then broke.
+///
+/// Best-effort *here specifically*: the caller is already returning the real
+/// failure, and turning "the migration failed and so did writing that down"
+/// into a different error would hide the one that matters. It is logged
+/// loudly instead.
+async fn record_failure(
+    catalog: &Catalog,
+    action: DeskAction,
+    slug: Option<&TenantSlug>,
+    actor: &DeskCaller,
+    facts: ClientFacts<'_>,
+    detail: &str,
+) {
+    let mut entry = DeskAuditEntry::new(action, Outcome::Failed)
+        .actor(Some(actor.id()), Some(actor.email()))
+        .detail(detail)
+        .from_client(facts.ip);
+
+    let slug = slug.map(TenantSlug::as_str);
+    if let Some(slug) = slug {
+        entry = entry.about(slug);
+    }
+
+    if let Err(err) = phonix_db::desk::audit::record(catalog.pool(), entry).await {
+        tracing::error!(
+            error = %err,
+            action = action.as_str(),
+            "could not record a failed desk action"
+        );
+    }
 }
 
 /// A licence as the audit trail records it.

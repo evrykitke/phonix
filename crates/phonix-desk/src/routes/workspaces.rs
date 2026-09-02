@@ -57,6 +57,7 @@ pub struct WorkspacesPage {
     pub title: String,
     pub chrome: Chrome,
     pub banner: Option<String>,
+    pub confirmation: Option<String>,
     pub rows: Vec<WorkspaceRow>,
     pub total: usize,
     pub serving: usize,
@@ -100,6 +101,7 @@ pub async fn index(
         title: "Workspaces".to_owned(),
         chrome: Chrome::new(&caller.user.display_name, state.environment(), "workspaces"),
         banner: query_value(&uri, "refused"),
+        confirmation: query_value(&uri, "done"),
         total: tenants.len(),
         serving,
         stuck,
@@ -183,6 +185,18 @@ pub struct WorkspacePage {
     /// Which radio the form starts on. `trial` when there is nothing yet,
     /// because that is the ordinary first answer.
     pub chosen_state: String,
+
+    /// Which actions this workspace is in a state to accept.
+    ///
+    /// Decided here rather than in the template, because "may I retry this"
+    /// is a fact about the workspace and the template would have to restate
+    /// the status vocabulary to work it out. A hidden button is cosmetic
+    /// either way - the service refuses regardless, which is the rule the
+    /// product's grid already follows for permission gating.
+    pub can_retry: bool,
+    pub can_migrate: bool,
+    pub can_suspend: bool,
+    pub can_resume: bool,
 }
 
 pub async fn show(
@@ -249,7 +263,374 @@ pub async fn show(
             .map(|view| view.state.clone())
             .unwrap_or_else(|| LicenceState::Trial.as_str().to_owned()),
         licence,
+
+        can_retry: Act::Retry.applies_to(&tenant, &latest),
+        can_migrate: Act::Migrate.applies_to(&tenant, &latest),
+        can_suspend: Act::Suspend.applies_to(&tenant, &latest),
+        can_resume: Act::Resume.applies_to(&tenant, &latest),
     })
+}
+
+// ---------------------------------------------------------------------------
+// The three safe writes
+// ---------------------------------------------------------------------------
+
+/// What Desk can do to one workspace.
+///
+/// An enum with the words on it rather than four pairs of near-identical
+/// handlers: the confirm page and the POST differ only in which of these they
+/// are given, and a sentence written twice is a sentence that ends up saying
+/// two things.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Act {
+    Retry,
+    Migrate,
+    Suspend,
+    Resume,
+}
+
+impl Act {
+    fn path(self) -> &'static str {
+        match self {
+            Self::Retry => "retry",
+            Self::Migrate => "migrate",
+            Self::Suspend => "suspend",
+            Self::Resume => "resume",
+        }
+    }
+
+    fn heading(self) -> &'static str {
+        match self {
+            Self::Retry => "Retry this provisioning?",
+            Self::Migrate => "Migrate this workspace?",
+            Self::Suspend => "Suspend this workspace?",
+            Self::Resume => "Resume this workspace?",
+        }
+    }
+
+    fn detail(self) -> &'static str {
+        match self {
+            Self::Retry => {
+                "This workspace stopped part-way through being created. Retrying finishes the \
+                 steps that did not complete: the database, its migrations, and the row going \
+                 active."
+            }
+            Self::Migrate => {
+                "This workspace's database is on an older schema than this build. Migrating \
+                 brings it forward, app by app, in the same pass the server runs on boot."
+            }
+            Self::Suspend => {
+                "The workspace stops serving traffic immediately. Everyone signed in to it is \
+                 refused on their next request."
+            }
+            Self::Resume => {
+                "The workspace starts serving traffic again, if its licence is current."
+            }
+        }
+    }
+
+    /// The things somebody would want to have known afterwards.
+    fn consequences(self) -> Vec<&'static str> {
+        match self {
+            Self::Retry => vec![
+                "Every step is skip-if-present, so this is safe to run more than once.",
+                "No owner account is created and no licence is issued. Repairing a workspace \
+                 is not the moment to decide what it is authorized for.",
+            ],
+            Self::Migrate => vec![
+                "Forward-only. There is no migration that goes back.",
+                "The status is not touched, so a suspended workspace stays suspended.",
+                "It runs while you wait, and a large database can take a while.",
+            ],
+            Self::Suspend => vec![
+                "Requests answer 403, which is distinguishable from the 404 an unknown \
+                 address gets - so this is tellable apart from a DNS mistake.",
+                "Its background work stops too: no upload verification, no outbox relay.",
+                "The database is untouched and nothing is deleted. Resuming puts it back.",
+                "The licence is not changed. This is a decision with your name on it, which \
+                 is a different fact from a licence running out.",
+            ],
+            Self::Resume => vec![
+                "If the licence has lapsed or been withdrawn, the workspace stays refused - \
+                 that is a second thing to fix, and this page says which.",
+            ],
+        }
+    }
+
+    fn button(self) -> &'static str {
+        match self {
+            Self::Retry => "Retry provisioning",
+            Self::Migrate => "Migrate now",
+            Self::Suspend => "Suspend the workspace",
+            Self::Resume => "Resume the workspace",
+        }
+    }
+
+    /// Only one of these stops a customer.
+    fn is_dangerous(self) -> bool {
+        self == Self::Suspend
+    }
+
+    /// Whether this workspace is in a state to accept the action.
+    fn applies_to(self, tenant: &TenantRecord, latest: &str) -> bool {
+        match self {
+            Self::Retry => tenant.status == TenantStatus::Provisioning,
+            Self::Migrate => is_outdated(tenant, latest),
+            Self::Suspend => tenant.status == TenantStatus::Active,
+            Self::Resume => tenant.status == TenantStatus::Suspended,
+        }
+    }
+
+    fn done(self) -> &'static str {
+        match self {
+            Self::Retry => "Provisioning finished. Check that it has a licence.",
+            Self::Migrate => "Migrated.",
+            Self::Suspend => "Suspended. The workspace has stopped serving.",
+            Self::Resume => "Resumed.",
+        }
+    }
+}
+
+#[derive(Template)]
+#[template(path = "confirm.html")]
+pub struct ConfirmPage {
+    pub title: String,
+    pub chrome: Chrome,
+    pub banner: Option<String>,
+    pub heading: String,
+    pub detail: String,
+    pub consequences: Vec<&'static str>,
+    pub action: String,
+    pub button: String,
+    pub danger: bool,
+    pub back: String,
+}
+
+pub async fn confirm_retry(a: SignedIn, s: State<DeskState>, p: Path<String>) -> Response {
+    confirm(Act::Retry, a, s, p).await
+}
+pub async fn confirm_migrate(a: SignedIn, s: State<DeskState>, p: Path<String>) -> Response {
+    confirm(Act::Migrate, a, s, p).await
+}
+pub async fn confirm_suspend(a: SignedIn, s: State<DeskState>, p: Path<String>) -> Response {
+    confirm(Act::Suspend, a, s, p).await
+}
+pub async fn confirm_resume(a: SignedIn, s: State<DeskState>, p: Path<String>) -> Response {
+    confirm(Act::Resume, a, s, p).await
+}
+
+pub async fn do_retry(a: SignedIn, s: State<DeskState>, p: Path<String>, h: HeaderMap) -> Response {
+    perform(Act::Retry, a, s, p, h).await
+}
+pub async fn do_migrate(
+    a: SignedIn,
+    s: State<DeskState>,
+    p: Path<String>,
+    h: HeaderMap,
+) -> Response {
+    perform(Act::Migrate, a, s, p, h).await
+}
+pub async fn do_suspend(
+    a: SignedIn,
+    s: State<DeskState>,
+    p: Path<String>,
+    h: HeaderMap,
+) -> Response {
+    perform(Act::Suspend, a, s, p, h).await
+}
+pub async fn do_resume(
+    a: SignedIn,
+    s: State<DeskState>,
+    p: Path<String>,
+    h: HeaderMap,
+) -> Response {
+    perform(Act::Resume, a, s, p, h).await
+}
+
+/// The page in front of an action. A `GET`, and it changes nothing.
+async fn confirm(
+    act: Act,
+    SignedIn(caller): SignedIn,
+    State(state): State<DeskState>,
+    Path(slug): Path<String>,
+) -> Response {
+    let Ok(parsed) = TenantSlug::parse(&slug) else {
+        return not_found().await;
+    };
+
+    let tenant = match workspace::find(&state.catalog, &parsed).await {
+        Ok(Some(tenant)) => tenant,
+        Ok(None) => return not_found().await,
+        Err(err) => return internal_error(err, "reading a workspace"),
+    };
+
+    // A confirm page for an action the workspace cannot accept is a page whose
+    // button would only produce a refusal. The service refuses regardless; this
+    // is so a stale link or a typed address does not read as an offer.
+    if !act.applies_to(&tenant, &phonix_db::tenancy::schema_fingerprint()) {
+        return not_found().await;
+    }
+
+    render(&ConfirmPage {
+        title: tenant.display_name.clone(),
+        chrome: Chrome::new(&caller.user.display_name, state.environment(), "workspaces"),
+        banner: None,
+        heading: act.heading().to_owned(),
+        detail: act.detail().to_owned(),
+        consequences: act.consequences(),
+        action: format!("/workspaces/{slug}/{}", act.path()),
+        button: act.button().to_owned(),
+        danger: act.is_dangerous(),
+        back: format!("/workspaces/{slug}"),
+    })
+}
+
+async fn perform(
+    act: Act,
+    SignedIn(caller): SignedIn,
+    State(state): State<DeskState>,
+    Path(slug): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Ok(parsed) = TenantSlug::parse(&slug) else {
+        return not_found().await;
+    };
+    let client = Client::read(&headers, &state);
+    let database = &state.config.database;
+
+    let outcome = match act {
+        Act::Retry => workspace::retry_provisioning(
+            &state.catalog,
+            database,
+            &parsed,
+            &caller,
+            client.facts(),
+        )
+        .await
+        .map(|_| ()),
+        Act::Migrate => {
+            workspace::migrate_one(&state.catalog, database, &parsed, &caller, client.facts())
+                .await
+                .map(|_| ())
+        }
+        Act::Suspend => workspace::set_status(
+            &state.catalog,
+            &parsed,
+            TenantStatus::Suspended,
+            &caller,
+            client.facts(),
+        )
+        .await
+        .map(|_| ()),
+        Act::Resume => workspace::set_status(
+            &state.catalog,
+            &parsed,
+            TenantStatus::Active,
+            &caller,
+            client.facts(),
+        )
+        .await
+        .map(|_| ()),
+    };
+
+    match outcome {
+        Ok(()) => see_other(&format!(
+            "/workspaces/{slug}?done={}",
+            urlencode(act.done())
+        )),
+        Err(ServiceError::Rejected(problems)) => {
+            let detail = problems
+                .first()
+                .map(|problem| message(&problem.message))
+                .unwrap_or_else(|| "That was refused.".to_owned());
+            refused(&slug, &detail)
+        }
+        Err(ServiceError::Db(phonix_db::DbError::UnknownTenant(_))) => not_found().await,
+        // A migration or a repair that broke has already written a `failed`
+        // audit row. The person is told where to look rather than shown a
+        // Postgres sentence they cannot act on.
+        Err(err) => internal_error(err, act.path()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The whole estate
+// ---------------------------------------------------------------------------
+
+/// Not `/workspaces/migrate-outdated`.
+///
+/// That address is also a valid workspace slug, and a router that resolves it
+/// as a static segment would make a workspace named that unreachable - a trap
+/// nobody would find until somebody hit it. `estate` is the word the ADR uses
+/// for the whole box, and it cannot collide.
+pub async fn confirm_estate_migrate(
+    SignedIn(caller): SignedIn,
+    State(state): State<DeskState>,
+) -> Response {
+    let latest = phonix_db::tenancy::schema_fingerprint();
+
+    let behind = match workspace::list(&state.catalog).await {
+        Ok(tenants) => tenants.iter().filter(|t| is_outdated(t, &latest)).count(),
+        Err(err) => return internal_error(err, "listing workspaces"),
+    };
+
+    render(&ConfirmPage {
+        title: "Migrate outdated workspaces".to_owned(),
+        chrome: Chrome::new(&caller.user.display_name, state.environment(), "workspaces"),
+        banner: None,
+        heading: format!("Migrate {behind} outdated workspace(s)?"),
+        detail: format!(
+            "Every workspace whose schema is not {latest} is brought forward, one at a time,              in the same pass the server runs on boot."
+        ),
+        consequences: vec![
+            "Forward-only. There is no migration that goes back.",
+            "One workspace failing does not stop the rest - refusing to continue would take              out every other one with it. The failures are named afterwards.",
+            "No status is changed, so a suspended workspace stays suspended.",
+            "It runs while you wait, and this is the whole estate.",
+        ],
+        action: "/estate/migrate".to_owned(),
+        button: "Migrate them".to_owned(),
+        danger: false,
+        back: "/".to_owned(),
+    })
+}
+
+pub async fn do_estate_migrate(
+    SignedIn(caller): SignedIn,
+    State(state): State<DeskState>,
+    headers: HeaderMap,
+) -> Response {
+    let client = Client::read(&headers, &state);
+
+    match workspace::migrate_outdated(
+        &state.catalog,
+        &state.config.database,
+        &caller,
+        client.facts(),
+    )
+    .await
+    {
+        Ok(sweep) if sweep.failed.is_empty() => see_other(&format!(
+            "/?done={}",
+            urlencode(&format!(
+                "Migrated {}. {} were already current.",
+                sweep.migrated, sweep.current
+            ))
+        )),
+        // A partial sweep is reported as a refusal rather than as a success
+        // with a footnote: some workspaces are still behind, and that is the
+        // thing to act on.
+        Ok(sweep) => see_other(&format!(
+            "/?refused={}",
+            urlencode(&format!(
+                "Migrated {}, and {} failed: {}. The detail is in the log.",
+                sweep.migrated,
+                sweep.failed.len(),
+                sweep.failed.join(", ")
+            ))
+        )),
+        Err(err) => internal_error(err, "migrating outdated workspaces"),
+    }
 }
 
 // ---------------------------------------------------------------------------

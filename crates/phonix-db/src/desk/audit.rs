@@ -81,6 +81,18 @@ pub enum DeskAction {
     /// serving - and "who withdrew this" is a question somebody asks by
     /// scanning a column, not by reading diffs.
     LicenceWithdrawn,
+    /// A workspace stopped serving because somebody decided so. Not a lapse -
+    /// that is a date passing and writes no row at all.
+    WorkspaceSuspended,
+    WorkspaceResumed,
+    /// A stuck `provisioning` finished off.
+    WorkspaceRetried,
+    /// One workspace's database brought forward to this build's schema.
+    WorkspaceMigrated,
+    /// Every outdated workspace, in one pass. `tenant_slug` is null because the
+    /// row is about the estate rather than about one of them; what it swept is
+    /// in `after`.
+    WorkspacesSwept,
 }
 
 impl DeskAction {
@@ -95,6 +107,11 @@ impl DeskAction {
             Self::DeskUserReinstated => "desk.user.reinstated",
             Self::LicenceSet => "desk.licence.set",
             Self::LicenceWithdrawn => "desk.licence.withdrawn",
+            Self::WorkspaceSuspended => "desk.workspace.suspended",
+            Self::WorkspaceResumed => "desk.workspace.resumed",
+            Self::WorkspaceRetried => "desk.workspace.retried",
+            Self::WorkspaceMigrated => "desk.workspace.migrated",
+            Self::WorkspacesSwept => "desk.workspace.swept",
         }
     }
 }
@@ -291,6 +308,11 @@ mod tests {
             DeskAction::DeskUserReinstated,
             DeskAction::LicenceSet,
             DeskAction::LicenceWithdrawn,
+            DeskAction::WorkspaceSuspended,
+            DeskAction::WorkspaceResumed,
+            DeskAction::WorkspaceRetried,
+            DeskAction::WorkspaceMigrated,
+            DeskAction::WorkspacesSwept,
         ] {
             assert!(
                 action.as_str().starts_with("desk."),
