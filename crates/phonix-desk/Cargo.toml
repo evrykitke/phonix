@@ -1,0 +1,38 @@
+[package]
+name = "phonix-desk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Phonix Desk: the application the platform is run from. See
+# docs/adr/0005-phonix-desk.md.
+#
+# The dependency list is the design. There is deliberately no `phonix-web`:
+# that crate is the tenant application and it compiles to WebAssembly, and a
+# tool whose whole value is working when the product does not must not be built
+# on the product's hydration. Desk renders HTML on the server; see `html`.
+#
+# No redis, no rabbitmq, no object store either. Desk reads the catalog and the
+# tenant databases through `phonix-db`, and it has to work on the day the rest
+# of the infrastructure does not.
+[dependencies]
+phonix-config = { workspace = true }
+phonix-core = { workspace = true }
+phonix-db = { workspace = true }
+phonix-services = { workspace = true }
+phonix-telemetry = { workspace = true }
+
+axum = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+http = { workspace = true }
+cookie = { workspace = true }
+
+anyhow = { workspace = true }
+chrono = { workspace = true }
+secrecy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }

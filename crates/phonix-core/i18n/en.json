@@ -485,6 +485,8 @@
   "date.weekday.tue": "Tuesday",
   "date.weekday.wed": "Wednesday",
 
+  "desk.account.last_active": "This is the last desk account that can sign in. Create another one before disabling it.",
+
   "diff.added": "Added",
   "diff.changed": "Changed",
   "diff.not_set": "Not set",

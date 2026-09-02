@@ -64,6 +64,9 @@ pub mod books;
 pub mod caller;
 pub mod crypto;
 pub mod currency;
+/// Phonix Desk's use cases. Catalog-scoped, and never `Caller`-gated - see
+/// `docs/adr/0005-phonix-desk.md` section 4.
+pub mod desk;
 pub mod error;
 pub mod files;
 pub mod identity;

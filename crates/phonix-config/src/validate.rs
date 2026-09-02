@@ -61,6 +61,7 @@ pub fn check(cfg: &AppConfig, mode: RunMode) -> Result<(), ConfigError> {
     check_smtp(&cfg.smtp)?;
     check_storage(&cfg.storage)?;
     check_profiler(&cfg.profiler)?;
+    check_desk(&cfg.desk)?;
 
     if mode.is_production() {
         check_production_secrets(cfg)?;
@@ -450,6 +451,48 @@ fn check_profiler(profiler: &ProfilerConfig) -> Result<(), ConfigError> {
     Ok(())
 }
 
+/// Sanity for Phonix Desk.
+///
+/// Checked whether or not the Desk binary is the one starting: both processes
+/// read this file, and a value that would refuse to serve is better reported by
+/// whichever comes up first.
+fn check_desk(desk: &DeskConfig) -> Result<(), ConfigError> {
+    if desk.listen.trim().is_empty() {
+        return Err(ConfigError::invalid("desk.listen must not be empty"));
+    }
+    if desk.listen.parse::<std::net::SocketAddr>().is_err() {
+        return Err(ConfigError::invalid(format!(
+            "desk.listen must be an address and port, got '{}' - for example \
+             127.0.0.1:3100",
+            desk.listen
+        )));
+    }
+
+    if desk.session_idle_minutes == 0 || desk.session_absolute_hours == 0 {
+        return Err(ConfigError::invalid(
+            "desk.session_idle_minutes and desk.session_absolute_hours must both \
+             be greater than 0 - a zero window signs everybody out on the next \
+             request",
+        ));
+    }
+
+    if desk.setup_link_hours == 0 {
+        return Err(ConfigError::invalid(
+            "desk.setup_link_hours must be greater than 0 - a link that has \
+             already expired cannot be used to set a first password",
+        ));
+    }
+
+    if desk.trial_days == 0 {
+        return Err(ConfigError::invalid(
+            "desk.trial_days must be greater than 0 - a trial licence that ends \
+             the moment it is issued stops the workspace signup just created",
+        ));
+    }
+
+    Ok(())
+}
+
 fn check_tenancy(tenancy: &TenancyConfig) -> Result<(), ConfigError> {
     if tenancy.base_domain.trim().is_empty() {
         return Err(ConfigError::invalid(
@@ -791,6 +834,33 @@ fn check_production_hardening(cfg: &AppConfig) -> Result<(), ConfigError> {
             "database.ssl_mode must not be 'disable' in production",
         ));
     }
+    // Desk suspends workspaces and creates them. Behind nginx it is reachable
+    // from any browser, so a socket bound anywhere but loopback is reachable
+    // *without* nginx too - by address and port, skipping server_name matching
+    // and whatever that block was doing. Refused unless somebody said so.
+    if !cfg.desk.listens_on_loopback() && !cfg.desk.allow_public {
+        return Err(ConfigError::invalid(format!(
+            "desk.listen is '{}', which is not loopback. Put nginx in front and \
+             bind 127.0.0.1, or set desk.allow_public = true to say this is \
+             deliberate",
+            cfg.desk.listen
+        )));
+    }
+
+    // A rate limiter keyed on the peer address is keyed on nginx behind a
+    // proxy: every visitor in the world lands in one bucket, so the limiter
+    // reports a number that is always the same and locks out everybody at once
+    // rather than an attacker. Both processes are behind the same proxy, so
+    // this is one setting for both.
+    if cfg.security.rate_limit.enabled && cfg.security.rate_limit.ip_header().is_none() {
+        return Err(ConfigError::invalid(
+            "security.rate_limit.client_ip_header must name the header the proxy \
+             sets in production - 'x-real-ip' behind nginx. Empty keys every \
+             request to the proxy's own address, which puts the whole internet \
+             in one bucket",
+        ));
+    }
+
     // A profiler holds SQL, paths and log lines in memory and serves them on
     // an unauthenticated URL. There is no version of that which is acceptable
     // here, and no symptom if it is left on - the surface simply exists.

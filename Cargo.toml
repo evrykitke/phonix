@@ -36,6 +36,10 @@ phonix-cache = { path = "crates/phonix-cache" }
 phonix-messaging = { path = "crates/phonix-messaging" }
 phonix-storage = { path = "crates/phonix-storage" }
 phonix-web = { path = "crates/phonix-web" }
+# Phonix Desk: the platform's own application, a second binary beside the
+# server. Depends on nothing above `phonix-services` - see
+# docs/adr/0005-phonix-desk.md section 3.
+phonix-desk = { path = "crates/phonix-desk" }
 
 # --- leptos ---
 leptos = { version = "0.8.20" }

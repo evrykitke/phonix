@@ -23,6 +23,10 @@ pub struct AppConfig {
     /// that matters: see [`ProfilerConfig`].
     #[serde(default)]
     pub profiler: ProfilerConfig,
+    /// Phonix Desk, the platform's own application. Read by the `phonix-desk`
+    /// binary; the server loads it and ignores it.
+    #[serde(default)]
+    pub desk: DeskConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1416,5 +1420,88 @@ impl Default for ProfilerConfig {
             filter: "info,sqlx::query=debug".to_owned(),
             backtraces: true,
         }
+    }
+}
+
+/// Phonix Desk - the application the platform is run from.
+///
+/// See `docs/adr/0005-phonix-desk.md`. This is a **separate binary** sharing
+/// this configuration file, which is deliberate: two files describing one
+/// catalog is how a console ends up operating on something other than
+/// production while saying it is production.
+///
+/// # What is not here, on purpose
+///
+/// Desk reuses `[security.password]` for hashing, `[security.mfa]` for TOTP
+/// parameters and the vault key that seals a secret, `[security.lockout]` for
+/// how many wrong passwords end in a lock, and
+/// `[security.rate_limit] client_ip_header` for which header carries the real
+/// client address. None of those differ between the two processes - they are
+/// facts about the same deployment behind the same proxy - and a second copy
+/// of any of them is a second thing to get wrong.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct DeskConfig {
+    /// Where the Desk process listens.
+    ///
+    /// Loopback, with nginx in front on `console-desk.<base_domain>`. A public
+    /// bind is not the same decision as a public hostname: a socket on
+    /// `0.0.0.0` answers whatever `Host` header it is sent and can be reached
+    /// by address and port directly, which skips `server_name` matching
+    /// altogether.
+    pub listen: String,
+    /// Deliberate escape hatch for binding somewhere other than loopback under
+    /// production, refused by `validate::check` unless it is set.
+    ///
+    /// It exists so that arrangement is a decision somebody wrote down rather
+    /// than a typo in an address.
+    pub allow_public: bool,
+    /// How long a desk session survives without activity.
+    pub session_idle_minutes: u64,
+    /// How long a desk session survives at all.
+    ///
+    /// Both are deliberately shorter than a workspace session's. This one
+    /// suspends workspaces.
+    pub session_absolute_hours: u64,
+    /// How long a single-use setup link is good for.
+    ///
+    /// A desk account is created by somebody else and collects its password
+    /// through this link; the window is short because the link is handed over
+    /// out of band and used immediately or not at all.
+    pub setup_link_hours: u64,
+    /// How long a self-service signup is licensed for.
+    ///
+    /// A trial is a licence with an end date - ADR 0005 section 7 - so this is
+    /// the only number that says what one is.
+    pub trial_days: u32,
+}
+
+impl Default for DeskConfig {
+    fn default() -> Self {
+        Self {
+            listen: "127.0.0.1:3100".to_owned(),
+            allow_public: false,
+            session_idle_minutes: 30,
+            session_absolute_hours: 8,
+            setup_link_hours: 48,
+            trial_days: 30,
+        }
+    }
+}
+
+impl DeskConfig {
+    /// Whether [`Self::listen`] is a loopback address.
+    ///
+    /// Parsed rather than string-matched, so `127.0.0.42`, `[::1]` and a host
+    /// that resolves to neither are all answered correctly. An address this
+    /// cannot parse is reported as *not* loopback: the safe answer for a value
+    /// that is about to be refused under production anyway.
+    pub fn listens_on_loopback(&self) -> bool {
+        use std::net::SocketAddr;
+
+        self.listen
+            .parse::<SocketAddr>()
+            .map(|addr| addr.ip().is_loopback())
+            .unwrap_or(false)
     }
 }

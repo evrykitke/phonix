@@ -486,6 +486,8 @@
   "date.weekday.tue": "Dienstag",
   "date.weekday.wed": "Mittwoch",
 
+  "desk.account.last_active": "Dies ist das letzte Desk-Konto, das sich anmelden kann. Legen Sie ein weiteres an, bevor Sie dieses deaktivieren.",
+
   "diff.added": "Hinzugefügt",
   "diff.changed": "Geändert",
   "diff.not_set": "Nicht gesetzt",

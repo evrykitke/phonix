@@ -230,13 +230,18 @@ should not wait on one.
 
 **Its own rate limiter, in its own process, and one setting that decides whether
 it works at all.** Credential-presenting endpoints get the `action` tier's shape
-— twelve a minute, which is more than anybody types. And `client_ip_header`
-**must** be set to `x-real-ip`, which nginx sets from `$remote_addr`. The
-default keys on the peer address, and behind a proxy the peer is always nginx:
-every visitor in the world would share one bucket, and the limiter would be a
-global counter that locks everybody out at once instead of an attacker. The
-comment in `[security.rate_limit]` already says getting this wrong makes the
-limiter decorative; here it is wrong by default.
+— twelve a minute, which is more than anybody types.
+
+The setting is **not a new one**. `[security.rate_limit] client_ip_header`
+already exists and `config/production.toml` already sets it to `x-real-ip`,
+which nginx fills from `$remote_addr`; Desk reads the same value, because the
+two processes sit behind the same proxy and a second copy of that answer is a
+second thing to get wrong. What Desk adds is a refusal: it may not be empty
+under production. The default keys on the peer address, and behind a proxy the
+peer is always nginx, so every visitor in the world shares one bucket and the
+limiter becomes a global counter that locks everybody out at once instead of an
+attacker. The comment in `[security.rate_limit]` already says getting this wrong
+makes the limiter decorative — this is where that stops being advice.
 
 **What stands in for the source restriction**, now that the front door is
 public: TOTP that cannot be turned off (section 4), lockout on repeated
@@ -419,23 +424,29 @@ application:
 # A public bind answers any Host header and can be reached by address, which
 # skips server_name matching entirely.
 listen = "127.0.0.1:3100"
-# Behind nginx the peer address is always nginx. Without this every visitor
-# shares one rate-limit bucket - see [security.rate_limit].
-client_ip_header = "x-real-ip"
+# Say so deliberately to bind anywhere else under production. Refused otherwise.
+allow_public = false
 # Idle and absolute lifetimes for a desk session. Deliberately shorter
 # than a workspace session: this one suspends workspaces.
 session_idle_minutes = 30
 session_absolute_hours = 8
+# How long a single-use setup link is good for.
+setup_link_hours = 48
 # How long a self-service signup is licensed for. A trial is a licence with an
 # end date - see section 7 - so this is the only number that says what one is.
 trial_days = 30
 ```
 
-Desk reads the same configuration file as the server, and therefore the
-same `[database]`, `[telemetry]` and `[tenancy]` blocks. It must not grow its
-own copy of the catalog connection string; two files that describe one database
-is how a tool ends up operating on something other than production while
-saying it is production.
+Desk reads the same configuration file as the server, and therefore the same
+`[database]`, `[telemetry]` and `[tenancy]` blocks. It must not grow its own
+copy of the catalog connection string; two files that describe one database is
+how a tool ends up operating on something other than production while saying it
+is production.
+
+The same argument governs what is **absent** from `[desk]`: hashing parameters,
+TOTP parameters, the vault key that seals a secret, the lockout thresholds and
+the proxy header all stay in `[security.*]` and are read from there. They are
+facts about this deployment, not about this application.
 
 `validate::check` gains two rules, both of them refusing at boot what would
 otherwise be discovered by strangers — the same shape as the profiler's refusal
@@ -481,7 +492,7 @@ Each step ends somewhere the thing is usable and honest about what it does not
 do yet.
 
 1. **The crate, the config, and the identity.** `crates/phonix-desk`,
-   `[desk]`, catalog migration 0003 for the three tables, the bootstrap
+   `[desk]`, catalog migration 0004 for the three tables, the bootstrap
    subcommand, sign-in with mandatory TOTP, sessions, sign-out. Nothing else is
    reachable. This is first because a surface over the whole catalog cannot ship
    an unauthenticated read "temporarily".
@@ -491,7 +502,7 @@ do yet.
 3. **Read.** The workspace list — slug, status, licence, schema version against
    `schema_fingerprint()`, created, owner email — the detail page, and the
    dependency health panel.
-4. **Licences.** Catalog migration 0004 for `tenant_licences`, the screen that
+4. **Licences.** Catalog migration 0005 for `tenant_licences`, the screen that
    issues and extends one, and `serves_traffic()` learning about them. This
    comes before creating workspaces, because a workspace created with nowhere
    to record its authorization is a workspace somebody has to remember to go
@@ -575,7 +586,7 @@ have the key.
   that is already loaded. Every existing test that asserts a workspace serves
   traffic needs a current licence to keep passing, which is the right kind of
   breakage: it is the compiler asking who authorized this workspace.
-* **Every existing workspace needs a licence row** in migration 0004, or the
+* **Every existing workspace needs a licence row** in that migration, or the
   first deploy after it stops serving all of them at once. The backfill issues
   one with no end date and a note saying it was created by the migration, which
   is honest — nobody licensed those workspaces, they predate the idea.

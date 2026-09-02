@@ -637,3 +637,36 @@ filter = "info,sqlx::query=debug"
 # report. There is a switch here anyway because this is the one part of the
 # profiler that does work per statement rather than per request.
 backtraces = true
+
+# ---------------------------------------------------------------------------
+# Phonix Desk - the application the platform is run from.
+#
+# A separate binary (`phonix-desk`) reading this same file: workspaces are
+# created, licensed and stopped there. The server loads this section and
+# ignores it. See docs/adr/0005-phonix-desk.md.
+#
+# What is NOT here, on purpose: hashing parameters, TOTP parameters, the vault
+# key, the lockout thresholds and which header carries the client address. Desk
+# reuses [security.*] for all of them - they are facts about this deployment
+# behind this proxy, and a second copy is a second thing to get wrong.
+# ---------------------------------------------------------------------------
+[desk]
+# Loopback, with nginx in front on console-desk.<base_domain>. A public bind is
+# not the same decision as a public hostname: a socket on 0.0.0.0 answers
+# whatever Host header it is sent and can be reached by address and port
+# directly, which skips server_name matching altogether.
+listen = "127.0.0.1:3100"
+# Say so deliberately to bind anywhere else under production. Refused otherwise.
+allow_public = false
+# Idle and absolute lifetimes of a desk session. Deliberately shorter than a
+# workspace session: this one suspends workspaces.
+session_idle_minutes = 30
+session_absolute_hours = 8
+# How long a single-use setup link is good for. A desk account is created by
+# somebody else and collects its password through that link, handed over out of
+# band - so it is used immediately or not at all.
+setup_link_hours = 48
+# How long a self-service signup is licensed for. A trial is a licence with an
+# end date - ADR 0005 section 7 - so this is the only number that says what one
+# is.
+trial_days = 30

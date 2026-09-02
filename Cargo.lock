@@ -2853,6 +2853,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "phonix-desk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "cookie",
+ "http",
+ "phonix-config",
+ "phonix-core",
+ "phonix-db",
+ "phonix-services",
+ "phonix-telemetry",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-http 0.7.0",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "phonix-master"
 version = "0.1.0"
 dependencies = [

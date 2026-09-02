@@ -486,6 +486,8 @@
   "date.weekday.tue": "mardi",
   "date.weekday.wed": "mercredi",
 
+  "desk.account.last_active": "C'est le dernier compte Desk pouvant se connecter. Créez-en un autre avant de désactiver celui-ci.",
+
   "diff.added": "Ajouté",
   "diff.changed": "Modifié",
   "diff.not_set": "Non défini",
