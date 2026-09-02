@@ -8,6 +8,10 @@
 //!   password of its own.
 //! * [`workspace`] - what Desk may do to a workspace, each act writing an
 //!   audit row in a database that workspace cannot edit.
+//! * [`trail`]   - reading those rows back. Desk's own read of `desk_audit` is
+//!   the only screen in this product that shows it.
+//! * [`queues`]  - how far behind the background work is, per workspace, in
+//!   counts and timestamps and nothing else.
 //!
 //! # Why this is not `identity`
 //!
@@ -31,6 +35,8 @@
 
 pub mod account;
 pub mod auth;
+pub mod queues;
+pub mod trail;
 pub mod workspace;
 
 pub use account::{CreatedDeskUser, SetupOutcome, SetupPage};

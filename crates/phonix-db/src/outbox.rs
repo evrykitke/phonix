@@ -226,6 +226,51 @@ where
     Ok(u64::try_from(count).unwrap_or(0))
 }
 
+/// The relay's backlog, as an operator sees it.
+///
+/// Counts and one timestamp. No routing keys and no payloads: Phonix Desk
+/// reads this, and an event payload is business data - see ADR 0005 section 6.
+/// "How far behind is the relay" is answerable without any of it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Backlog {
+    pub unpublished: u64,
+    /// The oldest thing still unpublished. A backlog of ten from a minute ago
+    /// is a busy moment; a backlog of ten from Tuesday is a broker that has
+    /// been unreachable since Tuesday.
+    pub oldest_at: Option<DateTime<Utc>>,
+    /// How many have been tried and failed at least once. Distinguishes "not
+    /// got to yet" from "keeps not working".
+    pub retried: u64,
+}
+
+/// Read [`Backlog`] in one statement.
+pub async fn backlog<'e, E>(executor: E) -> Result<Backlog, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    let row = sqlx::query(
+        "SELECT count(*)                             AS unpublished,
+                min(occurred_at)                     AS oldest,
+                count(*) FILTER (WHERE attempts > 0) AS retried
+           FROM outbox_events
+          WHERE published_at IS NULL",
+    )
+    .fetch_one(executor)
+    .await
+    .map_err(DbError::Query)?;
+
+    let count = |name: &str| -> Result<u64, DbError> {
+        let value: i64 = row.try_get(name).map_err(DbError::Query)?;
+        Ok(u64::try_from(value).unwrap_or(0))
+    };
+
+    Ok(Backlog {
+        unpublished: count("unpublished")?,
+        oldest_at: row.try_get("oldest").map_err(DbError::Query)?,
+        retried: count("retried")?,
+    })
+}
+
 /// Cut a string to a length the column will take, on a character boundary.
 fn clip(text: &str, max: usize) -> String {
     if text.len() <= max {

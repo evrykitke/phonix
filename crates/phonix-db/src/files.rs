@@ -724,3 +724,54 @@ mod tests {
         assert!(OUTSTANDING.contains("claimed_at IS NULL"));
     }
 }
+
+/// How much outstanding work this workspace's upload queue is holding.
+///
+/// Counts and one timestamp, and deliberately nothing else. Phonix Desk reads
+/// this and may not read a workspace's business data - a file name, who
+/// uploaded it, what it is - so the operational question ("is the verifier
+/// keeping up") is answered without the queue becoming a window into the
+/// workspace. See ADR 0005 section 6.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct QueueDepth {
+    /// Bytes are down and the job has not run. Normal in ones; a growing
+    /// number means the verifier is not running.
+    pub waiting: u64,
+    /// Claimed by a worker. A row stuck here is a process that died holding it.
+    pub in_flight: u64,
+    /// Gave up after the allowed attempts. Nothing to do with the file itself.
+    pub failed: u64,
+    /// The oldest thing still waiting. The number that says whether a backlog
+    /// is a moment or a morning.
+    pub oldest_waiting_at: Option<DateTime<Utc>>,
+}
+
+/// Read [`QueueDepth`] in one statement.
+pub async fn queue_depth<'e, E>(executor: E) -> Result<QueueDepth, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    let row = sqlx::query(
+        "SELECT
+             count(*) FILTER (WHERE status = 'received')  AS waiting,
+             count(*) FILTER (WHERE status = 'verifying') AS in_flight,
+             count(*) FILTER (WHERE status = 'failed')    AS failed,
+             min(created_at) FILTER (WHERE status = 'received') AS oldest
+           FROM file_uploads",
+    )
+    .fetch_one(executor)
+    .await
+    .map_err(DbError::Query)?;
+
+    let count = |name: &str| -> Result<u64, DbError> {
+        let value: i64 = row.try_get(name).map_err(DbError::Query)?;
+        Ok(u64::try_from(value).unwrap_or(0))
+    };
+
+    Ok(QueueDepth {
+        waiting: count("waiting")?,
+        in_flight: count("in_flight")?,
+        failed: count("failed")?,
+        oldest_waiting_at: row.try_get("oldest").map_err(DbError::Query)?,
+    })
+}

@@ -216,12 +216,56 @@
   {% endif %}
 </section>
 
+{# ---------------------------------------------------------------------------
+   This workspace's own history. The same rows as /audit, filtered to this
+   slug - in the catalog, where this workspace's own administrators cannot
+   read, edit or lose them.
+   --------------------------------------------------------------------------- #}
+<section class="panel">
+  <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-edge px-3 py-2">
+    <h2 class="text-sm font-semibold">History</h2>
+    <a class="text-xs text-brand hover:underline" href="/audit">The whole trail</a>
+  </div>
+
+  {% if history.is_empty() %}
+  <p class="px-3 py-3 text-sm text-content-muted">
+    Nothing has been done to this workspace from Desk.
+  </p>
+  {% else %}
+  <ul class="divide-y divide-edge">
+    {% for row in history %}
+    <li class="px-3 py-2">
+      <p class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm">
+        <span>{{ row.action }}</span>
+        <span class="text-content-muted">{{ row.actor }}</span>
+        <span class="font-mono text-xs text-content-subtle">{{ row.occurred_at }}</span>
+        {% if row.went_wrong %}
+        <span class="pill pill-warn">{{ row.outcome }}</span>
+        {% endif %}
+      </p>
+      {% for change in row.changes %}
+      <p class="text-xs text-content-muted">
+        <span class="font-mono">{{ change.field }}</span>
+        <span class="text-content-subtle">{{ change.before }}</span>
+        <span aria-hidden="true"> &rarr; </span>
+        <span class="text-content">{{ change.after }}</span>
+      </p>
+      {% endfor %}
+      {% if row.detail != "" %}
+      <p class="text-xs text-content-muted">{{ row.detail }}</p>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+
 {# Saying where the build stopped, on the page rather than only in the record. #}
 <section class="panel p-3">
   <h2 class="text-sm font-semibold">Not built yet</h2>
   <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-content-muted">
     <li>Archive, once suspend has been used in anger and the difference is felt rather than argued.</li>
-    <li>Dependency health, and this workspace's own slice of the audit trail.</li>
+    <li>Dependency health: the catalog, Redis, RabbitMQ.</li>
   </ul>
 </section>
 {% endblock %}

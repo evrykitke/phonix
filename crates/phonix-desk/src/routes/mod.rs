@@ -6,8 +6,10 @@
 //! gives the back button and the reload button their ordinary meanings.
 
 pub mod accounts;
+pub mod queues;
 pub mod session;
 pub mod setup;
+pub mod trail;
 pub mod workspaces;
 
 use askama::Template;
@@ -66,6 +68,8 @@ pub fn router(state: DeskState) -> Router {
             "/estate/new",
             get(workspaces::new_form).post(workspaces::create),
         )
+        .route("/audit", get(trail::index))
+        .route("/queues", get(queues::index))
         .route("/accounts", get(accounts::index).post(accounts::create))
         .route("/accounts/{id}/disabled", post(accounts::set_disabled))
         // Signing in.

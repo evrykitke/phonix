@@ -61,8 +61,9 @@ pub struct Chrome {
     /// a fact about the box rather than about the page.
     pub environment: String,
     /// Which navigation entry to mark. A `&'static str` compared in the
-    /// template rather than an enum: there are two of them, and a vocabulary
-    /// for two is a vocabulary nobody maintains.
+    /// template rather than an enum: there are four of them, spelled once in
+    /// `shell.html`, and a page that names one that does not exist simply
+    /// highlights nothing.
     pub current: &'static str,
 }
 
@@ -167,6 +168,7 @@ mod tests {
 
         assert!(!rendered.contains("Sign out"));
         assert!(!rendered.contains("Desk accounts"));
+        assert!(!rendered.contains("Audit trail"));
     }
 
     /// The property every confirm page rests on: reaching it changes nothing,

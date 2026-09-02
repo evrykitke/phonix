@@ -122,6 +122,62 @@ impl DeskAction {
             Self::WorkspacesSwept => "desk.workspace.swept",
         }
     }
+    /// Turn a stored string back into an action.
+    ///
+    /// `None` for a row this build does not recognise, which is a row written
+    /// by a newer one. The screen shows the raw string in that case rather than
+    /// hiding the row: an audit trail that silently drops what it cannot name
+    /// is worse than one that shows an unfamiliar word.
+    pub fn parse(raw: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|action| action.as_str() == raw)
+    }
+
+    /// What a screen calls it.
+    ///
+    /// English literals rather than message keys, unlike everything the product
+    /// shows: Desk has no language switcher and no locale overlay - see
+    /// `phonix_desk::html`.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::SignIn => "Signed in",
+            Self::SignOut => "Signed out",
+            Self::MfaChallenge => "Answered a code",
+            Self::DeskUserCreated => "Created a desk account",
+            Self::DeskUserSetupCompleted => "Finished setting up an account",
+            Self::DeskUserDisabled => "Disabled a desk account",
+            Self::DeskUserReinstated => "Reinstated a desk account",
+            Self::LicenceSet => "Set a licence",
+            Self::LicenceWithdrawn => "Withdrew a licence",
+            Self::WorkspaceCreated => "Created a workspace",
+            Self::WorkspaceOwnerInvited => "Issued an owner invitation",
+            Self::WorkspaceSuspended => "Suspended a workspace",
+            Self::WorkspaceResumed => "Resumed a workspace",
+            Self::WorkspaceRetried => "Retried a provisioning",
+            Self::WorkspaceMigrated => "Migrated a workspace",
+            Self::WorkspacesSwept => "Migrated every outdated workspace",
+        }
+    }
+
+    /// Every action. The one list, so adding a variant without naming it here
+    /// fails to compile rather than going missing from the screen.
+    pub const ALL: [Self; 16] = [
+        Self::SignIn,
+        Self::SignOut,
+        Self::MfaChallenge,
+        Self::DeskUserCreated,
+        Self::DeskUserSetupCompleted,
+        Self::DeskUserDisabled,
+        Self::DeskUserReinstated,
+        Self::LicenceSet,
+        Self::LicenceWithdrawn,
+        Self::WorkspaceCreated,
+        Self::WorkspaceOwnerInvited,
+        Self::WorkspaceSuspended,
+        Self::WorkspaceResumed,
+        Self::WorkspaceRetried,
+        Self::WorkspaceMigrated,
+        Self::WorkspacesSwept,
+    ];
 }
 
 /// A row to write.
@@ -242,6 +298,32 @@ where
     Ok(())
 }
 
+const SELECT_FOR_TENANT: &str = "SELECT id, desk_user_id, actor_email, action, tenant_slug, \
+     outcome, detail, before_state, after_state, ip, occurred_at \
+     FROM desk_audit WHERE tenant_slug = $1 ORDER BY occurred_at DESC LIMIT $2";
+
+/// One workspace's own history, newest first.
+///
+/// The estate-wide sweep writes its row with no `tenant_slug`, so it does not
+/// appear here - correctly: it is a fact about the box, and a workspace's page
+/// claiming it was individually migrated would be narration rather than a
+/// record.
+pub async fn for_tenant<'e, E>(
+    executor: E,
+    tenant_slug: &str,
+    limit: i64,
+) -> Result<Vec<DeskAuditRecord>, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    sqlx::query_as::<_, DeskAuditRecord>(SELECT_FOR_TENANT)
+        .bind(tenant_slug)
+        .bind(limit.clamp(1, 200))
+        .fetch_all(executor)
+        .await
+        .map_err(DbError::Query)
+}
+
 /// The newest rows first, which is the only order this table is ever read in.
 pub async fn recent<'e, E>(
     executor: E,
@@ -306,30 +388,37 @@ mod tests {
     /// wrote the row - and so a future tenant-side action cannot collide.
     #[test]
     fn every_action_is_namespaced() {
-        for action in [
-            DeskAction::SignIn,
-            DeskAction::SignOut,
-            DeskAction::MfaChallenge,
-            DeskAction::DeskUserCreated,
-            DeskAction::DeskUserSetupCompleted,
-            DeskAction::DeskUserDisabled,
-            DeskAction::DeskUserReinstated,
-            DeskAction::LicenceSet,
-            DeskAction::LicenceWithdrawn,
-            DeskAction::WorkspaceCreated,
-            DeskAction::WorkspaceOwnerInvited,
-            DeskAction::WorkspaceSuspended,
-            DeskAction::WorkspaceResumed,
-            DeskAction::WorkspaceRetried,
-            DeskAction::WorkspaceMigrated,
-            DeskAction::WorkspacesSwept,
-        ] {
+        for action in DeskAction::ALL {
             assert!(
                 action.as_str().starts_with("desk."),
                 "{} is not namespaced",
                 action.as_str()
             );
         }
+    }
+
+    /// The screen turns a stored string back into an action to name it. A
+    /// variant whose stored form does not round-trip would appear in the trail
+    /// as raw text for ever, and nobody would notice which one.
+    #[test]
+    fn every_action_survives_a_round_trip() {
+        for action in DeskAction::ALL {
+            assert_eq!(DeskAction::parse(action.as_str()), Some(action));
+        }
+        assert_eq!(DeskAction::parse("desk.workspace.deleted"), None);
+    }
+
+    /// `ALL` is what the screen and both tests above walk. A variant missing
+    /// from it is a row nobody can name, so the length is asserted against the
+    /// number of distinct stored forms rather than trusted.
+    #[test]
+    fn every_variant_is_in_the_list_exactly_once() {
+        let mut forms: Vec<&str> = DeskAction::ALL.iter().map(|a| a.as_str()).collect();
+        forms.sort_unstable();
+        let before = forms.len();
+        forms.dedup();
+
+        assert_eq!(before, forms.len(), "two actions share a stored form");
     }
 
     #[test]

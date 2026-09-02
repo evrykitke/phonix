@@ -198,6 +198,14 @@ pub struct WorkspacePage {
     pub can_suspend: bool,
     pub can_resume: bool,
     pub can_reinvite: bool,
+
+    /// This workspace's own slice of the audit trail, newest first.
+    ///
+    /// The same rows the `/audit` page shows, filtered to this slug and
+    /// rendered by the same function - so an entry cannot come to read
+    /// differently in the two places. The estate-wide migration sweep does not
+    /// appear here: it carries no slug, because it is a fact about the box.
+    pub history: Vec<crate::routes::trail::EntryRow>,
 }
 
 pub async fn show(
@@ -215,6 +223,16 @@ pub async fn show(
         Ok(None) => return not_found().await,
         Err(err) => return internal_error(err, "reading a workspace"),
     };
+
+    // Twenty is what fits on the page without a pager; the whole trail is one
+    // link away, so a workspace with more history than that is not hiding it.
+    let history =
+        match phonix_services::desk::trail::for_workspace(&state.catalog, tenant.slug.as_str(), 20)
+            .await
+        {
+            Ok(entries) => entries.iter().map(crate::routes::trail::row).collect(),
+            Err(err) => return internal_error(err, "reading a workspace's history"),
+        };
 
     let latest = phonix_db::tenancy::schema_fingerprint();
     let licence = tenant.licence.as_ref().map(|licence| LicenceView {
@@ -270,6 +288,7 @@ pub async fn show(
         can_suspend: Act::Suspend.applies_to(&tenant, &latest),
         can_resume: Act::Resume.applies_to(&tenant, &latest),
         can_reinvite: Act::Reinvite.applies_to(&tenant, &latest),
+        history,
     })
 }
 

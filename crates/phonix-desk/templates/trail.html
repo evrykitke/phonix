@@ -1,0 +1,106 @@
+{#
+  The audit trail.
+
+  A change is shown from → to, never as narration - the shape the tenant entity
+  trail already established, and the reason it was: a diff is what a person
+  reads, and a sentence is what they have to decode. An action with no
+  before-state shows no diff, which is the honest answer rather than a gap.
+
+  The diff sits under its row rather than in a column of its own, because the
+  number of changed fields varies per row and a table cell cannot hold that
+  without either truncating or setting the column width from the worst case.
+#}
+{% extends "shell.html" %}
+
+{% block content %}
+{% include "_banner.html" %}
+
+<section class="panel">
+  <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-edge px-3 py-2">
+    <h2 class="text-sm font-semibold">Audit trail</h2>
+    <p class="text-xs text-content-muted">
+      {{ total }} rows, in the catalog - where no workspace can read, edit or lose them.
+    </p>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="border-b border-edge text-left text-xs uppercase tracking-wide text-content-subtle">
+        <tr>
+          <th scope="col" class="px-3 py-1.5 font-medium">When</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Who</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">What</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Workspace</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Outcome</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr class="border-b border-edge last:border-0 align-top{% if !row.changes.is_empty() || row.detail != "" || row.ip != "" %} border-b-0{% endif %}">
+          <td class="whitespace-nowrap px-3 py-1.5 font-mono text-xs text-content-muted">{{ row.occurred_at }}</td>
+          <td class="px-3 py-1.5">{{ row.actor }}</td>
+          <td class="px-3 py-1.5">{{ row.action }}</td>
+          <td class="px-3 py-1.5 font-mono text-xs">
+            {% if row.workspace == "-" %}
+            <span class="text-content-subtle">-</span>
+            {% else %}
+            <a class="text-brand hover:underline" href="/workspaces/{{ row.workspace }}">{{ row.workspace }}</a>
+            {% endif %}
+          </td>
+          <td class="px-3 py-1.5">
+            {% if row.went_wrong %}
+            <span class="pill pill-warn">{{ row.outcome }}</span>
+            {% else %}
+            <span class="pill">{{ row.outcome }}</span>
+            {% endif %}
+          </td>
+        </tr>
+
+        {% if !row.changes.is_empty() || row.detail != "" || row.ip != "" %}
+        <tr class="border-b border-edge last:border-0">
+          <td class="px-3 pb-2" colspan="5">
+            {% if row.detail != "" %}
+            <p class="text-xs text-content-muted">{{ row.detail }}</p>
+            {% endif %}
+            {% if row.ip != "" %}
+            {# The address the action came from. Kept because a sign-in nobody
+               recognises is answered by where it came from, and because this
+               table deliberately keeps rows the actor would rather it did
+               not. #}
+            <p class="font-mono text-xs text-content-subtle">from {{ row.ip }}</p>
+            {% endif %}
+            {% for change in row.changes %}
+            <p class="text-xs text-content-muted">
+              <span class="font-mono">{{ change.field }}</span>
+              <span class="text-content-subtle">{{ change.before }}</span>
+              <span aria-hidden="true"> &rarr; </span>
+              <span class="text-content">{{ change.after }}</span>
+            </p>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endif %}
+        {% else %}
+        <tr><td colspan="5" class="px-3 py-4 text-center text-sm text-content-muted">
+          Nothing recorded yet.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if pages > 1 %}
+  {# Two links, and no page numbers. A trail is read newest first and walked
+     backwards, not jumped around in. #}
+  <div class="flex items-center gap-2 border-t border-edge px-3 py-2">
+    {% if let Some(page) = previous %}
+    <a class="btn btn-quiet" href="/audit?page={{ page }}">Newer</a>
+    {% endif %}
+    <p class="text-xs text-content-muted">Page {{ showing }} of {{ pages }}</p>
+    {% if let Some(page) = next %}
+    <a class="btn btn-quiet ml-auto" href="/audit?page={{ page }}">Older</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

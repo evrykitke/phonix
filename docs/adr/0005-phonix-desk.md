@@ -550,7 +550,9 @@ do yet.
    an unauthenticated read "temporarily".
 2. **The audit table and its screen**, before the first action that would write
    to it. Building the trail after the actions means the first weeks are
-   unrecorded, and those are the weeks with the most mistakes in them.
+   unrecorded, and those are the weeks with the most mistakes in them. **Built**
+   — the table with step 1, the screen last, but every action that writes to it
+   was written after the table existed, which is what the ordering was for.
 3. **Read.** The workspace list — slug, status, licence, schema version against
    `schema_fingerprint()`, created, owner email — the detail page, and the
    dependency health panel.
@@ -599,6 +601,25 @@ do yet.
    prune, relay — run in-process with no screen over any of them, and
    [ADR 0004 already concluded](0004-development-profiler.md) that operational
    visibility of background work is this tool's job and not the profiler's.
+   **Built**, and it is deliberately *not* a screen over the loops. Those run
+   inside `phonix-server`, in memory, where nothing else can see them. It is a
+   screen over the tables they work on — uploads still `received`, uploads stuck
+   at `verifying`, unpublished outbox rows, and how old the oldest of each is —
+   which is the half that survives a restart. A loop that has stopped shows up
+   as a number that stops going down, and that needs no instrumentation in the
+   server at all.
+
+   **Counts and timestamps only.** An upload's file name and an event's payload
+   are the workspace's business data, which section 6 forbids. Both reads are
+   aggregates in the repository layer, so the page has no way to widen them.
+   There is nothing to press either: retrying an upload is work for the process
+   that owns the loop, and a button here would be Desk reaching into a
+   workspace's queue.
+
+   It costs one pool per serving workspace per page load — there is one database
+   per tenant, so there is no single query that could answer it — which is why
+   it is its own page behind its own navigation entry rather than a panel on the
+   workspace list.
 
 Deferred with intent, and each one wants its own record when it comes: the
 licensing framework proper — plans, seats, entitlement, anything priced —

@@ -1,0 +1,80 @@
+{#
+  The background work, per workspace.
+
+  Counts and ages, because that is all Desk may read - an upload's file name
+  and an event's payload are the workspace's business, and this page answers
+  "is the verifier keeping up" without any of it.
+
+  There is nothing to press. Retrying an upload or republishing an event is
+  work for the process that owns the loop, and a button here would be Desk
+  reaching into a workspace's queue.
+#}
+{% extends "shell.html" %}
+
+{% block content %}
+{% include "_banner.html" %}
+
+<section class="panel">
+  <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-edge px-3 py-2">
+    <h2 class="text-sm font-semibold">Job queues</h2>
+    <p class="text-xs text-content-muted">
+      {{ rows.len() }} serving workspace(s), {{ busy }} with outstanding work.
+    </p>
+  </div>
+
+  {% if unreadable > 0 %}
+  <p class="border-b border-edge border-l-2 border-l-danger px-3 py-2 text-sm">
+    {{ unreadable }} workspace(s) could not be read at all. That is a database problem, not a
+    backlog - the reason is on the row.
+  </p>
+  {% endif %}
+
+  <p class="border-b border-edge px-3 py-2 text-xs text-content-muted">
+    The four loops - verifier, relay, sweeper, prune - run inside
+    <code class="font-mono">phonix-server</code>, in memory, where nothing else can see them. This
+    is the tables they work on, which is the half that survives a restart: a loop that has stopped
+    shows up as a number that stops going down.
+  </p>
+
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="border-b border-edge text-left text-xs uppercase tracking-wide text-content-subtle">
+        <tr>
+          <th scope="col" class="px-3 py-1.5 font-medium">Workspace</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Uploads waiting</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">In flight</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Failed</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Oldest</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Outbox waiting</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Retried</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Oldest</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr class="border-b border-edge last:border-0 hover:bg-surface-hover">
+          <td class="px-3 py-1.5 font-mono text-xs">
+            <a class="text-brand hover:underline" href="/workspaces/{{ row.slug }}">{{ row.slug }}</a>
+          </td>
+          {% if row.readable %}
+          <td class="px-3 py-1.5{% if row.uploads_waiting > 0 %} font-medium{% endif %}">{{ row.uploads_waiting }}</td>
+          <td class="px-3 py-1.5">{{ row.uploads_in_flight }}</td>
+          <td class="px-3 py-1.5{% if row.uploads_failed > 0 %} text-danger{% endif %}">{{ row.uploads_failed }}</td>
+          <td class="px-3 py-1.5 text-content-muted">{{ row.uploads_oldest }}</td>
+          <td class="px-3 py-1.5{% if row.outbox_unpublished > 0 %} font-medium{% endif %}">{{ row.outbox_unpublished }}</td>
+          <td class="px-3 py-1.5{% if row.outbox_retried > 0 %} text-danger{% endif %}">{{ row.outbox_retried }}</td>
+          <td class="px-3 py-1.5 text-content-muted">{{ row.outbox_oldest }}</td>
+          {% else %}
+          <td class="px-3 py-1.5 text-danger" colspan="7">{{ row.error }}</td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="px-3 py-4 text-center text-sm text-content-muted">
+          No workspace is serving traffic, so there is no background work to report.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
