@@ -81,6 +81,12 @@ pub enum DeskAction {
     /// serving - and "who withdrew this" is a question somebody asks by
     /// scanning a column, not by reading diffs.
     LicenceWithdrawn,
+    /// A workspace created from Desk, with its licence and its owner
+    /// invitation in the same act.
+    WorkspaceCreated,
+    /// The workspace owner's invitation issued again, superseding the one
+    /// that was lost.
+    WorkspaceOwnerInvited,
     /// A workspace stopped serving because somebody decided so. Not a lapse -
     /// that is a date passing and writes no row at all.
     WorkspaceSuspended,
@@ -107,6 +113,8 @@ impl DeskAction {
             Self::DeskUserReinstated => "desk.user.reinstated",
             Self::LicenceSet => "desk.licence.set",
             Self::LicenceWithdrawn => "desk.licence.withdrawn",
+            Self::WorkspaceCreated => "desk.workspace.created",
+            Self::WorkspaceOwnerInvited => "desk.workspace.owner_invited",
             Self::WorkspaceSuspended => "desk.workspace.suspended",
             Self::WorkspaceResumed => "desk.workspace.resumed",
             Self::WorkspaceRetried => "desk.workspace.retried",
@@ -308,6 +316,8 @@ mod tests {
             DeskAction::DeskUserReinstated,
             DeskAction::LicenceSet,
             DeskAction::LicenceWithdrawn,
+            DeskAction::WorkspaceCreated,
+            DeskAction::WorkspaceOwnerInvited,
             DeskAction::WorkspaceSuspended,
             DeskAction::WorkspaceResumed,
             DeskAction::WorkspaceRetried,

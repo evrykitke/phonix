@@ -197,6 +197,7 @@ pub struct WorkspacePage {
     pub can_migrate: bool,
     pub can_suspend: bool,
     pub can_resume: bool,
+    pub can_reinvite: bool,
 }
 
 pub async fn show(
@@ -268,6 +269,7 @@ pub async fn show(
         can_migrate: Act::Migrate.applies_to(&tenant, &latest),
         can_suspend: Act::Suspend.applies_to(&tenant, &latest),
         can_resume: Act::Resume.applies_to(&tenant, &latest),
+        can_reinvite: Act::Reinvite.applies_to(&tenant, &latest),
     })
 }
 
@@ -287,6 +289,7 @@ enum Act {
     Migrate,
     Suspend,
     Resume,
+    Reinvite,
 }
 
 impl Act {
@@ -296,6 +299,7 @@ impl Act {
             Self::Migrate => "migrate",
             Self::Suspend => "suspend",
             Self::Resume => "resume",
+            Self::Reinvite => "reinvite",
         }
     }
 
@@ -305,6 +309,7 @@ impl Act {
             Self::Migrate => "Migrate this workspace?",
             Self::Suspend => "Suspend this workspace?",
             Self::Resume => "Resume this workspace?",
+            Self::Reinvite => "Issue the owner's invitation again?",
         }
     }
 
@@ -325,6 +330,11 @@ impl Act {
             }
             Self::Resume => {
                 "The workspace starts serving traffic again, if its licence is current."
+            }
+            Self::Reinvite => {
+                "For the invitation that was lost before it was used. Without this, losing it \
+                 on a brand-new workspace means nobody can ever reach that workspace - the \
+                 owner is the only account in it and has never signed in."
             }
         }
     }
@@ -354,6 +364,14 @@ impl Act {
                 "If the licence has lapsed or been withdrawn, the workspace stays refused - \
                  that is a second thing to fix, and this page says which.",
             ],
+            Self::Reinvite => vec![
+                "Any outstanding invitation stops working, which is what makes this safe to \
+                 press twice.",
+                "Refused once the owner has set a password. An invitation is redeemed by \
+                 setting one, so issuing another for a live account would be a way into a \
+                 running workspace - which Desk may not open.",
+                "The link is shown once, on the next page, and cannot be read back.",
+            ],
         }
     }
 
@@ -363,6 +381,7 @@ impl Act {
             Self::Migrate => "Migrate now",
             Self::Suspend => "Suspend the workspace",
             Self::Resume => "Resume the workspace",
+            Self::Reinvite => "Issue a new invitation",
         }
     }
 
@@ -378,6 +397,12 @@ impl Act {
             Self::Migrate => is_outdated(tenant, latest),
             Self::Suspend => tenant.status == TenantStatus::Active,
             Self::Resume => tenant.status == TenantStatus::Suspended,
+            // Offered without knowing whether the owner is still waiting,
+            // because finding that out means opening a pool on the tenant
+            // database just to draw a button. The service refuses if they are
+            // already in, and the confirm page says so - hiding a control is
+            // cosmetic either way.
+            Self::Reinvite => tenant.status != TenantStatus::Provisioning,
         }
     }
 
@@ -387,6 +412,9 @@ impl Act {
             Self::Migrate => "Migrated.",
             Self::Suspend => "Suspended. The workspace has stopped serving.",
             Self::Resume => "Resumed.",
+            // Never used: a re-issue renders the link rather than redirecting,
+            // for the reason on `InvitationPage`.
+            Self::Reinvite => "A new invitation was issued.",
         }
     }
 }
@@ -418,6 +446,9 @@ pub async fn confirm_suspend(a: SignedIn, s: State<DeskState>, p: Path<String>) 
 pub async fn confirm_resume(a: SignedIn, s: State<DeskState>, p: Path<String>) -> Response {
     confirm(Act::Resume, a, s, p).await
 }
+pub async fn confirm_reinvite(a: SignedIn, s: State<DeskState>, p: Path<String>) -> Response {
+    confirm(Act::Reinvite, a, s, p).await
+}
 
 pub async fn do_retry(a: SignedIn, s: State<DeskState>, p: Path<String>, h: HeaderMap) -> Response {
     perform(Act::Retry, a, s, p, h).await
@@ -445,6 +476,50 @@ pub async fn do_resume(
     h: HeaderMap,
 ) -> Response {
     perform(Act::Resume, a, s, p, h).await
+}
+
+/// Not routed through [`perform`], because it does not redirect: the thing it
+/// produces is a credential and has to be rendered rather than put in a query
+/// string. See [`InvitationPage`].
+pub async fn do_reinvite(
+    SignedIn(caller): SignedIn,
+    State(state): State<DeskState>,
+    Path(slug): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Ok(parsed) = TenantSlug::parse(&slug) else {
+        return not_found().await;
+    };
+    let client = Client::read(&headers, &state);
+
+    match workspace::reissue_owner_invitation(
+        &state.catalog,
+        &state.config,
+        &parsed,
+        &caller,
+        client.facts(),
+    )
+    .await
+    {
+        Ok(issued) => render(&InvitationPage {
+            title: "New invitation".to_owned(),
+            chrome: Chrome::new(&caller.user.display_name, state.environment(), "workspaces"),
+            heading: "A new invitation".to_owned(),
+            slug: slug.clone(),
+            owner_email: issued.owner_email,
+            invitation_link: issued.link,
+            invitation_hours: state.config.security.invitations.ttl_hours,
+        }),
+        Err(ServiceError::Rejected(problems)) => {
+            let detail = problems
+                .first()
+                .map(|problem| message(&problem.message))
+                .unwrap_or_else(|| "That was refused.".to_owned());
+            refused(&slug, &detail)
+        }
+        Err(ServiceError::Db(phonix_db::DbError::UnknownTenant(_))) => not_found().await,
+        Err(err) => internal_error(err, "re-issuing an owner invitation"),
+    }
 }
 
 /// The page in front of an action. A `GET`, and it changes nothing.
@@ -531,6 +606,11 @@ async fn perform(
         )
         .await
         .map(|_| ()),
+        // Never routed here: `do_reinvite` renders the link it produces
+        // instead of redirecting, so it cannot share this tail. Answered
+        // rather than panicked - a handler that can panic is a handler that
+        // can take the page down.
+        Act::Reinvite => return not_found().await,
     };
 
     match outcome {
@@ -759,5 +839,206 @@ mod tests {
         assert!(parse_end_date("2026-02-30").is_err());
         assert!(parse_end_date("31/12/2026").is_err());
         assert!(parse_end_date("tomorrow").is_err());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Creating one
+// ---------------------------------------------------------------------------
+
+/// The form, empty or with what was typed and what was wrong with it.
+///
+/// Every field is echoed back. A form that clears itself because one address
+/// had a typo in it is a form somebody fills in twice, and this one has eight
+/// fields.
+#[derive(Template)]
+#[template(path = "workspace_new.html")]
+pub struct CreateWorkspacePage {
+    pub title: String,
+    pub chrome: Chrome,
+    pub banner: Option<String>,
+
+    pub slug: String,
+    pub display_name: String,
+    pub owner_first_name: String,
+    pub owner_last_name: String,
+    pub owner_email: String,
+    pub chosen_state: String,
+    pub valid_until_date: String,
+    pub note: String,
+
+    /// One per field, placed under the control it is about. Named fields
+    /// rather than a map, so a template naming one that cannot exist does not
+    /// compile.
+    pub error_slug: Option<String>,
+    pub error_display_name: Option<String>,
+    pub error_owner_first_name: Option<String>,
+    pub error_owner_last_name: Option<String>,
+    pub error_owner_email: Option<String>,
+    pub error_valid_until: Option<String>,
+
+    /// What a trial is, on this deployment. Shown so the length is not a
+    /// number somebody has to go and look up in a config file.
+    pub trial_days: u32,
+}
+
+/// An owner's invitation, shown once.
+///
+/// Rendered as the response to the `POST` rather than after a redirect. That
+/// is deliberate and is the one place Desk does not redirect after an action:
+/// the link is a credential that makes somebody the owner of a workspace, and
+/// a query string reaches nginx's access log, the browser's history, and the
+/// `Referer` of every link on the page. Reloading re-submits, which is refused
+/// by `slug_is_available` after a creation and simply mints another link after
+/// a re-issue - both safe and legible answers.
+#[derive(Template)]
+#[template(path = "invitation.html")]
+pub struct InvitationPage {
+    pub title: String,
+    pub chrome: Chrome,
+    pub heading: String,
+    pub slug: String,
+    pub owner_email: String,
+    pub invitation_link: String,
+    pub invitation_hours: u64,
+}
+
+#[derive(Deserialize)]
+pub struct CreateForm {
+    slug: String,
+    display_name: String,
+    owner_first_name: String,
+    owner_last_name: String,
+    owner_email: String,
+    state: String,
+    valid_until: String,
+    note: String,
+}
+
+pub async fn new_form(SignedIn(caller): SignedIn, State(state): State<DeskState>) -> Response {
+    render(&blank_form(&caller, &state))
+}
+
+fn blank_form(
+    caller: &phonix_services::desk::DeskCaller,
+    state: &DeskState,
+) -> CreateWorkspacePage {
+    CreateWorkspacePage {
+        title: "New workspace".to_owned(),
+        chrome: Chrome::new(&caller.user.display_name, state.environment(), "workspaces"),
+        banner: None,
+        slug: String::new(),
+        display_name: String::new(),
+        owner_first_name: String::new(),
+        owner_last_name: String::new(),
+        owner_email: String::new(),
+        chosen_state: LicenceState::Trial.as_str().to_owned(),
+        valid_until_date: String::new(),
+        note: String::new(),
+        error_slug: None,
+        error_display_name: None,
+        error_owner_first_name: None,
+        error_owner_last_name: None,
+        error_owner_email: None,
+        error_valid_until: None,
+        trial_days: state.desk().trial_days,
+    }
+}
+
+pub async fn create(
+    SignedIn(caller): SignedIn,
+    State(state): State<DeskState>,
+    headers: HeaderMap,
+    Form(form): Form<CreateForm>,
+) -> Response {
+    let client = Client::read(&headers, &state);
+
+    // Everything typed, back on the page whatever happens next.
+    let mut page = CreateWorkspacePage {
+        slug: form.slug.trim().to_owned(),
+        display_name: form.display_name.trim().to_owned(),
+        owner_first_name: form.owner_first_name.trim().to_owned(),
+        owner_last_name: form.owner_last_name.trim().to_owned(),
+        owner_email: form.owner_email.trim().to_owned(),
+        chosen_state: form.state.clone(),
+        valid_until_date: form.valid_until.trim().to_owned(),
+        note: form.note.clone(),
+        ..blank_form(&caller, &state)
+    };
+
+    // The slug is parsed here rather than in the service because the service
+    // takes a `TenantSlug`, which cannot be built from a bad one - that is the
+    // point of the type, and it means this is the only place the raw string
+    // exists.
+    let slug = match phonix_core::identity::validation::validate_workspace_slug(&page.slug) {
+        Ok(slug) => slug,
+        Err(problem) => {
+            page.error_slug = Some(message(&problem.message));
+            return render(&page);
+        }
+    };
+
+    let Some(chosen) = LicenceState::parse(&form.state) else {
+        return render(&page);
+    };
+
+    let valid_until = match parse_end_date(&form.valid_until) {
+        Ok(until) => until,
+        Err(()) => {
+            page.error_valid_until =
+                Some(message(&phonix_core::msg!("desk.licence.unreadable_date")));
+            return render(&page);
+        }
+    };
+
+    let new = workspace::NewWorkspace {
+        slug,
+        display_name: page.display_name.clone(),
+        owner_email: page.owner_email.clone(),
+        owner_first_name: page.owner_first_name.clone(),
+        owner_last_name: page.owner_last_name.clone(),
+        licence: LicenceDecision {
+            state: chosen,
+            valid_until,
+            note: Some(form.note),
+        },
+    };
+
+    match workspace::create(&state.catalog, &state.config, new, &caller, client.facts()).await {
+        Ok(created) => render(&InvitationPage {
+            title: created.tenant.display_name.clone(),
+            chrome: Chrome::new(&caller.user.display_name, state.environment(), "workspaces"),
+            heading: format!("{} is ready", created.tenant.display_name),
+            slug: created.tenant.slug.as_str().to_owned(),
+            owner_email: created.owner_email,
+            invitation_link: created.invitation_link,
+            invitation_hours: state.config.security.invitations.ttl_hours,
+        }),
+        Err(ServiceError::Rejected(problems)) => {
+            for problem in &problems {
+                let text = message(&problem.message);
+                match problem.field.as_str() {
+                    "slug" | "workspace_slug" => page.error_slug = Some(text),
+                    "display_name" => page.error_display_name = Some(text),
+                    "owner_first_name" => page.error_owner_first_name = Some(text),
+                    "owner_last_name" => page.error_owner_last_name = Some(text),
+                    "email" | "owner_email" => page.error_owner_email = Some(text),
+                    // A refusal about a field this form does not have would
+                    // otherwise be silently dropped, which is how a form comes
+                    // to look like it did nothing.
+                    _ => page.banner = Some(text),
+                }
+            }
+            render(&page)
+        }
+        Err(ServiceError::Db(phonix_db::DbError::TenantExists(_))) => {
+            page.error_slug = Some(message(&phonix_core::msg!("desk.workspace.address_taken")));
+            render(&page)
+        }
+        // Creating a database is the one thing here that is not reversible, so
+        // a failure part-way leaves a workspace in `provisioning` - which is
+        // visible on the list and has a Retry button next to it. That is the
+        // whole reason the stuck count is on the first page.
+        Err(err) => internal_error(err, "creating a workspace"),
     }
 }

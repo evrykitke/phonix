@@ -191,7 +191,7 @@
     <h2 class="text-sm font-semibold">Actions</h2>
   </div>
 
-  {% if can_retry || can_migrate || can_suspend || can_resume %}
+  {% if can_retry || can_migrate || can_suspend || can_resume || can_reinvite %}
   <div class="flex flex-wrap items-center gap-2 px-3 py-3">
     {% if can_retry %}
     <a class="btn btn-quiet" href="/workspaces/{{ slug }}/retry">Retry provisioning</a>
@@ -201,6 +201,9 @@
     {% endif %}
     {% if can_resume %}
     <a class="btn btn-quiet" href="/workspaces/{{ slug }}/resume">Resume</a>
+    {% endif %}
+    {% if can_reinvite %}
+    <a class="btn btn-quiet" href="/workspaces/{{ slug }}/reinvite">Re-issue the owner's invitation</a>
     {% endif %}
     {% if can_suspend %}
     <a class="btn btn-quiet" href="/workspaces/{{ slug }}/suspend">Suspend</a>

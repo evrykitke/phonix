@@ -10,9 +10,10 @@
 {% endif %}
 
 <section class="panel">
-  <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-edge px-3 py-2">
+  <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-edge px-3 py-2">
     <h2 class="text-sm font-semibold">Workspaces</h2>
     <p class="text-xs text-content-muted">{{ total }} in the catalog, {{ serving }} serving traffic.</p>
+    <a class="btn ml-auto" href="/estate/new">New workspace</a>
   </div>
 
   {# Three counts, and each one is a different problem with a different fix. A
@@ -95,9 +96,9 @@
     Written down in <code class="font-mono">docs/adr/0005-phonix-desk.md</code>, and not here yet:
   </p>
   <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-content-muted">
-    <li>Creating a workspace, with its licence and its owner invitation.</li>
     <li>The audit trail's own screen, and the job queues.</li>
     <li>Archive, once suspend has been used in anger.</li>
+    <li>Dependency health: the catalog, Redis, RabbitMQ.</li>
   </ul>
 </section>
 {% endblock %}

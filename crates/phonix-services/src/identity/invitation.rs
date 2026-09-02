@@ -348,11 +348,32 @@ async fn issue_link(
     ctx: &Inviting<'_>,
     user_id: UserId,
 ) -> ServiceResult<IssuedLink> {
+    Ok(IssuedLink {
+        link: issue_link_for(pool, ctx.config, ctx.workspace_slug, user_id).await?,
+    })
+}
+
+/// Mint an invitation link for an account, with no [`Caller`] behind it.
+///
+/// Phonix Desk creates a workspace's owner and has no `Caller` to do it with -
+/// a desk user is not one, deliberately and irreversibly (ADR 0005 section 4).
+/// What it must not do is invent a different way of handing somebody their
+/// first password, so it issues the same token, of the same purpose, pointing
+/// at the same route, and the workspace side cannot tell the two apart.
+///
+/// Public because of that. Every other caller goes through [`invite`], which
+/// gates on `Users.Create` first.
+pub async fn issue_link_for(
+    pool: &PgPool,
+    config: &AppConfig,
+    workspace_slug: &str,
+    user_id: UserId,
+) -> ServiceResult<String> {
     let token = super::one_time_token::issue(
         pool,
         user_id,
         TokenPurpose::Invitation,
-        ctx.config.security.invitations.ttl_secs(),
+        config.security.invitations.ttl_secs(),
         None,
     )
     .await?;
@@ -360,14 +381,12 @@ async fn issue_link(
     // Absolute and on the workspace's own host: the session the link ends in
     // belongs to that host, and a link to the bare domain would land somewhere
     // that cannot set the cookie.
-    let origin = ctx.config.server.tenant_origin(ctx.workspace_slug);
+    let origin = config.server.tenant_origin(workspace_slug);
 
-    Ok(IssuedLink {
-        link: format!(
-            "{origin}{ACCEPT_PATH}?token={}",
-            token.secret.expose_secret()
-        ),
-    })
+    Ok(format!(
+        "{origin}{ACCEPT_PATH}?token={}",
+        token.secret.expose_secret()
+    ))
 }
 
 /// Send the invitation, through whichever relay this workspace uses.

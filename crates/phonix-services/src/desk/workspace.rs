@@ -15,19 +15,27 @@
 //! sustains that. ADR 0005 section 6.
 
 use chrono::{DateTime, Utc};
-use phonix_config::DatabaseConfig;
-use phonix_core::identity::validation::FieldError;
+use phonix_config::{AppConfig, DatabaseConfig};
+use phonix_core::authorization::roles;
+use phonix_core::identity::UserStatus;
+use phonix_core::identity::validation::{FieldError, validate_email, validate_person_name};
 use phonix_core::msg;
 use phonix_core::{Licence, LicenceState, TenantSlug, TenantStatus};
+use phonix_db::authorization::role;
 use phonix_db::desk::audit::{DeskAction, DeskAuditEntry, Outcome};
 use phonix_db::desk::session::ClientFacts;
-use phonix_db::tenancy::catalog::{Catalog, TenantRecord};
+use phonix_db::identity::user::{self, NewUser};
+use phonix_db::settings as settings_store;
+use phonix_db::sqlx::PgPool;
+use phonix_db::tenancy::catalog::{Catalog, TenantOrigin, TenantRecord};
 use phonix_db::tenancy::licence::{self, LicenceInput};
 use phonix_db::tenancy::{MigrationSweep, apps, provision};
 use serde_json::json;
 
 use crate::desk::auth::DeskCaller;
 use crate::error::{ServiceError, ServiceResult};
+use crate::identity::invitation;
+use crate::workspace::onboarding;
 
 /// The longest note the column accepts. Checked here so the refusal reaches a
 /// form field rather than arriving as a constraint violation.
@@ -152,6 +160,297 @@ pub async fn set_licence(
     );
 
     Ok(written)
+}
+
+// ---------------------------------------------------------------------------
+// Creating a workspace
+// ---------------------------------------------------------------------------
+
+/// A workspace to create, and the person who will run it.
+///
+/// The licence is part of this and not a second step. A workspace created with
+/// nowhere to record its authorization is a workspace somebody has to remember
+/// to go back to - and `serves_traffic` would refuse it in the meantime, which
+/// looks like a broken deployment rather than an unfinished decision.
+pub struct NewWorkspace {
+    pub slug: TenantSlug,
+    pub display_name: String,
+    pub owner_email: String,
+    pub owner_first_name: String,
+    pub owner_last_name: String,
+    pub licence: LicenceDecision,
+}
+
+/// A workspace that has just been created, and the one thing to hand over.
+pub struct CreatedWorkspace {
+    pub tenant: TenantRecord,
+    pub owner_email: String,
+    /// Shown once. Desk sends no mail - SMTP is per-workspace and a workspace
+    /// created a moment ago has none - so this link is handed over out of band,
+    /// exactly like a desk account's setup link.
+    pub invitation_link: String,
+}
+
+/// Create a workspace, its licence and its owner's invitation, in one act.
+///
+/// The same six-step sequence self-service signup runs, with the same refusals:
+/// a slug that is reserved or already taken is refused by `slug_is_available`
+/// and `reserved_subdomains`, not by a second copy of those rules living here.
+///
+/// # What is different from signup, and why
+///
+/// **The owner gets no password.** Signup has the person at the keyboard, so it
+/// can take one. Desk does not, and "I set it up for you, the password is..."
+/// is exactly the thing this product refuses everywhere else - so the owner is
+/// created `Pending` with no hash and is handed the same single-use invitation
+/// an invited user gets. That rule does not bend for the person who created the
+/// workspace. ADR 0005 section 6.
+///
+/// **The licence is chosen rather than assumed.** Signup issues a trial of
+/// `[desk] trial_days` because there is nobody to ask. Here there is.
+pub async fn create(
+    catalog: &Catalog,
+    config: &AppConfig,
+    new: NewWorkspace,
+    actor: &DeskCaller,
+    facts: ClientFacts<'_>,
+) -> ServiceResult<CreatedWorkspace> {
+    let mut problems = Vec::new();
+
+    let email = match validate_email(&new.owner_email) {
+        Ok(email) => email,
+        Err(err) => {
+            problems.push(err);
+            String::new()
+        }
+    };
+    let first_name = match validate_person_name("owner_first_name", &new.owner_first_name) {
+        Ok(name) => name,
+        Err(err) => {
+            problems.push(err);
+            String::new()
+        }
+    };
+    let last_name = match validate_person_name("owner_last_name", &new.owner_last_name) {
+        Ok(name) => name,
+        Err(err) => {
+            problems.push(err);
+            String::new()
+        }
+    };
+
+    // Reserved names, the catalog, and the 63-byte Postgres identifier limit,
+    // all answered by the function signup uses. The unique index on `slug` is
+    // still the authority - two of these at once both pass this - and
+    // `provision_tenant` turns that race into `TenantExists`.
+    if !onboarding::slug_is_available(catalog, config, &new.slug).await? {
+        problems.push(FieldError::new(
+            "slug",
+            msg!("desk.workspace.address_taken"),
+        ));
+    }
+
+    if !problems.is_empty() {
+        return Err(ServiceError::Rejected(problems));
+    }
+
+    let note = new
+        .licence
+        .note
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty());
+
+    let tenant = provision::provision_tenant(
+        catalog,
+        &config.database,
+        &new.slug,
+        &new.display_name,
+        TenantOrigin::Admin,
+        Some(&email),
+        LicenceInput {
+            state: new.licence.state,
+            valid_from: Utc::now(),
+            valid_until: new.licence.valid_until,
+            note,
+            updated_by: actor.email(),
+        },
+    )
+    .await?;
+
+    let pool = phonix_db::tenant_pool(&config.database, &tenant.database_name);
+
+    let result = install_owner(&pool, config, &tenant, &email, &first_name, &last_name).await;
+
+    // Opened for this one job. The registry opens its own on the first real
+    // request.
+    pool.close().await;
+    let invitation_link = result?;
+
+    record(
+        catalog,
+        DeskAction::WorkspaceCreated,
+        Outcome::Ok,
+        &new.slug,
+        actor,
+        facts,
+        None,
+        json!({
+            "display_name": tenant.display_name,
+            "database": tenant.database_name,
+            "owner_email": email,
+            "licence": new.licence.state.as_str(),
+            "valid_until": new.licence.valid_until,
+        }),
+    )
+    .await?;
+
+    tracing::info!(
+        tenant = %new.slug,
+        database = %tenant.database_name,
+        by = actor.email(),
+        "workspace created from desk"
+    );
+
+    Ok(CreatedWorkspace {
+        tenant,
+        owner_email: email,
+        invitation_link,
+    })
+}
+
+/// Issue the workspace owner's invitation again.
+///
+/// For the link that was lost before it was used. Without this, losing it on a
+/// brand-new workspace means nobody can ever reach that workspace: there is no
+/// account inside it that could invite anybody, because the owner is the only
+/// account and it has never signed in.
+///
+/// # Refused once the owner is in
+///
+/// An invitation token is redeemed by *setting a password*, so issuing one for
+/// an account that already has one would be Desk handing somebody a way into a
+/// live workspace. That is the impersonation ADR 0005 section 6 refuses
+/// outright, arriving by a side door, so the guard is on the account's state
+/// and not on who is asking.
+pub async fn reissue_owner_invitation(
+    catalog: &Catalog,
+    config: &AppConfig,
+    slug: &TenantSlug,
+    actor: &DeskCaller,
+    facts: ClientFacts<'_>,
+) -> ServiceResult<OwnerInvitation> {
+    let tenant = require(catalog, slug).await?;
+    let pool = phonix_db::tenant_pool(&config.database, &tenant.database_name);
+
+    let result = mint_owner_invitation(&pool, config, &tenant).await;
+    pool.close().await;
+    let (owner_email, link) = result?;
+
+    record(
+        catalog,
+        DeskAction::WorkspaceOwnerInvited,
+        Outcome::Ok,
+        slug,
+        actor,
+        facts,
+        None,
+        json!({ "owner_email": owner_email, "superseded_any_outstanding": true }),
+    )
+    .await?;
+
+    Ok(OwnerInvitation { owner_email, link })
+}
+
+/// A workspace owner's invitation, and who to send it to.
+///
+/// The address comes back with the link because the page has to say who to
+/// hand it to, and Desk holds no other copy of it - the catalog's
+/// `owner_email` is the address the workspace was registered under, which is
+/// not necessarily the account that owns it today.
+pub struct OwnerInvitation {
+    pub owner_email: String,
+    pub link: String,
+}
+
+/// The tenant-side half of [`reissue_owner_invitation`].
+///
+/// Split out so the pool is closed on every path, including the refusals.
+async fn mint_owner_invitation(
+    pool: &PgPool,
+    config: &AppConfig,
+    tenant: &TenantRecord,
+) -> ServiceResult<(String, String)> {
+    let Some(owner) = user::find_owner(pool).await? else {
+        return Err(ServiceError::Rejected(vec![FieldError::new(
+            "slug",
+            msg!("desk.workspace.no_owner"),
+        )]));
+    };
+
+    if !invitation::is_awaiting_acceptance(owner.status, owner.password_hash.is_some()) {
+        return Err(ServiceError::Rejected(vec![FieldError::new(
+            "slug",
+            msg!("desk.workspace.owner_already_in"),
+        )]));
+    }
+
+    // Supersedes any outstanding token, which is what makes this safe to press
+    // twice - the same property `invitation::resend` relies on.
+    let link = invitation::issue_link_for(pool, config, tenant.slug.as_str(), owner.id).await?;
+
+    Ok((owner.email, link))
+}
+
+/// Steps 4 and 5 inside the new workspace, and the invitation.
+///
+/// The account and its Admin role are one transaction: an owner without their
+/// role would be locked out of the workspace they own, and there is no second
+/// screen anywhere that could put it right.
+async fn install_owner(
+    pool: &PgPool,
+    config: &AppConfig,
+    tenant: &TenantRecord,
+    email: &str,
+    first_name: &str,
+    last_name: &str,
+) -> ServiceResult<String> {
+    // Writes Admin's grants from the compiled permission tree, so a workspace
+    // created today has whatever permissions this build defines.
+    role::sync_static_roles(pool).await?;
+
+    // The one moment the configuration file decides an organization's policy.
+    // From here the workspace's own row is the authority.
+    settings_store::seed(pool, &config.security.workspace_defaults.as_settings()).await?;
+
+    let mut tx = pool.begin().await.map_err(phonix_db::DbError::Query)?;
+
+    let owner = user::create(
+        &mut *tx,
+        NewUser {
+            email,
+            first_name,
+            last_name,
+            // The whole point. No password exists until the person who will use
+            // it sets one, and Desk may not be the thing that sets it.
+            password_hash: None,
+            status: UserStatus::Pending,
+            is_owner: true,
+            // Nobody in this workspace invited them - the invitation came from
+            // outside it, and a foreign key into a user who does not exist is
+            // not an improvement on saying so.
+            invited_by: None,
+        },
+    )
+    .await?;
+
+    role::assign_to_user_by_name(&mut tx, owner.id, roles::ADMIN).await?;
+
+    tx.commit().await.map_err(phonix_db::DbError::Query)?;
+
+    // Outside the transaction: the token has to be visible to the request that
+    // redeems it, which may be the very next one.
+    invitation::issue_link_for(pool, config, tenant.slug.as_str(), owner.id).await
 }
 
 // ---------------------------------------------------------------------------

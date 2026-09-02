@@ -1,0 +1,40 @@
+{#
+  A workspace owner's invitation, shown once.
+
+  Rendered as the response to the POST rather than after a redirect - the one
+  place Desk does not redirect after an action, and the reason is the link
+  itself. It is a credential that makes somebody the owner of a workspace, and
+  a query string reaches nginx's access log, the browser's history and the
+  Referer of every link on the page.
+#}
+{% extends "shell.html" %}
+
+{% block content %}
+<section class="panel">
+  <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-edge border-l-2 border-l-success px-3 py-2">
+    <h2 class="text-sm font-semibold">{{ heading }}</h2>
+    <p class="font-mono text-xs text-content-muted">{{ slug }}</p>
+  </div>
+
+  <div class="flex flex-col gap-3 px-3 py-3">
+    <p class="text-sm">
+      Send this to {{ owner_email }}. It is shown once, is single-use, and expires in
+      {{ invitation_hours }} hours.
+    </p>
+
+    <code class="secret">{{ invitation_link }}</code>
+
+    <p class="text-xs text-content-muted">
+      There is no way to read it back, and Desk sends no mail - SMTP is per-workspace, and a
+      workspace created a moment ago has no relay. If this one is lost, issue another from the
+      workspace's page; that is refused once the owner has set a password, because an invitation is
+      redeemed by setting one.
+    </p>
+
+    <div class="flex items-center gap-2">
+      <a class="btn" href="/workspaces/{{ slug }}">Open the workspace</a>
+      <a class="btn btn-quiet" href="/">All workspaces</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

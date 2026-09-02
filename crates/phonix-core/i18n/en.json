@@ -491,6 +491,9 @@
   "desk.licence.unreadable_date": "Use a date the calendar accepts, or leave it empty for no end date.",
   "desk.workspace.not_stuck": "That workspace is not stuck part-way through provisioning, so there is nothing to retry.",
   "desk.workspace.status_unchanged": "That workspace is already in that state.",
+  "desk.workspace.no_owner": "This workspace has no owner account, so there is no invitation to re-issue.",
+  "desk.workspace.owner_already_in": "The owner has already set a password. Re-issuing an invitation now would be a way into a live workspace, which Desk may not open.",
+  "desk.workspace.address_taken": "That address is taken, reserved, or too long to become a database name. Choose another.",
   "desk.workspace.cannot_resume_unprovisioned": "A workspace that never finished provisioning cannot be resumed. Retry its provisioning instead.",
 
   "diff.added": "Added",

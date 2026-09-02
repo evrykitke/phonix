@@ -49,12 +49,22 @@ pub fn router(state: DeskState) -> Router {
             "/workspaces/{slug}/resume",
             get(workspaces::confirm_resume).post(workspaces::do_resume),
         )
+        .route(
+            "/workspaces/{slug}/reinvite",
+            get(workspaces::confirm_reinvite).post(workspaces::do_reinvite),
+        )
         // Not `/workspaces/migrate-outdated`: that address is also a valid
         // workspace slug, and claiming it as a static segment would make a
         // workspace named that unreachable.
         .route(
             "/estate/migrate",
             get(workspaces::confirm_estate_migrate).post(workspaces::do_estate_migrate),
+        )
+        // `/estate/new` and not `/workspaces/new`, for the same reason: `new`
+        // is a perfectly good workspace slug.
+        .route(
+            "/estate/new",
+            get(workspaces::new_form).post(workspaces::create),
         )
         .route("/accounts", get(accounts::index).post(accounts::create))
         .route("/accounts/{id}/disabled", post(accounts::set_disabled))

@@ -561,6 +561,21 @@ do yet.
    back to. **Built**, together with step 3's workspace page — the licence form
    needs a page to live on, and the page needs the licence to be worth opening.
 5. **Creating a workspace**, licence and owner invitation together, in one act.
+   **Built**, and it grew one thing the draft did not have: **re-issuing the
+   owner's invitation**. Without it, losing that link on a brand-new workspace
+   means nobody can ever reach it — the owner is the only account in it and has
+   never signed in, so there is nobody inside who could invite anybody. It is
+   refused once the owner has set a password, because an invitation is redeemed
+   by setting one and issuing another for a live account would be a way into a
+   running workspace: the impersonation section 6 refuses, arriving by a side
+   door.
+
+   The link is rendered as the response to the `POST` rather than after a
+   redirect — the one place Desk does not redirect after an action. It is a
+   credential, and a query string reaches nginx's access log, the browser's
+   history and the `Referer` of every link on the page. **The setup link on
+   `/accounts` still travels in a query string and has the same problem;** it
+   predates this and is left as its own change rather than folded in here.
 6. **The three safe writes.** Retry a stuck provisioning; migrate one workspace
    and migrate all outdated; suspend and resume. Each behind a confirm, each
    writing an audit row. **Built.** Two things the build settled:

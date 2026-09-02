@@ -1,0 +1,149 @@
+{#
+  Creating a workspace.
+
+  One form and one submit, because the licence and the owner's invitation are
+  part of creating it rather than three things to remember afterwards - a
+  workspace with nowhere to record its authorization is refused by
+  `serves_traffic` and looks like a broken deployment.
+
+  Everything typed comes back on a refusal. A form that clears itself because
+  one address had a typo in it is a form somebody fills in twice, and this one
+  has eight fields.
+#}
+{% extends "shell.html" %}
+
+{% block content %}
+<p class="text-xs text-content-muted">
+  <a class="hover:text-content hover:underline" href="/">Workspaces</a>
+  <span aria-hidden="true"> / </span>
+  <span>new</span>
+</p>
+
+{% include "_banner.html" %}
+
+<form class="flex flex-col gap-3" method="post" action="/estate/new">
+  <section class="panel">
+    <div class="border-b border-edge px-3 py-2">
+      <h2 class="text-sm font-semibold">The workspace</h2>
+    </div>
+
+    <div class="flex flex-col gap-3 px-3 py-3">
+      <div class="flex flex-col gap-1">
+        <label class="text-2xs uppercase tracking-wide text-content-subtle" for="slug">Address</label>
+        <input id="slug" name="slug" value="{{ slug }}" required
+               autocapitalize="none" autocorrect="off" spellcheck="false">
+        <p class="text-xs text-content-muted">
+          Lowercase letters, numbers and hyphens. This becomes the subdomain and the database name,
+          and it cannot be changed afterwards.
+        </p>
+        {% if let Some(problem) = error_slug %}
+        <p class="text-xs text-danger">{{ problem }}</p>
+        {% endif %}
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <label class="text-2xs uppercase tracking-wide text-content-subtle" for="display_name">Name</label>
+        <input id="display_name" name="display_name" value="{{ display_name }}" required>
+        {% if let Some(problem) = error_display_name %}
+        <p class="text-xs text-danger">{{ problem }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="border-b border-edge px-3 py-2">
+      <h2 class="text-sm font-semibold">Its owner</h2>
+    </div>
+
+    <div class="flex flex-col gap-3 px-3 py-3">
+      {# Said on the page, not only in the record. The person filling this in
+         is the person who would otherwise expect a password field here. #}
+      <p class="text-xs text-content-muted">
+        No password is set here. The owner is created waiting on a single-use invitation, which is
+        shown once on the next page and handed over out of band - the same rule an invited user
+        follows, and it does not bend for the person who created the workspace.
+      </p>
+
+      <div class="flex flex-col gap-3 sm:flex-row">
+        <div class="flex flex-1 flex-col gap-1">
+          <label class="text-2xs uppercase tracking-wide text-content-subtle" for="owner_first_name">First name</label>
+          <input id="owner_first_name" name="owner_first_name" value="{{ owner_first_name }}" required>
+          {% if let Some(problem) = error_owner_first_name %}
+          <p class="text-xs text-danger">{{ problem }}</p>
+          {% endif %}
+        </div>
+        <div class="flex flex-1 flex-col gap-1">
+          <label class="text-2xs uppercase tracking-wide text-content-subtle" for="owner_last_name">Last name</label>
+          <input id="owner_last_name" name="owner_last_name" value="{{ owner_last_name }}" required>
+          {% if let Some(problem) = error_owner_last_name %}
+          <p class="text-xs text-danger">{{ problem }}</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <label class="text-2xs uppercase tracking-wide text-content-subtle" for="owner_email">Address</label>
+        <input id="owner_email" name="owner_email" type="email" value="{{ owner_email }}" required>
+        {% if let Some(problem) = error_owner_email %}
+        <p class="text-xs text-danger">{{ problem }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="border-b border-edge px-3 py-2">
+      <h2 class="text-sm font-semibold">Its licence</h2>
+    </div>
+
+    <div class="flex flex-col gap-3 px-3 py-3">
+      <p class="text-xs text-content-muted">
+        A workspace is never live without one. Chosen here rather than assumed, because unlike
+        self-service signup there is somebody to ask.
+      </p>
+
+      <fieldset class="flex flex-col gap-1">
+        <legend class="text-2xs uppercase tracking-wide text-content-subtle">Kind</legend>
+
+        <label class="flex items-center gap-2 text-sm">
+          <input type="radio" name="state" value="trial"
+                 {% if chosen_state == "trial" %}checked{% endif %}>
+          <span>Trial <span class="text-content-muted">- signup issues {{ trial_days }} days</span></span>
+        </label>
+        <label class="flex items-center gap-2 text-sm">
+          <input type="radio" name="state" value="licensed"
+                 {% if chosen_state == "licensed" %}checked{% endif %}>
+          <span>Licensed <span class="text-content-muted">- paid, internal, or a demonstration</span></span>
+        </label>
+      </fieldset>
+
+      <div class="flex flex-col gap-1">
+        <label class="text-2xs uppercase tracking-wide text-content-subtle" for="valid_until">Ends</label>
+        <input id="valid_until" name="valid_until" type="date" value="{{ valid_until_date }}">
+        <p class="text-xs text-content-muted">
+          The first day <em>not</em> covered, at 00:00 UTC. Leave it empty for no end date.
+        </p>
+        {% if let Some(problem) = error_valid_until %}
+        <p class="text-xs text-danger">{{ problem }}</p>
+        {% endif %}
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <label class="text-2xs uppercase tracking-wide text-content-subtle" for="note">Note</label>
+        <textarea id="note" name="note" rows="2" maxlength="500"
+                  placeholder="Why. Read by whoever looks at this next.">{{ note }}</textarea>
+      </div>
+    </div>
+  </section>
+
+  <div class="flex items-center gap-2">
+    <button class="btn" type="submit">Create the workspace</button>
+    <a class="btn btn-quiet" href="/">Cancel</a>
+  </div>
+
+  <p class="text-xs text-content-muted">
+    This creates a Postgres database and is the one thing on these pages that cannot be undone.
+  </p>
+</form>
+{% endblock %}
