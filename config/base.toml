@@ -269,7 +269,15 @@ base_domain = "phonix.local"
 # Used when strategy = "header"
 header_name = "X-Phonix-Tenant"
 # Hosts that are NOT tenants; requests to these get the marketing/admin app.
-reserved_subdomains = ["www", "api", "admin", "static", "assets", "cdn", "mail"]
+#
+# `console-desk` is Phonix Desk, and it is listed here rather than only in nginx
+# because the label satisfies both `slug_pattern` below and the
+# `tenants_slug_format` check constraint: until it is reserved, a workspace can
+# be created that claims it. Reserving it costs nothing and has to happen before
+# the DNS record exists, not after - ADR 0005 section 5.
+reserved_subdomains = [
+    "www", "api", "admin", "static", "assets", "cdn", "mail", "console-desk",
+]
 # Slug must match this to be looked up at all (cheap rejection of junk hosts).
 slug_pattern = "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"
 # Dev convenience: when the host has no subdomain, fall back to this tenant.

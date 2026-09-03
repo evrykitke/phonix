@@ -1,6 +1,7 @@
 # ADR 0005 — Phonix Desk: a second application over the catalog
 
-Status: accepted, not yet built
+Status: accepted; steps 1-6, 8 and 9 of section 11 built, step 7 (archive)
+deliberately not
 Date: 2026-09-02
 
 Phonix is a database-per-tenant application with a catalog that nothing can
@@ -138,7 +139,7 @@ JavaScript actually looks like.
 
 Tailwind compiles it. `phonix-desk` is a plain `cargo build` with no
 cargo-leptos in front of it, so the stylesheet is built by hand
-(`node tools/build-desk-css.mjs`) and **the output is committed** — the same
+(`node tools/build-desk-assets.mjs`) and **the output is committed** — the same
 arrangement the editor bundle already uses, and for the stronger version of the
 same reason: a second binary whose deployment needs npm on the box is a second
 way for a release to fail at the moment the tool is wanted. The compiled CSS is
@@ -160,6 +161,19 @@ detail link is an ordinary `<a href>` to a page that exists; collapsing is
 `<details>`. A script compiled into this binary and served from it may enhance
 what is already there. Anything that cannot degrade that way belongs on the
 server.
+
+**That allowance has now been taken, once.** `script/desk.js` is Desk's only
+script: it replaces the browser's slow, OS-styled tooltip on a chart mark with
+an immediate one in the page's own type, and dims the marks that are not being
+read. It is hashed and served from `/assets` exactly like the stylesheet,
+loaded `defer`, and the policy is `script-src 'self'` — no `unsafe-inline`, no
+nonce, no CDN, so the only code that can run on a Desk page is code Desk
+served. Every chart is complete without it: the SVG is rendered on the server,
+every mark carries a native `<title>`, and the same figures sit in a table
+under the chart. Delete the file and Desk is the same tool with a slower
+tooltip. Three tests hold that line — the script tag is `defer`red, nothing is
+fetched from another origin, and no page carries an inline `style=` attribute,
+which `style-src 'self'` would silently refuse.
 
 **On the name.** It is **Phonix Desk**, and the two obvious alternatives were
 already spent. "Host" is what this started as, and this codebase gives that word
@@ -308,6 +322,7 @@ In order of how much damage each can do:
 | **Issue, extend or withdraw a licence** | catalog | yes |
 | One workspace: its record, owner email, install set, size | catalog + tenant | — |
 | Dependency health: catalog, Redis, RabbitMQ | the three checks `/health/ready` already runs | — |
+| The estate at a glance: counts, status split, three series | catalog + `desk_audit`, aggregates only | — |
 | Retry a stuck `provisioning` | `workspace::onboarding` | idempotent by design |
 | Migrate one workspace, or every outdated one | `migrate_tenant` / `migrate_outdated_tenants` | forward-only |
 | Suspend, and resume | `Catalog::set_status` | yes |
@@ -555,7 +570,26 @@ do yet.
    was written after the table existed, which is what the ordering was for.
 3. **Read.** The workspace list — slug, status, licence, schema version against
    `schema_fingerprint()`, created, owner email — the detail page, and the
-   dependency health panel.
+   dependency health panel. **Built.** The panel is a page of its own behind
+   its own navigation entry rather than a panel on the workspace list, for the
+   reason step 8's queues page is: these are network round trips, fast when
+   everything is up and up to three seconds each when it is not, and putting
+   them on the landing page would make the screen that says which workspace is
+   wedged slowest at the moment it is wanted.
+
+   **Two of the three checks are reachability only, and the page says so on
+   every row.** The catalog is asked `SELECT 1` over the pool Desk already
+   holds. Redis and RabbitMQ are asked whether the configured port accepts a
+   connection — nothing else. Carrying `redis` for a real `PING` and `lapin`
+   for an AMQP handshake would put the product's infrastructure stack inside
+   the tool whose value is being simpler than what it watches, and
+   `Messaging::connect` **declares the exchange topology as a side effect**, so
+   a check written on it would not be a check: it would be Desk writing to the
+   broker. "The port answers" is a smaller claim than "healthy", and it is the
+   claim that separates *down* from *not down*, which is the question the page
+   is opened to settle. The cost, accepted: one TCP connection opened and
+   dropped without a handshake per page load, which RabbitMQ logs as a client
+   that closed unexpectedly.
 4. **Licences.** Catalog migration 0005 for `tenant_licences`, the screen that
    issues and extends one, and `serves_traffic()` learning about them. This
    comes before creating workspaces, because a workspace created with nowhere
@@ -596,7 +630,12 @@ do yet.
      version. It had never fired because until now nothing anywhere wrote
      `Suspended`, which is section 1's first row.
 7. **Archive**, once suspend has been used in anger and the difference between
-   the two is felt rather than argued.
+   the two is felt rather than argued. **Not built, on purpose** — this is the
+   one step deliberately skipped rather than merely unreached, and it stays
+   skipped until somebody has actually wanted it. Suspend already stops a
+   workspace and is reversible; what archive adds is a second word for that
+   with a different implication, and inventing the vocabulary before the need
+   is how a status set grows a state nobody can define.
 8. **Jobs and the outbox.** The four loops in `jobs.rs` — verifier, sweeper,
    prune, relay — run in-process with no screen over any of them, and
    [ADR 0004 already concluded](0004-development-profiler.md) that operational
@@ -620,6 +659,43 @@ do yet.
    per tenant, so there is no single query that could answer it — which is why
    it is its own page behind its own navigation entry rather than a panel on the
    workspace list.
+
+9. **The dashboard**, and with it the landing page. Six numbers, the estate
+   split by status, and three series — workspaces created over twelve months,
+   licences ending over six, desk activity over thirty days. **Built**, after
+   the rest, which is the right order: a dashboard is a view over things that
+   already exist, and building one first would have been deciding what to
+   measure before there was anything to measure.
+
+   * **It is the landing page, and the workspace list moved to
+     `/workspaces`.** The dashboard says whether anything needs attention; the
+     list says which thing. Sign-in lands here, and the estate sweep's banner
+     follows the list to its new address rather than being read by a page that
+     no longer shows it.
+   * **One catalog query and one aggregate, and that is the constraint.** Every
+     workspace number falls out of the list the catalog already answers with
+     the licence joined on. Nothing opens a tenant pool and nothing dials a
+     dependency — those are `/queues` and `/dependencies`, each its own page
+     for its own cost. A landing page that reloads slowly is a landing page
+     people stop reloading.
+   * **The charts are SVG this crate draws itself**, in `chart.rs`, and the
+     question "is there not a Rust chart library" was asked and answered.
+     There is — `plotters` has an SVG backend. It bakes resolved colours into
+     its output, brings its own typography and axis chrome, and emits an opaque
+     blob with no per-mark `<title>` and nothing to build a table view from.
+     Desk's fills are `var(--brand)` and `var(--danger)`, so one drawing is
+     correct in light and dark and under whichever accent the deployment chose;
+     a crate that resolved those to hex would have to render twice, and would
+     stop matching the page around it the moment either changed. The geometry
+     is a column and a stacked bar — about a hundred lines with thirteen tests
+     under it.
+   * **A lapsed licence is never also counted as expiring soon**, and a
+     perpetual one is counted as neither. Those are three different things —
+     a problem, a warning, and a decision — and a tile that merged any two of
+     them would be a number nobody could act on.
+   * **Nothing here reads business data.** Every figure is a fact about a
+     workspace as an object or a count of Desk's own audit rows, which is
+     section 6's line, and every read is an aggregate by construction.
 
 Deferred with intent, and each one wants its own record when it comes: the
 licensing framework proper — plans, seats, entitlement, anything priced —
@@ -682,7 +758,10 @@ have the key.
   screens. That is the trade taken deliberately: this tool has to work
   on the day the product does not.
 * `reserved_subdomains` grows `console-desk`, and it has to grow it before the
-  DNS record exists rather than after.
+  DNS record exists rather than after. **Done**, in `config/base.toml` and not
+  in a per-environment file: a label reserved only in production is a label a
+  developer's machine will happily hand to a workspace, and the collision would
+  then be discovered by deploying it.
 * **`TenantStatus::serves_traffic()` stops being a pure function of status.**
   It is called on every request through `find_active`, so this is the highest
   traffic change in the record — and it is one `&&` in one place, against a row

@@ -6,6 +6,8 @@
 //! gives the back button and the reload button their ordinary meanings.
 
 pub mod accounts;
+pub mod dashboard;
+pub mod dependencies;
 pub mod queues;
 pub mod session;
 pub mod setup;
@@ -26,8 +28,11 @@ use crate::state::DeskState;
 /// Everything Desk answers.
 pub fn router(state: DeskState) -> Router {
     Router::new()
-        // Signed in.
-        .route("/", get(workspaces::index))
+        // Signed in. The dashboard is the landing page because it is the
+        // screen that says whether anything needs attention at all; the
+        // workspace list, which says *which* thing, is one click from it.
+        .route("/", get(dashboard::index))
+        .route("/workspaces", get(workspaces::index))
         .route("/workspaces/{slug}", get(workspaces::show))
         .route("/workspaces/{slug}/licence", post(workspaces::set_licence))
         // Each action is a confirm page and a POST. Without a script a confirm
@@ -70,6 +75,7 @@ pub fn router(state: DeskState) -> Router {
         )
         .route("/audit", get(trail::index))
         .route("/queues", get(queues::index))
+        .route("/dependencies", get(dependencies::index))
         .route("/accounts", get(accounts::index).post(accounts::create))
         .route("/accounts/{id}/disabled", post(accounts::set_disabled))
         // Signing in.
@@ -81,9 +87,10 @@ pub fn router(state: DeskState) -> Router {
         .route("/sign-out", post(session::sign_out))
         // Setting up an account somebody else created.
         .route("/setup/{token}", get(setup::form).post(setup::submit))
-        // The one asset Desk serves. Its path carries a content hash, which is
-        // what lets it be cached forever - see `crate::assets`.
+        // The two assets Desk serves. Each path carries a content hash, which
+        // is what lets them be cached forever - see `crate::assets`.
         .route(crate::assets::STYLESHEET, get(stylesheet))
+        .route(crate::assets::SCRIPT, get(script))
         // For the systemd unit and nothing else.
         .route("/health", get(health))
         .fallback(not_found)
@@ -128,6 +135,23 @@ async fn stylesheet() -> Response {
         .into_response()
 }
 
+/// The one script, served the same way and cached the same way.
+///
+/// Everything it does is an enhancement - see `script/desk.js`. It is a
+/// separate file rather than a `<script>` block so that the content security
+/// policy can stay `script-src 'self'` with no `unsafe-inline` and no nonce
+/// machinery: the only script that can run on a Desk page is one Desk served.
+async fn script() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        crate::assets::SCRIPT_JS,
+    )
+        .into_response()
+}
+
 /// An HTML response with the headers every Desk page carries.
 ///
 /// `no-store` because these pages hold workspace names, addresses and audit
@@ -143,17 +167,24 @@ pub fn html_response(body: String) -> Response {
             (header::REFERRER_POLICY, "same-origin"),
             (
                 header::CONTENT_SECURITY_POLICY,
-                // Desk serves no script and nothing from anywhere else. Saying
-                // so means a future page that reaches for a CDN fails visibly
-                // here rather than quietly depending on one.
+                // Desk serves one stylesheet and one script, both from its
+                // own binary, and nothing from anywhere else. Saying so means
+                // a future page that reaches for a CDN fails visibly here
+                // rather than quietly depending on one.
                 //
-                // `style-src 'self'` rather than `'unsafe-inline'`: the
-                // stylesheet used to be a <style> block in every page and is
-                // now one hashed file served from `/assets`, so the exception
-                // that allowed it is not needed and is not kept. Nothing here
-                // carries a `style=` attribute either.
-                "default-src 'none'; style-src 'self'; form-action 'self'; \
-                 base-uri 'none'; frame-ancestors 'none'",
+                // `'self'` and never `'unsafe-inline'` for either: both assets
+                // are hashed files under `/assets`, so the only code that can
+                // run on a Desk page is code Desk served. Nothing here carries
+                // a `style=` attribute or an inline handler, and the script is
+                // an enhancement the pages do not need - see `script/desk.js`.
+                //
+                // `style-src 'self'` blocks `style=` attributes too, which is
+                // why a coloured swatch anywhere in Desk is an SVG `fill`
+                // rather than an inline style: `fill` is a presentation
+                // attribute and is not policed, so the tokens keep working
+                // without loosening this line.
+                "default-src 'none'; style-src 'self'; script-src 'self'; \
+                 form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
             ),
         ],
         body,

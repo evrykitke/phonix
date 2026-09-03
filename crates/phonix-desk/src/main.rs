@@ -25,6 +25,7 @@
 //! ```
 
 mod assets;
+mod chart;
 mod cookie;
 mod html;
 mod routes;

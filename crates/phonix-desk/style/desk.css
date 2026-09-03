@@ -13,7 +13,7 @@
    the product uses, most of a megabyte of it, for a tool with eight pages.
    Desk's markup is entirely in `templates/`, so that is the whole of it.
 
-   Built by `node tools/build-desk-css.mjs`, and the output is committed. See
+   Built by `node tools/build-desk-assets.mjs`, and the output is committed. See
    that script for why - the short version is that building and deploying
    Phonix needs cargo and nothing else, exactly as it does for the editor
    bundle.
@@ -195,6 +195,58 @@
     .pill-warn {
         border-color: var(--danger);
         color: var(--danger);
+    }
+
+    /* --------------------------------------------------------------------
+       CHARTS
+
+       The marks themselves are drawn in the SVG with `fill="var(--brand)"`, so
+       there is nothing here about colour. What is here is the hover layer -
+       and every rule in this block is an enhancement: with `desk.js` missing
+       or blocked, the charts still render, the native <title> on every mark
+       still shows a tooltip, and the table under each chart still carries the
+       figures. See `script/desk.js`.
+       -------------------------------------------------------------------- */
+
+    /* Cursor and transition only. A mark that looks interactive but is not
+       hoverable yet is worse than one that never claimed to be, so this is on
+       the element the script actually listens for. */
+    [data-mark] {
+        transition: opacity 90ms ease-out;
+    }
+
+    /* The mark under the pointer keeps its colour and its neighbours step
+       back, which reads as "this one" without moving anything. Dimming the
+       rest rather than brightening the one keeps every bar's height the only
+       thing carrying a value. */
+    [data-chart]:hover [data-mark] {
+        opacity: 0.55;
+    }
+
+    [data-chart] [data-mark].is-hovered {
+        opacity: 1;
+    }
+
+    /* Positioned by the script, in the page's own type rather than the
+       operating system's. `position: fixed` with a transform because the
+       script measures against the viewport, and `pointer-events: none` so the
+       tooltip can never sit between the pointer and the mark it describes -
+       which would flicker it on and off. */
+    .chart-tip {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 50;
+        pointer-events: none;
+        max-width: 18rem;
+        border: 1px solid var(--edge-strong);
+        border-radius: var(--radius-control);
+        background-color: var(--surface-shell);
+        padding: 0.25rem 0.5rem;
+        font-size: var(--text-xs);
+        line-height: 1.35;
+        color: var(--content);
+        box-shadow: 0 2px 8px oklch(0 0 0 / 0.18);
     }
 
     /* A secret shown once: a setup link, a TOTP secret. Dashed, because the

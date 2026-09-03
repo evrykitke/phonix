@@ -208,15 +208,51 @@ mod tests {
         assert!(rendered.contains("noindex, nofollow"));
     }
 
-    /// The stylesheet is the only thing Desk fetches, and it is served from
-    /// Desk. A page that reached for a CDN would be refused by the content
-    /// security policy at runtime; this catches it at test time instead.
+    /// Desk fetches two things - its stylesheet and its script - and both are
+    /// served out of its own binary. A page that reached for a CDN would be
+    /// refused by the content security policy at runtime; this catches it at
+    /// test time instead.
+    ///
+    /// The script was once forbidden outright here. What replaced that rule is
+    /// narrower and is the part that actually mattered: nothing is fetched
+    /// from anywhere but Desk, and no code is written into the page itself -
+    /// an inline `<script>` would need `unsafe-inline` in the policy, and the
+    /// policy is the thing standing between a tool that suspends workspaces
+    /// and somebody else's JavaScript.
     #[test]
     fn a_page_fetches_nothing_from_anywhere_else() {
         let rendered = MessagePage::new("t", "d").render().expect("renders");
 
         assert!(rendered.contains(crate::assets::STYLESHEET));
+        assert!(rendered.contains(crate::assets::SCRIPT));
         assert!(!rendered.contains("//cdn"));
-        assert!(!rendered.contains("<script"));
+        assert!(!rendered.contains("https://"));
+    }
+
+    /// Every script Desk serves is `defer`red, because no page waits on one.
+    ///
+    /// This is the "complete without the script" rule (ADR 0005 section 3) in
+    /// the one place it can be checked mechanically. A blocking `<script>` in
+    /// the head would mean the page's first paint depended on code that is
+    /// only ever an enhancement.
+    #[test]
+    fn the_script_never_blocks_a_page() {
+        let rendered = MessagePage::new("t", "d").render().expect("renders");
+
+        let tag = rendered
+            .split_once("<script")
+            .map(|(_, rest)| rest.split_once('>').map(|(tag, _)| tag).unwrap_or(""))
+            .expect("there is a script tag");
+
+        assert!(tag.contains("defer"), "the script tag was <script{tag}>");
+    }
+
+    /// An inline style would be blocked by `style-src 'self'` and would simply
+    /// not apply - silently, which is the worst way for a colour to be wrong.
+    #[test]
+    fn no_page_carries_an_inline_style_the_policy_would_refuse() {
+        let rendered = MessagePage::new("t", "d").render().expect("renders");
+
+        assert!(!rendered.contains(" style=\""));
     }
 }

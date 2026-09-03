@@ -710,7 +710,7 @@ pub async fn do_estate_migrate(
     .await
     {
         Ok(sweep) if sweep.failed.is_empty() => see_other(&format!(
-            "/?done={}",
+            "/workspaces?done={}",
             urlencode(&format!(
                 "Migrated {}. {} were already current.",
                 sweep.migrated, sweep.current
@@ -720,7 +720,7 @@ pub async fn do_estate_migrate(
         // with a footnote: some workspaces are still behind, and that is the
         // thing to act on.
         Ok(sweep) => see_other(&format!(
-            "/?refused={}",
+            "/workspaces?refused={}",
             urlencode(&format!(
                 "Migrated {}, and {} failed: {}. The detail is in the log.",
                 sweep.migrated,

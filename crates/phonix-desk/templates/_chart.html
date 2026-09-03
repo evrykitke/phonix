@@ -1,0 +1,98 @@
+{#
+  One column chart, and the table that carries the same numbers.
+
+  Written once and called three times. The SVG holds no decisions: every
+  coordinate, path and label was computed in `crate::chart`, which is where the
+  tests are - a template that worked out a bar height would be a second place
+  the chart is defined and the one place nothing can check.
+
+  Colour comes from CSS custom properties rather than literal hex, which is
+  what makes one drawing correct in light and dark and under whichever accent
+  the deployment chose.
+
+  Two things carry the values besides the bars: a native <title> on every
+  column, which is a tooltip with no script behind it, and the table below,
+  which is what a screen reader reads and what somebody copies out. Direct
+  labels ride only the tallest and the newest columns - a number on every bar
+  goes unread.
+#}
+
+{% macro column_chart(chart, heading, blurb, unit, column_heading, empty_line) %}
+<section class="panel">
+  <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-edge px-3 py-2">
+    <h2 class="text-sm font-semibold">{{ heading }}</h2>
+    <p class="text-xs text-content-muted">{{ blurb }}</p>
+    <p class="ml-auto text-xs text-content-muted">{{ chart.total }} {{ unit }}</p>
+  </div>
+
+  {% if chart.empty %}
+  <p class="px-3 py-6 text-center text-sm text-content-muted">{{ empty_line }}</p>
+  {% else %}
+  <div class="px-3 py-3">
+    <svg viewBox="0 0 {{ crate::chart::WIDTH }} {{ crate::chart::HEIGHT }}"
+         class="block w-full h-auto overflow-visible"
+         data-chart
+         role="img"
+         aria-label="{{ heading }}. {{ blurb }} The same figures are in the table below.">
+
+      {# Gridlines first, so the data is drawn over its own chrome. Solid
+         hairlines one step off the surface: dashes read as a threshold. #}
+      {% for tick in chart.ticks %}
+      <line x1="{{ chart.plot_left }}" y1="{{ tick.y }}"
+            x2="{{ chart.plot_right }}" y2="{{ tick.y }}"
+            stroke="var(--edge)" stroke-width="1" />
+      <text x="{{ tick.label_x }}" y="{{ tick.label_y }}"
+            text-anchor="end"
+            font-size="10" fill="var(--content-subtle)">{{ tick.label }}</text>
+      {% endfor %}
+
+      {% for column in chart.columns %}
+      {% if column.path != "" %}
+      <path d="{{ column.path }}" fill="var(--brand)" data-mark>
+        <title>{{ column.title }}</title>
+      </path>
+      {% endif %}
+
+      {% if let Some(value) = column.value_label %}
+      <text x="{{ column.center }}" y="{{ column.value_label_y }}"
+            text-anchor="middle"
+            font-size="10" font-weight="600" fill="var(--content)">{{ value }}</text>
+      {% endif %}
+
+      {% if column.show_axis_label %}
+      <text x="{{ column.center }}" y="{{ crate::chart::AXIS_LABEL_Y }}"
+            text-anchor="middle"
+            font-size="10" fill="var(--content-subtle)">{{ column.axis_label }}</text>
+      {% endif %}
+      {% endfor %}
+    </svg>
+  </div>
+
+  {# The values in full, for a screen reader, for copying out, and because a
+     hover tooltip is not a place a number can live alone. #}
+  <details class="border-t border-edge">
+    <summary class="cursor-pointer px-3 py-2 text-xs text-content-muted hover:bg-surface-hover">
+      The figures
+    </summary>
+    <div class="overflow-x-auto border-t border-edge">
+      <table class="w-full text-sm">
+        <thead class="border-b border-edge text-left text-xs uppercase tracking-wide text-content-subtle">
+          <tr>
+            <th scope="col" class="px-3 py-1.5 font-medium">Period</th>
+            <th scope="col" class="px-3 py-1.5 font-medium">{{ column_heading }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for column in chart.columns %}
+          <tr class="border-b border-edge last:border-0">
+            <td class="px-3 py-1 text-content-muted">{{ column.period }}</td>
+            <td class="px-3 py-1 tabular-nums{% if column.value > 0 %} font-medium{% endif %}">{{ column.value }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endif %}
+</section>
+{% endmacro %}

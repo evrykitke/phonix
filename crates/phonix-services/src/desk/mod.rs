@@ -12,6 +12,11 @@
 //!   the only screen in this product that shows it.
 //! * [`queues`]  - how far behind the background work is, per workspace, in
 //!   counts and timestamps and nothing else.
+//! * [`dependencies`] - whether the catalog, Redis and RabbitMQ answer at all,
+//!   which is the question asked before any of the others.
+//! * [`dashboard`] - the estate in counts and series: how many workspaces, how
+//!   many actually serving, what is behind the build, when the licences run
+//!   out.
 //!
 //! # Why this is not `identity`
 //!
@@ -35,6 +40,8 @@
 
 pub mod account;
 pub mod auth;
+pub mod dashboard;
+pub mod dependencies;
 pub mod queues;
 pub mod trail;
 pub mod workspace;

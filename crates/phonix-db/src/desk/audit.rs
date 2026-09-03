@@ -16,7 +16,7 @@
 //! successes answers "what was done" and not "what was tried", and the second
 //! question is the one asked after something goes wrong.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde_json::Value as Json;
 use sqlx::{FromRow, PgExecutor};
 use uuid::Uuid;
@@ -336,6 +336,44 @@ where
     sqlx::query_as::<_, DeskAuditRecord>(SELECT_RECENT)
         .bind(limit.clamp(1, 500))
         .bind(offset.max(0))
+        .fetch_all(executor)
+        .await
+        .map_err(DbError::Query)
+}
+
+/// One day, and how much happened on it.
+#[derive(Debug, Clone, FromRow)]
+pub struct DailyCount {
+    pub day: NaiveDate,
+    pub entries: i64,
+}
+
+const SELECT_BY_DAY: &str = "SELECT (occurred_at AT TIME ZONE 'UTC')::date AS day, \
+     count(*) AS entries \
+     FROM desk_audit WHERE occurred_at >= $1 \
+     GROUP BY 1 ORDER BY 1";
+
+/// How many rows were written per day since `since`, for the dashboard.
+///
+/// **Only the days that have rows.** A quiet day is absent rather than zero,
+/// and the caller fills the gaps - which is the right split: this function
+/// reports what the table holds, and how many days a chart wants to draw is
+/// the chart's business. Zero-filling here would mean this query needed to
+/// know the window's shape as well as its start.
+///
+/// `AT TIME ZONE 'UTC'` rather than a bare `date_trunc`: bucketing a
+/// `timestamptz` by day depends on the session's `TimeZone`, so without this
+/// the same rows would land in different buckets on a box configured
+/// differently, and the chart would be quietly wrong rather than visibly.
+pub async fn activity_by_day<'e, E>(
+    executor: E,
+    since: DateTime<Utc>,
+) -> Result<Vec<DailyCount>, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    sqlx::query_as::<_, DailyCount>(SELECT_BY_DAY)
+        .bind(since)
         .fetch_all(executor)
         .await
         .map_err(DbError::Query)

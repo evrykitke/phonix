@@ -1,0 +1,113 @@
+{#
+  The estate at a glance, and the page Desk opens on.
+
+  Read top to bottom it answers three questions in order: is anything wrong
+  (the tiles), what shape is the estate in (the composition bar), and what has
+  been happening (the three series). Nothing here reaches into a workspace -
+  every number is a fact about a workspace as an object, which is the line ADR
+  0005 section 6 draws.
+
+  There is nothing to press. Every action lives on the workspace it acts on,
+  behind its own confirm page.
+#}
+{% extends "shell.html" %}
+{% import "_chart.html" as charts %}
+
+{% block content %}
+{% include "_banner.html" %}
+
+{# The six numbers. A grid rather than a row: on a phone this is two columns of
+   three, and the tiles keep their order rather than scrolling sideways. #}
+<section class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+  {% for tile in tiles %}
+  <div class="panel px-3 py-2">
+    <p class="text-xs text-content-muted">{{ tile.label }}</p>
+    <p class="mt-0.5 text-2xl font-semibold{% if tile.alarm %} text-danger{% endif %}">{{ tile.value }}</p>
+    <p class="mt-0.5 text-2xs leading-snug text-content-subtle">{{ tile.note }}</p>
+  </div>
+  {% endfor %}
+</section>
+
+{# The estate split by status. Part-to-whole at a glance, four classes at most,
+   every one of them labelled as well as coloured - the reading never depends on
+   telling two hues apart. #}
+<section class="panel">
+  <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-edge px-3 py-2">
+    <h2 class="text-sm font-semibold">By status</h2>
+    <p class="text-xs text-content-muted">
+      Whether a workspace is running. Whether it is <em>authorized</em> is the licence, and the two
+      are counted apart.
+    </p>
+    {% if !composition.empty %}
+    <p class="ml-auto text-xs text-content-muted">{{ composition.total }} in total</p>
+    {% endif %}
+  </div>
+
+  {% if composition.empty %}
+  <p class="px-3 py-6 text-center text-sm text-content-muted">
+    There are no workspaces on this box yet.
+  </p>
+  {% else %}
+  <div class="px-3 py-3">
+    <svg viewBox="0 0 {{ crate::chart::WIDTH }} {{ crate::chart::BAR_HEIGHT }}"
+         class="block h-7 w-full"
+         preserveAspectRatio="none"
+         data-chart
+         role="img"
+         aria-label="Workspaces by status. The same figures are listed beneath.">
+      {% for segment in composition.segments %}
+      <rect x="{{ segment.x }}" y="0" width="{{ segment.width }}" height="{{ crate::chart::BAR_HEIGHT }}"
+            fill="var({{ segment.fill }})" data-mark>
+        <title>{{ segment.title }}</title>
+      </rect>
+      {% endfor %}
+    </svg>
+
+    {# The legend, always present, and it doubles as the labels. A count inside
+       a narrow segment would be clipped, so it lives here instead - where it
+       fits for every class, however small. #}
+    <ul class="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+      {% for segment in composition.segments %}
+      <li class="flex items-center gap-1.5 text-xs">
+        {# An SVG swatch and not a styled <span>: `style-src 'self'` blocks
+           `style=` attributes, and `fill` is a presentation attribute the
+           policy does not police - so the colour token survives the CSP. #}
+        <svg width="8" height="8" viewBox="0 0 8 8" class="shrink-0" aria-hidden="true">
+          <rect width="8" height="8" rx="4" fill="var({{ segment.fill }})" />
+        </svg>
+        <span class="text-content-muted">{{ segment.label }}</span>
+        <span class="font-medium tabular-nums">{{ segment.value }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</section>
+
+{% call charts::column_chart(
+    created,
+    "Workspaces created",
+    created_blurb,
+    "in the window",
+    "Created",
+    "No workspace has been created in this window."
+) %}{% endcall %}
+
+{% call charts::column_chart(
+    runway,
+    "Licences ending",
+    runway_blurb,
+    "ending in the window",
+    "Ending",
+    "No current licence ends in this window."
+) %}{% endcall %}
+
+{% call charts::column_chart(
+    activity,
+    "Desk activity",
+    activity_blurb,
+    "entries",
+    "Entries",
+    "Nothing has been done in Desk in this window."
+) %}{% endcall %}
+{% endblock %}

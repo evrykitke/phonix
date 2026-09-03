@@ -18,11 +18,17 @@
 
 {% macro nav_links(current) %}
   <a href="/"
+     class="flex h-row items-center gap-2 rounded-control px-2 text-sm hover:bg-surface-hover {% if current == "overview" %}bg-surface-active font-medium text-content{% else %}text-content-muted{% endif %}"
+     {% if current == "overview" %}aria-current="page"{% endif %}>Overview</a>
+  <a href="/workspaces"
      class="flex h-row items-center gap-2 rounded-control px-2 text-sm hover:bg-surface-hover {% if current == "workspaces" %}bg-surface-active font-medium text-content{% else %}text-content-muted{% endif %}"
      {% if current == "workspaces" %}aria-current="page"{% endif %}>Workspaces</a>
   <a href="/queues"
      class="flex h-row items-center gap-2 rounded-control px-2 text-sm hover:bg-surface-hover {% if current == "queues" %}bg-surface-active font-medium text-content{% else %}text-content-muted{% endif %}"
      {% if current == "queues" %}aria-current="page"{% endif %}>Job queues</a>
+  <a href="/dependencies"
+     class="flex h-row items-center gap-2 rounded-control px-2 text-sm hover:bg-surface-hover {% if current == "dependencies" %}bg-surface-active font-medium text-content{% else %}text-content-muted{% endif %}"
+     {% if current == "dependencies" %}aria-current="page"{% endif %}>Dependencies</a>
   <a href="/audit"
      class="flex h-row items-center gap-2 rounded-control px-2 text-sm hover:bg-surface-hover {% if current == "audit" %}bg-surface-active font-medium text-content{% else %}text-content-muted{% endif %}"
      {% if current == "audit" %}aria-current="page"{% endif %}>Audit trail</a>

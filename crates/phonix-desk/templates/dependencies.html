@@ -1,0 +1,76 @@
+{#
+  The catalog, Redis and RabbitMQ - the three checks `/health/ready` runs.
+
+  Two of them are reachability only, and the page says so on every row rather
+  than once in a footnote: "the port answers" is a smaller claim than "healthy",
+  and a panel that blurs the difference is a panel somebody will trust further
+  than it deserves.
+
+  There is nothing to press. Reloading is the retry, and a button that restarts
+  a service is the remote shell with a login form that ADR 0005 section 12
+  refuses.
+#}
+{% extends "shell.html" %}
+
+{% block content %}
+{% include "_banner.html" %}
+
+<section class="panel">
+  <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-edge px-3 py-2">
+    <h2 class="text-sm font-semibold">Dependencies</h2>
+    <p class="text-xs text-content-muted">
+      Probed just now, from this box.
+    </p>
+  </div>
+
+  {% if all_well %}
+  <p class="border-b border-edge px-3 py-2 text-sm">
+    Everything configured answered.
+  </p>
+  {% else %}
+  <p class="border-b border-edge border-l-2 border-l-danger px-3 py-2 text-sm">
+    {{ unreachable }} dependency(s) did not answer. A workspace can look wedged for this reason and
+    for no other, and nothing on this page will fix it - the machine is reached over SSH.
+  </p>
+  {% endif %}
+
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="border-b border-edge text-left text-xs uppercase tracking-wide text-content-subtle">
+        <tr>
+          <th scope="col" class="px-3 py-1.5 font-medium">Dependency</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Configured at</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Asked</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Answer</th>
+          <th scope="col" class="px-3 py-1.5 font-medium">Took</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr class="border-b border-edge last:border-0 hover:bg-surface-hover">
+          <td class="px-3 py-1.5 font-mono text-xs">{{ row.name }}</td>
+          <td class="px-3 py-1.5 font-mono text-xs text-content-muted">{{ row.target }}</td>
+          <td class="px-3 py-1.5 text-xs text-content-muted">{{ row.method }}</td>
+          <td class="px-3 py-1.5{% if row.down %} font-medium text-danger{% else if row.disabled %} text-content-muted{% endif %}">
+            {{ row.standing }}
+            {% if row.detail != "" %}
+            <span class="block text-xs text-content-muted">{{ row.detail }}</span>
+            {% endif %}
+          </td>
+          <td class="px-3 py-1.5 text-content-muted">{{ row.took }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="border-t border-edge px-3 py-2 text-xs text-content-muted">
+    The catalog is asked <code class="font-mono">SELECT 1</code> over the pool Desk already holds.
+    Redis and RabbitMQ are asked only whether the configured port accepts a connection: Desk carries
+    neither client, because a tool whose value is working when the product does not should not be
+    built on the product's infrastructure. A port that answers is not a promise that the service
+    behind it is well - it is the difference between "down" and "not down", which is the question
+    this page is for.
+  </p>
+</section>
+{% endblock %}
