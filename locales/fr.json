@@ -487,6 +487,15 @@
   "date.weekday.wed": "mercredi",
 
   "desk.account.last_active": "C'est le dernier compte Desk pouvant se connecter. Créez-en un autre avant de désactiver celui-ci.",
+  "desk.licence.end_before_start": "Une licence doit se terminer après son début.",
+  "desk.licence.note_too_long": "Limitez la note à 500 caractères.",
+  "desk.licence.unreadable_date": "Utilisez une date que le calendrier accepte, ou laissez le champ vide pour aucune date de fin.",
+  "desk.workspace.address_taken": "Cette adresse est prise, réservée, ou trop longue pour devenir un nom de base de données. Choisissez-en une autre.",
+  "desk.workspace.cannot_resume_unprovisioned": "Un espace de travail dont le provisionnement n'a jamais abouti ne peut pas être réactivé. Relancez plutôt son provisionnement.",
+  "desk.workspace.no_owner": "Cet espace de travail n'a pas de compte propriétaire : il n'y a donc aucune invitation à réémettre.",
+  "desk.workspace.not_stuck": "Cet espace de travail n'est pas bloqué en cours de provisionnement : il n'y a donc rien à relancer.",
+  "desk.workspace.owner_already_in": "Le propriétaire a déjà défini un mot de passe. Réémettre une invitation maintenant ouvrirait un accès à un espace de travail actif, ce que Desk n'a pas le droit de faire.",
+  "desk.workspace.status_unchanged": "Cet espace de travail est déjà dans cet état.",
 
   "diff.added": "Ajouté",
   "diff.changed": "Modifié",

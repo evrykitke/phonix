@@ -487,6 +487,15 @@
   "date.weekday.wed": "Mittwoch",
 
   "desk.account.last_active": "Dies ist das letzte Desk-Konto, das sich anmelden kann. Legen Sie ein weiteres an, bevor Sie dieses deaktivieren.",
+  "desk.licence.end_before_start": "Eine Lizenz muss nach ihrem Beginn enden.",
+  "desk.licence.note_too_long": "Die Notiz darf höchstens 500 Zeichen lang sein.",
+  "desk.licence.unreadable_date": "Verwenden Sie ein Datum, das der Kalender kennt, oder lassen Sie das Feld leer für kein Enddatum.",
+  "desk.workspace.address_taken": "Diese Adresse ist vergeben, reserviert oder zu lang für einen Datenbanknamen. Wählen Sie eine andere.",
+  "desk.workspace.cannot_resume_unprovisioned": "Ein Arbeitsbereich, dessen Bereitstellung nie abgeschlossen wurde, kann nicht fortgesetzt werden. Wiederholen Sie stattdessen seine Bereitstellung.",
+  "desk.workspace.no_owner": "Dieser Arbeitsbereich hat kein Inhaberkonto, also gibt es keine Einladung, die erneut ausgestellt werden könnte.",
+  "desk.workspace.not_stuck": "Dieser Arbeitsbereich steckt nicht mitten in der Bereitstellung fest, es gibt also nichts zu wiederholen.",
+  "desk.workspace.owner_already_in": "Der Inhaber hat bereits ein Passwort gesetzt. Eine jetzt erneut ausgestellte Einladung wäre ein Weg in einen laufenden Arbeitsbereich, den Desk nicht öffnen darf.",
+  "desk.workspace.status_unchanged": "Dieser Arbeitsbereich befindet sich bereits in diesem Zustand.",
 
   "diff.added": "Hinzugefügt",
   "diff.changed": "Geändert",
